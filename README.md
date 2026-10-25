@@ -14,8 +14,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 0 | Bootstrap y cimientos | Completa |
 | 1 | IAM & RBAC: login, 2FA, sesiones, recuperación de clave, usuarios y auditoría | Completa |
 | 2 | Padrón: escribanos, matrículas, registros, cargos y circunscripciones | Completa |
-| 3 | Motor paramétrico de aportes: conceptos, vigencias versionadas y cálculo | En revisión |
-| 4–10 | Ver `AGENTS.md` | Pendiente |
+| 3 | Motor paramétrico de aportes: conceptos, vigencias versionadas y cálculo | Completa |
+| 4 | DDJJ, liquidación y boletas con PDF, QR y verificación pública | En revisión |
+| 5–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -149,6 +150,8 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `SMTP_SECURITY` / `SMTP_USER` / `SMTP_PASSWORD` | `none` solo en dev/test; fuera de eso `starttls` o `tls` obligatorio |
 | `DEV_SEED_PASSWORD` | Solo desarrollo: contraseña de los usuarios de demostración |
 | `PASSWORD_RESET_TTL_MIN` | Vigencia del token de recuperación (30) |
+| `CAJA_NOMBRE` / `CAJA_CUIT` / `CAJA_DOMICILIO` / `CAJA_CONTACTO` | Datos de la Caja impresos en la boleta |
+| `BANCO_NOMBRE` / `BANCO_CUENTA` / `BANCO_CBU` / `BANCO_ALIAS` | Cuenta recaudadora impresa en la boleta. Solo en el `.env` de cada entorno; sin CBU la boleta dice «Datos bancarios a confirmar» |
 | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB) |
 | `LOG_LEVEL` | Nivel de logging (JSON a stdout) |
 
@@ -219,6 +222,35 @@ Ya aplicadas:
 - **Pendiente de negocio (`TODO(negocio)`):** unidad de la tasa de interés («34»: se tomó como
   anual), interés simple o compuesto y base de días, días de gracia y desde cuándo corre la mora;
   y la resolución que respalda cada valor (el sistema actual no la muestra).
+
+## DDJJ y boletas (Fase 4)
+
+- **Una DDJJ por registro y período** con los actos de todos sus escribanos (titular, adscriptos,
+  a cargo). Cada acto lleva protocolo, número de escritura, fecha dentro del período, naturaleza y
+  categoría: escritura con valor (porcentaje de la base con mínimo y tope), acta o poder, otro
+  acto (montos fijos) o sin efecto (no aporta). Los actos de un borrador se quitan con motivo.
+- **Cálculo en el servidor**, con las vigencias del primer día del período:
+  protocolos = suma de aportes; excedente = protocolos − aporte mínimo (si es positivo); total en
+  término = mínimo + excedente + aporte médico; mora sobre el total en término si se paga después
+  del vencimiento. Reproduce al centavo la boleta 1069 del sistema actual.
+- **Presentar** congela el aporte y la vigencia de cada acto y emite la boleta en la misma
+  transacción (SNAP): un cambio posterior de parámetros no altera nada emitido. Una **boleta
+  nueva** para otra fecha de pago anula la pendiente y solo recalcula la mora. Una DDJJ presentada
+  se corrige con una **rectificativa** (copia editable de los actos; la original queda como
+  antecedente y su boleta pendiente se anula).
+- **Boleta oficial en PDF** (WeasyPrint): número correlativo, desglose, datos bancarios desde la
+  configuración, QR a `/verificar/{código}`, Code128 y huella SHA-256 de los datos impresos.
+  `/verificar/{código}` es público y muestra lo mínimo (número, registro, período, total, estado)
+  e indica si la boleta supera el control de integridad.
+- **Vencimientos:** calendario por período (`make seed-dev` carga el de 2026); lo fija
+  Administración y queda fijo en cuanto el período tiene boletas.
+- **Inmutable en la base:** sin DELETE/TRUNCATE; actos solo con la DDJJ en borrador; una DDJJ
+  presentada solo pasa a rectificada; de una boleta solo cambia el estado.
+- **Acceso:** el escribano opera las DDJJ de los registros donde tiene cargo vigente y ve las de
+  los meses en que lo tuvo; la Caja consulta todo y puede cargar y presentar por el registro.
+- **Pendiente de negocio (`TODO(negocio)`):** si el mínimo es por registro, cuántos aportes
+  médicos corresponden, plazo de validez de la boleta, formato de código de barras del banco y
+  rectificación de una DDJJ ya paga (Fase 5).
 
 ## Seguridad de acceso (Fase 1)
 

@@ -281,6 +281,15 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Los campos de importe aceptan la forma local (`1.234,56`) y se normalizan antes de enviarse.
 - Un valor que no está confirmado como oficial lleva el indicador de atención "A confirmar" junto al valor y un aviso en la página; nunca se presenta igual que uno aprobado.
 
+### Liquidación (desglose de importes)
+- Lista de pares etiqueta/valor con el importe alineado a la derecha y sin cortes de línea; la aclaración de una fila (cantidad de aportes, días de mora) va junto a la etiqueta en escritorio y debajo en celular.
+- Los subtotales van sobre Superficie Hundida en 600; el total a pagar cierra la lista con borde Línea Firme, en Petróleo Profundo y un paso más grande.
+- Una vista previa que se recalcula conserva los importes anteriores atenuados mientras llega el nuevo resultado: el panel no salta ni se vacía.
+- Si el cálculo usa un parámetro marcado como ejemplo, un aviso de atención lo dice antes de presentar y en la confirmación.
+
+### Verificación pública
+- Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
+
 ### Navigation (cabecera institucional)
 - Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio. Mismo ancho máximo que el contenido.
 - Pública (ingreso, recuperación): a la derecha, "Suite Notarial" en Label y Tinta Secundaria; el formulario va en una columna de 28rem.

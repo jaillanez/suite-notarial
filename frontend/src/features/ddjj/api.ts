@@ -1,0 +1,226 @@
+import { api } from '../../lib/api'
+import type { Cargo } from '../padron/api'
+
+export type EstadoDDJJ = 'BORRADOR' | 'PRESENTADA' | 'RECTIFICADA'
+export type EstadoBoleta = 'PENDIENTE' | 'PAGADA' | 'ANULADA'
+export type CategoriaActo = 'ESCRITURA_CON_VALOR' | 'ACTA_O_PODER' | 'OTRO_ACTO' | 'SIN_EFECTO'
+export type TipoProtocolo = 'GENERAL' | 'AUXILIAR'
+
+export interface RegistroResumen {
+  id: string
+  numero_registro: number
+  nombre_fantasia: string | null
+  departamento: string
+}
+
+export interface EscribanoResumen {
+  id: string
+  apellido_nombre: string
+  matricula_numero: number
+  cargo: Cargo
+}
+
+export interface RegistroOperable extends RegistroResumen {
+  escribanos: EscribanoResumen[]
+}
+
+/** Importes como texto decimal ("1081699.06"), nunca como number. */
+export interface Acto {
+  id: string
+  escribano_id: string
+  escribano: string
+  matricula_numero: number
+  cargo: Cargo
+  tipo_protocolo: TipoProtocolo
+  numero_escritura: number
+  folio: number | null
+  fecha_acto: string
+  naturaleza: string
+  categoria: CategoriaActo
+  base_imponible: string
+  aporte: string | null
+  vigencia_id: string | null
+}
+
+export interface Boleta {
+  id: string
+  numero: number
+  codigo_verificacion: string
+  ddjj_id: string
+  registro: RegistroResumen
+  periodo: string
+  numero_rectificativa: number
+  estado: EstadoBoleta
+  fecha_emision: string
+  fecha_vencimiento: string
+  fecha_pago: string
+  dias_mora: number
+  total_protocolos: string
+  aporte_minimo: string
+  excedente: string
+  aporte_medico: string
+  cantidad_aportes_medicos: number
+  total_en_termino: string
+  interes_mora: string
+  total_a_pagar: string
+  created_at: string
+  emitida_por: string | null
+  anulada_en: string | null
+  motivo_anulacion: string | null
+}
+
+export interface Declaracion {
+  id: string
+  registro: RegistroResumen
+  periodo: string
+  numero_rectificativa: number
+  estado: EstadoDDJJ
+  observaciones: string | null
+  fecha_presentacion: string | null
+  presentada_por: string | null
+  rectifica_a_id: string | null
+  cantidad_actos: number
+  total_protocolos: string | null
+  vencimiento: string | null
+  created_at: string
+}
+
+export interface DeclaracionDetalle extends Declaracion {
+  actos: Acto[]
+  boletas: Boleta[]
+  escribanos: EscribanoResumen[]
+  puede_operar: boolean
+}
+
+export interface Liquidacion {
+  aportes: { acto_id: string; aporte: string }[]
+  vencimiento: string
+  fecha_pago: string
+  total_protocolos: string
+  aporte_minimo: string
+  excedente: string
+  aporte_medico: string
+  cantidad_aportes_medicos: number
+  total_en_termino: string
+  dias_mora: number
+  interes_mora: string
+  total_a_pagar: string
+  usa_valores_de_ejemplo: boolean
+}
+
+export interface ActoInput {
+  escribano_id: string
+  tipo_protocolo: TipoProtocolo
+  numero_escritura: number
+  folio: number | null
+  fecha_acto: string
+  naturaleza: string
+  categoria: CategoriaActo
+  base_imponible: string
+}
+
+export interface Verificacion {
+  numero: number
+  codigo_verificacion: string
+  registro_numero: number
+  periodo: string
+  estado: EstadoBoleta
+  fecha_emision: string
+  fecha_pago: string
+  total_a_pagar: string
+  integra: boolean
+}
+
+interface Page<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
+const P = '/v1/ddjj'
+
+export async function fetchRegistrosOperables(): Promise<RegistroOperable[]> {
+  return (await api.get<RegistroOperable[]>(`${P}/registros`)).data
+}
+
+export async function fetchDeclaraciones(params: {
+  page: number
+  pageSize: number
+  periodo: string
+  estado: EstadoDDJJ | ''
+}): Promise<Page<Declaracion>> {
+  return (
+    await api.get<Page<Declaracion>>(`${P}/declaraciones`, {
+      params: {
+        page: params.page,
+        page_size: params.pageSize,
+        periodo: params.periodo || undefined,
+        estado: params.estado || undefined,
+      },
+    })
+  ).data
+}
+
+export async function abrirDeclaracion(data: {
+  registro_id: string
+  periodo: string
+}): Promise<DeclaracionDetalle> {
+  return (await api.post<DeclaracionDetalle>(`${P}/declaraciones`, data)).data
+}
+
+export async function fetchDeclaracion(id: string): Promise<DeclaracionDetalle> {
+  return (await api.get<DeclaracionDetalle>(`${P}/declaraciones/${id}`)).data
+}
+
+export async function fetchLiquidacion(id: string, fechaPago: string): Promise<Liquidacion> {
+  return (
+    await api.get<Liquidacion>(`${P}/declaraciones/${id}/liquidacion`, {
+      params: { fecha_pago: fechaPago },
+    })
+  ).data
+}
+
+export async function agregarActo(id: string, data: ActoInput): Promise<Acto> {
+  return (await api.post<Acto>(`${P}/declaraciones/${id}/actos`, data)).data
+}
+
+export async function bajaActo(id: string, actoId: string, motivo: string): Promise<void> {
+  await api.post(`${P}/declaraciones/${id}/actos/${actoId}/baja`, { motivo })
+}
+
+export async function presentar(
+  id: string,
+  data: { fecha_pago: string; observaciones: string | null },
+): Promise<Boleta> {
+  return (await api.post<Boleta>(`${P}/declaraciones/${id}/presentar`, data)).data
+}
+
+export async function emitirBoleta(id: string, fechaPago: string): Promise<Boleta> {
+  return (await api.post<Boleta>(`${P}/declaraciones/${id}/boletas`, { fecha_pago: fechaPago }))
+    .data
+}
+
+export async function rectificar(id: string): Promise<DeclaracionDetalle> {
+  return (await api.post<DeclaracionDetalle>(`${P}/declaraciones/${id}/rectificar`)).data
+}
+
+/** Descarga el PDF por el cliente HTTP (renueva la sesión si venció) y lo guarda. */
+export async function descargarBoleta(boleta: Boleta): Promise<void> {
+  const response = await api.get<Blob>(`${P}/boletas/${boleta.id}/pdf`, {
+    responseType: 'blob',
+    timeout: 60_000,
+  })
+  const url = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `boleta-${String(boleta.numero)}.pdf`
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function verificarBoleta(codigo: string): Promise<Verificacion> {
+  return (await api.get<Verificacion>(`/v1/boletas/verificar/${encodeURIComponent(codigo)}`)).data
+}

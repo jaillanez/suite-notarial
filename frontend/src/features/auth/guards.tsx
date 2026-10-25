@@ -36,8 +36,9 @@ export function RedirectIfAuthenticated() {
  * Oculta una sección a quien no tiene el permiso. Es solo experiencia de uso: el backend
  * vuelve a validar el permiso en cada request (SEC-01).
  */
-export function RequirePermission({ permission }: { permission: string }) {
+export function RequirePermission({ permission }: { permission: string | string[] }) {
   const { can } = useSession()
-  if (!can(permission)) return <Navigate to="/" replace />
+  const options = Array.isArray(permission) ? permission : [permission]
+  if (!options.some(can)) return <Navigate to="/" replace />
   return <Outlet />
 }

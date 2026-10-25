@@ -67,6 +67,17 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
 
+    # Datos de la Caja y de la cuenta recaudadora que se imprimen en la boleta. Los valores
+    # reales van solo en el `.env` del entorno (nunca en el repositorio).
+    CAJA_NOMBRE: str = "Caja Notarial de San Juan"
+    CAJA_CUIT: str | None = None
+    CAJA_DOMICILIO: str | None = None
+    CAJA_CONTACTO: str | None = None
+    BANCO_NOMBRE: str | None = None
+    BANCO_CUENTA: str | None = None
+    BANCO_CBU: str | None = None
+    BANCO_ALIAS: str | None = None
+
     # Solo desarrollo: contraseña de los usuarios de demostración (make seed-dev).
     DEV_SEED_PASSWORD: SecretStr | None = None
 

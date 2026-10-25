@@ -139,7 +139,23 @@ async def seed_dev() -> int:
         await _seed_padron_demo(session)
     async with get_sessionmaker()() as session:
         await _seed_parametros_demo(session)
+    async with get_sessionmaker()() as session:
+        await _seed_vencimientos(session)
     return 0
+
+
+async def _seed_vencimientos(session: AsyncSession) -> None:
+    """Calendario de vencimientos 2026 relevado del sistema en uso."""
+    from app.modules.ddjj.models import Vencimiento
+    from app.modules.parametros.sistema_actual import VENCIMIENTOS_2026
+
+    if await session.scalar(select(Vencimiento.id).limit(1)):
+        _out("Vencimientos: ya existen, no se modifican.")
+        return
+    for mes, fecha in VENCIMIENTOS_2026.items():
+        session.add(Vencimiento(periodo=f"2026-{mes:02d}", fecha_vencimiento=fecha))
+    await session.commit()
+    _out(f"Vencimientos 2026: {len(VENCIMIENTOS_2026)} períodos.")
 
 
 async def _seed_parametros_demo(session: AsyncSession) -> None:

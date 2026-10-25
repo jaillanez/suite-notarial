@@ -5,6 +5,34 @@
 **Requerimientos del Pliego:** `DDJJ-01`, `DDJJ-02`, `DDJJ-03`, `DDJJ-05`, `PAR-02`, `PAR-03`, `SEC-01`, `SEC-03`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 | ReportLab / WeasyPrint (PDF) | React + TypeScript
 
+> **Implementación (Fase 4).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Una DDJJ por registro notarial y período**, no por escribano: reúne los actos de titular,
+>   adscriptos y escribanos a cargo, como en el sistema en uso. Cada acto guarda el escribano y su
+>   cargo a la fecha del acto.
+> - **Categorías de acto** relevadas del sistema actual: escritura con valor (porcentaje sobre la
+>   base con mínimo y tope), acta o poder y otro acto (montos fijos) y sin efecto (no aporta).
+> - **Liquidación** (`app/modules/ddjj/liquidacion.py`, reproduce la boleta 1069 de 09/2026):
+>   excedente = máx(0, protocolos − aporte mínimo mensual); total en término = mínimo + excedente +
+>   aporte médico (uno por titular o adscripto con cargo en el período); interés de mora sobre el
+>   total en término con la tasa vigente al vencimiento. `TODO(negocio)` en cada supuesto.
+> - **Vigencias al primer día del período** (mes devengado). Al presentar se congelan el aporte y
+>   la vigencia de cada acto, y la boleta guarda las del mínimo, el médico y la mora (SNAP).
+> - **Calendario de vencimientos** por período (`ddjj_vencimientos`), cargado por Administración;
+>   el de un período con boletas ya no se puede cambiar (trigger).
+> - **Estados:** DDJJ `BORRADOR`, `PRESENTADA`, `RECTIFICADA`; boleta `PENDIENTE`, `PAGADA`,
+>   `ANULADA` (sin `CERRADA` ni `VENCIDA`: el vencimiento se ve por fecha y lo usa la Fase 5).
+> - **Boleta** con número correlativo (secuencia), código de verificación base32 de 16 caracteres,
+>   huella SHA-256 de los datos impresos, QR a `PUBLIC_WEB_URL/verificar/{codigo}` y Code128. Una
+>   boleta nueva para otra fecha de pago anula la pendiente y solo recalcula la mora.
+> - **Inmutabilidad en la base:** sin DELETE/TRUNCATE; actos solo con la DDJJ en borrador; una
+>   DDJJ presentada solo pasa a rectificada; una boleta solo cambia de estado.
+> - **Acceso:** el escribano opera las DDJJ de los registros donde tiene cargo vigente y consulta
+>   las de los meses en que lo tuvo; la Caja consulta y carga cualquiera (`ddjj:approve`).
+> - **Rutas:** `/api/v1/ddjj/{registros, vencimientos, declaraciones, declaraciones/{id}/actos,
+>   liquidacion, presentar, boletas, rectificar}`, `/api/v1/ddjj/boletas/{id}[/pdf]` y la
+>   pública `/api/v1/boletas/verificar/{codigo}`.
+
 ---
 
 ### 1. Propósito, Alcance y Circuito Operativo

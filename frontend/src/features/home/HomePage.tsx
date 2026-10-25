@@ -9,10 +9,16 @@ interface Section {
   to: string
   title: string
   description: string
-  permission?: string
+  permission?: string | string[]
 }
 
 const SECTIONS: Section[] = [
+  {
+    to: '/ddjj',
+    title: 'Declaraciones juradas',
+    description: 'Actos del mes por registro, liquidación de aportes y boletas de pago.',
+    permission: ['ddjj:read_own', 'ddjj:read_all', 'ddjj:approve'],
+  },
   {
     to: '/padron/escribanos',
     title: 'Escribanos',
@@ -59,7 +65,9 @@ export function HomePage() {
   const { user, can } = useSession()
   if (!user) return null
   const firstName = user.full_name.split(' ')[0] ?? user.full_name
-  const sections = SECTIONS.filter((s) => !s.permission || can(s.permission))
+  const sections = SECTIONS.filter(
+    (s) => !s.permission || [s.permission].flat().some((p) => can(p)),
+  )
 
   return (
     <>

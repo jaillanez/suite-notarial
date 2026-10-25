@@ -7,8 +7,10 @@ VENV := $(BACKEND)/.venv
 PY := $(VENV)/bin/python
 PYTHON ?= python3
 
-# Librerías nativas de Homebrew (libmagic, pango) para python-magic y weasyprint.
-export DYLD_FALLBACK_LIBRARY_PATH ?= /opt/homebrew/lib
+# Librerías nativas de Homebrew (libmagic, pango) para python-magic y weasyprint. macOS (SIP)
+# descarta las variables DYLD_* al ejecutar /bin/bash, así que se pasan dentro de cada receta.
+DYLD_FALLBACK_LIBRARY_PATH ?= /opt/homebrew/lib
+NATIVE := DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)
 # Puertos de desarrollo; sobreescribir si chocan con otro proyecto: make dev API_PORT=8010 WEB_PORT=5183
 export API_PORT ?= 8000
 export WEB_PORT ?= 5173
@@ -38,7 +40,7 @@ mailpit: ## Levanta Mailpit (SMTP :1025, UI :8025)
 	mailpit --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025
 
 backend: ## Levanta la API con recarga en :$(API_PORT)
-	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port $(API_PORT)
+	cd $(BACKEND) && $(NATIVE) .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port $(API_PORT)
 
 frontend: ## Levanta Vite en :$(WEB_PORT)
 	cd $(FRONTEND) && npm run dev -- --host 127.0.0.1
@@ -70,7 +72,7 @@ e2e: ## Prueba punta a punta de la Fase 1 contra `make dev` y Mailpit (modifica 
 test: test-backend test-frontend ## Corre todos los tests
 
 test-backend:
-	cd $(BACKEND) && .venv/bin/pytest
+	cd $(BACKEND) && $(NATIVE) .venv/bin/pytest
 
 test-frontend:
 	cd $(FRONTEND) && npm test

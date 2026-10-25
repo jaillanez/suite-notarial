@@ -107,9 +107,9 @@ def mfa_required_for(settings: Settings, user: User) -> bool:
     return settings.MFA_ENFORCED and user.mfa_required
 
 
-def require_permissions(*required: Perm) -> Callable[..., Awaitable[Principal]]:
-    """Exige todos los permisos indicados. Los rechazos quedan auditados."""
-
+def _permission_checker(
+    required: tuple[Perm, ...], *, any_of: bool
+) -> Callable[..., Awaitable[Principal]]:
     async def checker(
         principal: PrincipalDep,
         session: SessionDep,
@@ -124,14 +124,16 @@ def require_permissions(*required: Perm) -> Callable[..., Awaitable[Principal]]:
                 type_=MFA_ENROLLMENT_TYPE,
             )
         missing = sorted(p.value for p in required if p.value not in principal.permissions)
-        if missing:
+        denied = len(missing) == len(required) if any_of else bool(missing)
+        if denied:
             record_audit(
                 session,
                 ctx,
                 AuditEvent.PERMISSION_DENIED,
                 severity=Severity.WARNING,
                 actor_user_id=user.id,
-                details={"missing": missing, "path": ctx.path},
+                details={"missing": missing, "path": ctx.path}
+                | ({"any_of": True} if any_of else {}),
             )
             await session.commit()
             raise ProblemError(
@@ -143,3 +145,13 @@ def require_permissions(*required: Perm) -> Callable[..., Awaitable[Principal]]:
         return principal
 
     return checker
+
+
+def require_permissions(*required: Perm) -> Callable[..., Awaitable[Principal]]:
+    """Exige todos los permisos indicados. Los rechazos quedan auditados."""
+    return _permission_checker(required, any_of=False)
+
+
+def require_any_permission(*options: Perm) -> Callable[..., Awaitable[Principal]]:
+    """Exige al menos uno de los permisos (p. ej. el propio o el de todo el padrón)."""
+    return _permission_checker(options, any_of=True)
