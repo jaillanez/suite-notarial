@@ -1,0 +1,59 @@
+# Hooks de calidad. Instalar con `make hooks`.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: backend/.venv/bin/ruff check --config backend/pyproject.toml
+        language: system
+        types: [python]
+        files: ^backend/
+      - id: ruff-format
+        name: ruff (format)
+        entry: backend/.venv/bin/ruff format --check --config backend/pyproject.toml
+        language: system
+        types: [python]
+        files: ^backend/
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd backend && .venv/bin/mypy app tests'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+      - id: forbidden-tokens
+        name: sin print( / float en dinero
+        entry: python3 scripts/check_forbidden_tokens.py
+        language: system
+        types: [python]
+        files: ^backend/app/
+      - id: eslint
+        name: eslint
+        entry: bash -c 'cd frontend && npx eslint --max-warnings=0 .'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js)$
+        pass_filenames: false
+      - id: prettier
+        name: prettier
+        entry: bash -c 'cd frontend && npx prettier --check .'
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+      - id: tsc
+        name: tsc --noEmit
+        entry: bash -c 'cd frontend && npx tsc -b --noEmit'
+        language: system
+        files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false
