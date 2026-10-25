@@ -5,6 +5,30 @@
 **Requerimientos del Pliego:** `DIR-01`, `DIR-02`, `DIR-03`, `DIR-04`, `USR-01`, `USR-02`, `SEC-01`, `SEC-03`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 | React + TypeScript
 
+> **Implementación (Fase 2).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **CUIT:** el algoritmo de §4.1 acepta, por ejemplo, `20-…-9` cuando el cálculo da 10; AFIP en
+>   realidad reasigna ese número a `23-…-9` (y `27` → `23-…-4`, `30` → `33-…-9`). Se usa el
+>   algoritmo estándar, que valida esos 23/33 y rechaza el 20/27/30 cuyo dígito sería 10.
+> - **Circunscripciones** como catálogo propio (`padron_circunscripciones`) en lugar de texto libre;
+>   el **departamento** se valida contra los 19 departamentos de San Juan.
+> - **Reglas de cargos en la base:** un titular vigente por registro y un cargo vigente por
+>   escribano (índices únicos parciales). El estado del registro (ACTIVO/VACANTE/CERRADO) se
+>   mantiene al asignar o cerrar la titularidad.
+> - **Estados definitivos** (CESANTE, JUBILADO, FALLECIDO) exigen cerrar antes los cargos vigentes
+>   y suspenden la cuenta de autogestión vinculada. FALLECIDO no admite cambios posteriores.
+> - **Historial** con `fecha_efectiva` además de la fecha de registro; inmutable a nivel base.
+> - **Sin `DELETE`:** revocado al rol de la aplicación y bloqueado por trigger en todas las tablas.
+> - **Errores:** duplicados responden `409` y validaciones `422` (no `400`), en RFC 7807.
+> - **Rutas:** `POST /padron/escribanos/{id}/estado` (en lugar de `PATCH …/status`), más
+>   `…/cargos`, `/padron/cargos/{id}/cierre`, `/padron/registros/{id}/cierre` y
+>   `…/escribanos/{id}/cuenta` (alta de la cuenta de autogestión con correo confirmado).
+> - **Transiciones de estado:** ACTIVO → SUSPENDIDO/CESANTE/JUBILADO/FALLECIDO; SUSPENDIDO →
+>   ACTIVO/CESANTE/JUBILADO/FALLECIDO; CESANTE → ACTIVO (reincorporación, con resolución
+>   obligatoria)/JUBILADO/FALLECIDO; JUBILADO → FALLECIDO; FALLECIDO terminal.
+> - **Autogestión:** sin matrícula ACTIVA la cuenta queda en solo consulta (no presenta DDJJ;
+>   sí consulta y adjunta comprobantes). Los estados definitivos suspenden la cuenta.
+
 ---
 
 ### 1. Propósito, Alcance y Reglas del Dominio Notarial

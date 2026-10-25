@@ -135,7 +135,91 @@ async def seed_dev() -> int:
             created += 1
         await session.commit()
     _out(f"Usuarios de desarrollo creados: {created} (contraseña: DEV_SEED_PASSWORD).")
+    async with get_sessionmaker()() as session:
+        await _seed_padron_demo(session)
     return 0
+
+
+DEMO_ESCRIBANOS: tuple[tuple[str, str, int, str | None, int | None], ...] = (
+    # apellido, nombre, matrícula, cargo, número de registro
+    ("Demo", "Escribano", 101, "TITULAR", 1),
+    ("Albarracín", "Lucía", 102, "ADSCRIPTO", 1),
+    ("Quiroga", "Martín", 103, "TITULAR", 2),
+    ("Videla", "Carolina", 104, None, None),
+    ("Godoy", "Ramiro", 105, "ADSCRIPTO", 2),
+)
+
+
+async def _seed_padron_demo(session: AsyncSession) -> None:
+    """Padrón sintético para probar la Suite. Nombres y CUIT inventados; nunca datos reales."""
+    from datetime import date
+
+    from app.modules.padron.catalog import Cargo, EstadoMatricula, EstadoRegistro
+    from app.modules.padron.models import (
+        Adscripcion,
+        Circunscripcion,
+        Escribano,
+        Persona,
+        RegistroNotarial,
+    )
+
+    if await session.scalar(select(Circunscripcion.id).limit(1)):
+        _out("Padrón de demostración: ya existe, no se modifica.")
+        return
+    circ = Circunscripcion(
+        id=uuid.uuid4(), nombre="Circunscripción Demo", descripcion="Dato de demostración"
+    )
+    session.add(circ)
+    registros: dict[int, RegistroNotarial] = {}
+    for numero, departamento in ((1, "Capital"), (2, "Rivadavia"), (3, "Rawson")):
+        registros[numero] = RegistroNotarial(
+            id=uuid.uuid4(),
+            numero_registro=numero,
+            nombre_fantasia=f"Escribanía Demo {numero}",
+            circunscripcion_id=circ.id,
+            departamento=departamento,
+            domicilio_legal=f"Calle Demo {numero * 100}",
+            estado=EstadoRegistro.VACANTE.value,
+        )
+        session.add(registros[numero])
+    escribano_user = await session.scalar(
+        select(User).where(User.email == "escribano@suite-notarial.example")
+    )
+    for index, (apellido, nombre, matricula, cargo, nro) in enumerate(DEMO_ESCRIBANOS):
+        demo_user = escribano_user if index == 0 else None
+        persona = Persona(
+            id=uuid.uuid4(),
+            cuit=demo_user.cuit if demo_user else synthetic_cuit(10 + index),
+            tipo_documento="DNI",
+            numero_documento=(demo_user.cuit if demo_user else synthetic_cuit(10 + index))[2:10],
+            apellido=apellido,
+            nombre=nombre,
+            email=demo_user.email if demo_user else None,
+        )
+        session.add(persona)
+        escribano = Escribano(
+            id=uuid.uuid4(),
+            persona_id=persona.id,
+            user_id=demo_user.id if demo_user else None,
+            matricula_numero=matricula,
+            fecha_matriculacion=date(2015, 3, 1),
+            estado_matricula=EstadoMatricula.ACTIVO.value,
+        )
+        session.add(escribano)
+        if cargo and nro:
+            session.add(
+                Adscripcion(
+                    escribano_id=escribano.id,
+                    registro_id=registros[nro].id,
+                    cargo=cargo,
+                    fecha_desde=date(2020, 1, 2),
+                    is_current=True,
+                )
+            )
+            if cargo == Cargo.TITULAR:
+                registros[nro].estado = EstadoRegistro.ACTIVO.value
+    await session.commit()
+    _out("Padrón de demostración: 1 circunscripción, 3 registros, 5 escribanos.")
 
 
 def main(argv: list[str] | None = None) -> int:

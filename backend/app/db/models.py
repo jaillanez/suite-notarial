@@ -15,13 +15,27 @@ from app.modules.iam.models import (
     UserRole,
     UserSession,
 )
+from app.modules.padron.models import (
+    Adscripcion,
+    Circunscripcion,
+    Escribano,
+    HistorialEstado,
+    Persona,
+    RegistroNotarial,
+)
 
 __all__ = [
+    "Adscripcion",
     "AuditSecurityLog",
     "Base",
+    "Circunscripcion",
+    "Escribano",
+    "HistorialEstado",
     "PasswordResetToken",
     "Permission",
+    "Persona",
     "RecoveryCode",
+    "RegistroNotarial",
     "Role",
     "RolePermission",
     "User",

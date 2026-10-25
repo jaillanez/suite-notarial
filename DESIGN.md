@@ -249,6 +249,9 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Contraseña con botón de mostrar/ocultar de 40px dentro del campo. Códigos (TOTP, recuperación) con cifras tabulares y tracking abierto; `autocomplete="one-time-code"`.
 - Requisitos de contraseña como lista viva: ícono de check en Verde Conforme o círculo en Tinta Secundaria, con texto para lector de pantalla.
 
+- **Área de texto:** misma etiqueta, borde y foco que el campo; 3 filas por defecto. Para motivos obligatorios (cambios de estado, cierres), con la regla en la ayuda.
+- **Fechas:** `<input type="date">` nativo; se muestran como dd/mm/aaaa con cifras tabulares y sin corrimiento de zona (fecha calendario).
+
 ### Alerts (avisos en línea)
 - Caja de 6px con borde del tono al 25%, fondo Tinte y texto del tono; ícono lucide de 20px (trazo 2.25) a la izquierda, título opcional en 600.
 - Tonos: conforme, atención, rechazo (con `role="alert"`) e informativo en Bruma Petróleo con texto Petróleo Institucional.
@@ -263,6 +266,14 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Paginación en servidor en el pie del panel: rango "1–20 de 57" y botones de 44px.
 - Bajo 640px la tabla se reemplaza por una lista apilada (nombre, estado a la derecha, pares etiqueta/valor y acciones), sin scroll horizontal.
 - Esqueletos en Bruma Petróleo mientras carga; estado vacío que explica qué buscar.
+
+### Fichas (detalle de una entidad)
+- Volver como enlace con flecha arriba a la izquierda; título en Headline con la identidad (nombre, número) y debajo los identificadores en cifras tabulares más el indicador de estado. Las acciones van a la derecha del título, en botones secundarios; las que quitan algo, en peligro.
+- Cuerpo en paneles: pares etiqueta/valor (valor a la derecha) en dos columnas desde 1024px; listas de historial con lo más reciente arriba.
+- Un historial de estados muestra estado anterior → nuevo con sus indicadores, el motivo en Body y una línea Caption con resolución, fecha y operador.
+
+### Listas navegables
+- Cuando cada fila lleva a una ficha, la fila entera es el enlace (hover en Bruma Petróleo y chevron a la derecha). Un número identificador grande y tabular (p. ej. el Nº de registro) puede encabezar la fila.
 
 ### Navigation (cabecera institucional)
 - Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio. Mismo ancho máximo que el contenido.

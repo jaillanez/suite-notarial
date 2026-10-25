@@ -12,8 +12,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | Fase | Alcance | Estado |
 |------|---------|--------|
 | 0 | Bootstrap y cimientos | Completa |
-| 1 | IAM & RBAC: login, 2FA, sesiones, recuperación de clave, usuarios y auditoría | En revisión |
-| 2–10 | Ver `AGENTS.md` | Pendiente |
+| 1 | IAM & RBAC: login, 2FA, sesiones, recuperación de clave, usuarios y auditoría | Completa |
+| 2 | Padrón: escribanos, matrículas, registros, cargos y circunscripciones | En revisión |
+| 3–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -87,6 +88,9 @@ corré `make db migrate` de nuevo.
 | Auditoría | `auditor@suite-notarial.example` | Obligatorio |
 | Escribano | `escribano@suite-notarial.example` | Opcional |
 
+Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
+(el primero vinculado a la cuenta `escribano@suite-notarial.example`). Son datos inventados.
+
 Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. Para
 producción, el primer administrador se crea con
 `make create-admin email=... cuit=... name="..."` (pide la contraseña por consola).
@@ -154,6 +158,34 @@ Ya aplicadas:
 - **SEC-04:** los enlaces de correo salen de `PUBLIC_WEB_URL`; un test rechaza URLs privadas en plantillas.
 - **AUD:** `audit_security_logs` guarda actor, UTC, IP, valor anterior y nuevo. El rol de la app no
   tiene UPDATE/DELETE/TRUNCATE sobre la tabla y un trigger lo impide también al dueño.
+
+## Padrón notarial (Fase 2)
+
+- **Personas y escribanos:** los datos personales viven solo en `padron_personas`; la matrícula en
+  `padron_escribanos`. CUIT y matrícula únicos; el CUIT se valida con el dígito verificador de
+  AFIP (incluida la reasignación a 23/33 cuando el cálculo da 10).
+- **Estados de matrícula:** ACTIVO, SUSPENDIDO, CESANTE, JUBILADO, FALLECIDO. Cada cambio exige
+  motivo y fecha efectiva y queda en `padron_historial_estados`, inmutable. Transiciones:
+
+  | Desde | Puede pasar a |
+  |-------|---------------|
+  | Activo | Suspendido, Cesante, Jubilado, Fallecido |
+  | Suspendido | Activo, Cesante, Jubilado, Fallecido |
+  | Cesante | Activo (reincorporación, con resolución obligatoria), Jubilado, Fallecido |
+  | Jubilado | Fallecido |
+  | Fallecido | — |
+
+  Los estados definitivos (Cesante, Jubilado, Fallecido) exigen cerrar antes los cargos
+  vigentes y suspenden la cuenta de autogestión (la reactiva un administrador).
+- **Autogestión según la matrícula:** sin matrícula ACTIVA (p. ej. suspendido) la cuenta queda en
+  solo consulta: ve sus DDJJ y boletas y puede adjuntar comprobantes de pago, pero no presentar
+  DDJJ. Se recalcula en cada request: al volver a ACTIVO recupera todo sin intervención.
+- **Registros y cargos:** un titular vigente por registro y un cargo vigente por escribano
+  (índices únicos parciales). El registro pasa a *con titular* al designarlo y a *vacante* al
+  cerrar su titularidad. Los cargos se cierran con fecha y motivo.
+- **Sin borrado físico (INM):** la app no tiene DELETE ni TRUNCATE sobre las tablas del padrón y un
+  trigger lo impide también al dueño. Toda alta, edición, cambio de estado o cargo se audita.
+- **Endpoints:** `/api/v1/padron/{escribanos,registros,circunscripciones,departamentos,cargos}`.
 
 ## Seguridad de acceso (Fase 1)
 
