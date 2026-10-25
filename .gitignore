@@ -1,0 +1,33 @@
+# SO / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Dependencias y builds
+node_modules/
+dist/
+build/
+.next/
+coverage/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Docker / datos locales
+.docker-data/
+*.sqlite
+*.db
