@@ -287,6 +287,16 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Una vista previa que se recalcula conserva los importes anteriores atenuados mientras llega el nuevo resultado: el panel no salta ni se vacía.
 - Si el cálculo usa un parámetro marcado como ejemplo, un aviso de atención lo dice antes de presentar y en la confirmación.
 
+### Carga de archivos
+- Zona de archivo como etiqueta del `<input type="file">` (oculto para la vista, accesible): borde punteado Línea Firme sobre Superficie Hundida, ícono de 24px y dos líneas (acción y formatos admitidos); elegido el archivo, muestra nombre y tamaño. Foco y hover como un control.
+- Cuando cargar algo no completa el trámite (comprobante ≠ pago), un aviso informativo lo dice antes del botón de envío.
+
+### Revisión de comprobantes (Tesorería)
+- Dos columnas desde 1024px: visor del archivo (PDF en marco, imagen contenida) a la izquierda y el cotejo con la boleta a la derecha; en celular, apilados.
+- La fila de diferencia es la única con tinte: conforme si coincide, atención con el importe si no.
+- Las acciones van debajo, una por panel: confirmar (primario, con diálogo de confirmación que repite los importes) y rechazar (peligro, motivo obligatorio). Los motivos frecuentes son botones fantasma con borde que completan el campo; el elegido queda marcado.
+- Los importes que verifica Tesorería nunca se precargan con lo declarado.
+
 ### Verificación pública
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 

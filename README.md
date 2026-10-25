@@ -15,8 +15,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 1 | IAM & RBAC: login, 2FA, sesiones, recuperación de clave, usuarios y auditoría | Completa |
 | 2 | Padrón: escribanos, matrículas, registros, cargos y circunscripciones | Completa |
 | 3 | Motor paramétrico de aportes: conceptos, vigencias versionadas y cálculo | Completa |
-| 4 | DDJJ, liquidación y boletas con PDF, QR y verificación pública | En revisión |
-| 5–10 | Ver `AGENTS.md` | Pendiente |
+| 4 | DDJJ, liquidación y boletas con PDF, QR y verificación pública | Completa |
+| 5 | Pagos: comprobantes y mesa de conciliación de Tesorería | En revisión |
+| 6–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -251,6 +252,25 @@ Ya aplicadas:
 - **Pendiente de negocio (`TODO(negocio)`):** si el mínimo es por registro, cuántos aportes
   médicos corresponden, plazo de validez de la boleta, formato de código de barras del banco y
   rectificación de una DDJJ ya paga (Fase 5).
+
+## Pagos y conciliación (Fase 5)
+
+- **Adjuntar no es pagar (PAGO):** el escribano adjunta el comprobante de la transferencia a su
+  boleta pendiente y queda *en revisión*. La boleta pasa a pagada solo cuando Tesorería lo
+  confirma; un trigger lo exige también en la base.
+- **Archivos (MIME):** PDF, PNG o JPG detectados por *magic bytes* (no por la extensión), hasta
+  `MAX_UPLOAD_MB`, guardados con nombre UUID y permisos 0600 en `UPLOAD_DIR`, fuera de lo que
+  sirve el frontend. Se guarda su SHA-256 y se verifica cada vez que se muestra: un archivo
+  alterado no se entrega y queda auditado.
+- **Mesa de conciliación** (`/tesoreria/conciliacion`, permiso `comprobantes:verify`): bandeja
+  por orden de llegada, visor del comprobante junto a la boleta y la diferencia entre lo
+  declarado y el total. Confirmar exige el importe y la fecha de acreditación del extracto (solo
+  el total exacto) y, si se acreditó después de la fecha de pago, observaciones. Rechazar exige
+  motivo y avisa por correo al escribano.
+- **Asientos inmutables** en `pagos_conciliaciones`; la aplicación no puede modificarlos ni
+  borrarlos. Mientras un comprobante está en revisión, la boleta no se reemite ni se rectifica.
+- **Pendiente de negocio (`TODO(negocio)`):** pagos parciales o con diferencia, mora por
+  acreditación tardía, rectificación de una DDJJ paga y más de una cuenta recaudadora.
 
 ## Seguridad de acceso (Fase 1)
 
