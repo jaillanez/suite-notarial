@@ -23,8 +23,11 @@
 > - **Rutas:** `POST /padron/escribanos/{id}/estado` (en lugar de `PATCH …/status`), más
 >   `…/cargos`, `/padron/cargos/{id}/cierre`, `/padron/registros/{id}/cierre` y
 >   `…/escribanos/{id}/cuenta` (alta de la cuenta de autogestión con correo confirmado).
-> - **Pendiente de negocio:** transiciones permitidas entre estados y si SUSPENDIDO bloquea la
->   autogestión.
+> - **Transiciones de estado:** ACTIVO → SUSPENDIDO/CESANTE/JUBILADO/FALLECIDO; SUSPENDIDO →
+>   ACTIVO/CESANTE/JUBILADO/FALLECIDO; CESANTE → ACTIVO (reincorporación, con resolución
+>   obligatoria)/JUBILADO/FALLECIDO; JUBILADO → FALLECIDO; FALLECIDO terminal.
+> - **Autogestión:** sin matrícula ACTIVA la cuenta queda en solo consulta (no presenta DDJJ;
+>   sí consulta y adjunta comprobantes). Los estados definitivos suspenden la cuenta.
 
 ---
 

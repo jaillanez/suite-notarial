@@ -245,6 +245,8 @@ class EscribanoOut(BaseModel):
 
 class EscribanoDetalle(EscribanoOut):
     persona: PersonaOut
+    transiciones_permitidas: list[EstadoMatricula]
+    transiciones_con_resolucion: list[EstadoMatricula]
     motivo_ultimo_cambio_estado: str | None
     fecha_ultimo_cambio_estado: datetime | None
     cargos: list[CargoOut]

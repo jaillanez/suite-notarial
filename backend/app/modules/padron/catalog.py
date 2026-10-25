@@ -11,12 +11,30 @@ class EstadoMatricula(StrEnum):
     FALLECIDO = "FALLECIDO"
 
 
-# Estados que terminan el ejercicio: exigen que no queden cargos vigentes en registros.
-# TODO(negocio): confirmar con la Caja qué transiciones están permitidas entre estados.
+# Estados que terminan el ejercicio: exigen que no queden cargos vigentes en registros y
+# suspenden la cuenta de autogestión.
 ESTADOS_DEFINITIVOS = frozenset(
     {EstadoMatricula.CESANTE, EstadoMatricula.JUBILADO, EstadoMatricula.FALLECIDO}
 )
 ESTADOS_TERMINALES = frozenset({EstadoMatricula.FALLECIDO})
+
+_E = EstadoMatricula
+# Transiciones permitidas. Criterio:
+# - La suspensión es temporal: termina (vuelve a ACTIVO) o deriva en una baja.
+# - Un cesante puede reincorporarse, pero solo con resolución (ver REQUIERE_RESOLUCION).
+# - Un jubilado no vuelve a ejercer por cambio de estado: requiere un trámite nuevo.
+# - FALLECIDO es terminal.
+TRANSICIONES: dict[EstadoMatricula, frozenset[EstadoMatricula]] = {
+    _E.ACTIVO: frozenset({_E.SUSPENDIDO, _E.CESANTE, _E.JUBILADO, _E.FALLECIDO}),
+    _E.SUSPENDIDO: frozenset({_E.ACTIVO, _E.CESANTE, _E.JUBILADO, _E.FALLECIDO}),
+    _E.CESANTE: frozenset({_E.ACTIVO, _E.JUBILADO, _E.FALLECIDO}),
+    _E.JUBILADO: frozenset({_E.FALLECIDO}),
+    _E.FALLECIDO: frozenset(),
+}
+# Transiciones que solo proceden con un acto formal citado.
+REQUIERE_RESOLUCION: frozenset[tuple[EstadoMatricula, EstadoMatricula]] = frozenset(
+    {(_E.CESANTE, _E.ACTIVO)}
+)
 
 
 class Cargo(StrEnum):

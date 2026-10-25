@@ -94,6 +94,8 @@ export interface HistorialItem {
 
 export interface EscribanoDetalle extends Escribano {
   persona: Persona
+  transiciones_permitidas: EstadoMatricula[]
+  transiciones_con_resolucion: EstadoMatricula[]
   motivo_ultimo_cambio_estado: string | null
   fecha_ultimo_cambio_estado: string | null
   cargos: CargoItem[]

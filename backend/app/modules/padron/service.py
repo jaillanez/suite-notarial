@@ -21,7 +21,8 @@ from app.modules.iam.models import User
 from app.modules.iam.service import revoke_all_user_sessions
 from app.modules.padron.catalog import (
     ESTADOS_DEFINITIVOS,
-    ESTADOS_TERMINALES,
+    REQUIERE_RESOLUCION,
+    TRANSICIONES,
     Cargo,
     EstadoMatricula,
     EstadoRegistro,
@@ -496,8 +497,17 @@ async def change_estado(
     nuevo = data.nuevo_estado
     if actual == nuevo:
         raise _conflict(f"La matrícula ya está en estado {nuevo.value}.")
-    if actual in ESTADOS_TERMINALES:
-        raise _conflict(f"El estado {actual.value} es definitivo y no admite cambios.")
+    permitidos = TRANSICIONES[actual]
+    if nuevo not in permitidos:
+        opciones = ", ".join(sorted(e.value for e in permitidos)) or "ninguno"
+        raise _conflict(
+            f"No se puede pasar de {actual.value} a {nuevo.value}. Estados posibles: {opciones}."
+        )
+    if (actual, nuevo) in REQUIERE_RESOLUCION and not data.resolucion_respaldo:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La reincorporación requiere citar la resolución que la dispone.",
+        )
     if data.fecha_efectiva < escribano.fecha_matriculacion:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -556,7 +566,7 @@ async def _suspend_linked_account(
 ) -> None:
     """Una baja definitiva de la matrícula suspende la cuenta de autogestión en la misma
     transacción. Volver a ACTIVO no la reactiva: lo decide un administrador de usuarios.
-    TODO(negocio): definir si SUSPENDIDO también debe bloquear el acceso de autogestión.
+    La SUSPENSIÓN no toca la cuenta: la deja en solo consulta (ver iam.deps).
     """
     if escribano.user_id is None:
         return

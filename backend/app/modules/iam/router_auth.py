@@ -19,7 +19,12 @@ from app.modules.iam.cookies import (
     set_mfa_cookie,
     set_session_cookies,
 )
-from app.modules.iam.deps import Principal, PrincipalDep, RequestContextDep
+from app.modules.iam.deps import (
+    Principal,
+    PrincipalDep,
+    RequestContextDep,
+    effective_permissions,
+)
 from app.modules.iam.mails import password_changed_mail, password_reset_mail
 from app.modules.iam.models import User
 from app.modules.iam.schemas import (
@@ -52,14 +57,14 @@ def get_mailer(settings: Annotated[Settings, Depends(get_settings)]) -> Mailer:
 MailerDep = Annotated[Mailer, Depends(get_mailer)]
 
 
-def session_user(user: User, *, mfa_verified: bool) -> SessionUser:
+def session_user(user: User, *, mfa_verified: bool, permissions: frozenset[str]) -> SessionUser:
     return SessionUser(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
         cuit=format_cuit(user.cuit),
         roles=user.role_codes,
-        permissions=sorted(user.permission_codes),
+        permissions=sorted(permissions),
         mfa_enabled=user.totp_enabled,
         mfa_required=user.mfa_required,
         mfa_verified=mfa_verified,
@@ -82,7 +87,11 @@ async def login(
         return LoginResponse(status="mfa_required")
     issued = await service.issue_session(session, settings, ctx, step.user, mfa_verified=False)
     set_session_cookies(response, settings, issued.access_token, issued.refresh_token)
-    return LoginResponse(status="authenticated", user=session_user(step.user, mfa_verified=False))
+    permissions = await effective_permissions(session, step.user)
+    return LoginResponse(
+        status="authenticated",
+        user=session_user(step.user, mfa_verified=False, permissions=permissions),
+    )
 
 
 @router.post("/login/mfa", response_model=LoginResponse)
@@ -108,7 +117,11 @@ async def login_mfa(
     user = await service.verify_mfa_login(session, settings, ctx, claims.user_id, body.code)
     issued = await service.issue_session(session, settings, ctx, user, mfa_verified=True)
     set_session_cookies(response, settings, issued.access_token, issued.refresh_token)
-    return LoginResponse(status="authenticated", user=session_user(user, mfa_verified=True))
+    permissions = await effective_permissions(session, user)
+    return LoginResponse(
+        status="authenticated",
+        user=session_user(user, mfa_verified=True, permissions=permissions),
+    )
 
 
 @router.post("/refresh", response_model=LoginResponse)
@@ -133,7 +146,11 @@ async def refresh(
         raise ProblemError(HTTPStatus.UNAUTHORIZED, "La sesión expiró. Volvé a ingresar.")
     return LoginResponse(
         status="authenticated",
-        user=session_user(user, mfa_verified=issued.session.mfa_verified),
+        user=session_user(
+            user,
+            mfa_verified=issued.session.mfa_verified,
+            permissions=await effective_permissions(session, user),
+        ),
     )
 
 
@@ -152,7 +169,9 @@ async def logout(
 
 @router.get("/me", response_model=SessionUser)
 async def me(principal: PrincipalDep) -> SessionUser:
-    return session_user(principal.user, mfa_verified=principal.mfa_verified)
+    return session_user(
+        principal.user, mfa_verified=principal.mfa_verified, permissions=principal.permissions
+    )
 
 
 @router.post("/password-reset/request", response_model=MessageResponse, status_code=202)

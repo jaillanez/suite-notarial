@@ -41,9 +41,7 @@ function useRefresh(id: string) {
 
 export function EstadoDialog({ escribano, open, onClose }: Props) {
   const refresh = useRefresh(escribano.id)
-  const opciones = (Object.keys(ESTADO_MATRICULA) as EstadoMatricula[]).filter(
-    (e) => e !== escribano.estado_matricula,
-  )
+  const opciones = escribano.transiciones_permitidas
   const [estado, setEstado] = useState<EstadoMatricula>(opciones[0] ?? 'ACTIVO')
   const [motivo, setMotivo] = useState('')
   const [resolucion, setResolucion] = useState('')
@@ -64,6 +62,7 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
     },
   })
   const definitivo = ESTADOS_DEFINITIVOS.includes(estado)
+  const exigeResolucion = escribano.transiciones_con_resolucion.includes(estado)
   return (
     <Dialog
       open={open}
@@ -81,7 +80,7 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
             icon={Save}
             busy={save.isPending}
             busyLabel="Guardando…"
-            disabled={motivo.trim().length < 5 || !fecha}
+            disabled={motivo.trim().length < 5 || !fecha || (exigeResolucion && !resolucion.trim())}
             onClick={() => {
               save.mutate()
             }}
@@ -105,7 +104,15 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
           <Alert tone="warning">
             {estado === 'FALLECIDO'
               ? 'Fallecido es un estado definitivo: después no admite cambios.'
-              : 'Es una baja del ejercicio. Si tiene un cargo vigente, cerralo antes desde la ficha.'}
+              : estado === 'JUBILADO'
+                ? 'Un jubilado no vuelve a ejercer por cambio de estado. Si tiene un cargo vigente, cerralo antes.'
+                : 'Es una baja del ejercicio: la cuenta de autogestión se suspende. Si tiene un cargo vigente, cerralo antes.'}
+          </Alert>
+        )}
+        {estado === 'SUSPENDIDO' && (
+          <Alert tone="info">
+            Mientras dure la suspensión, su cuenta queda en solo consulta: no puede presentar
+            declaraciones juradas.
           </Alert>
         )}
         <TextArea
@@ -119,7 +126,8 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
-            label="Resolución (opcional)"
+            label={exigeResolucion ? 'Resolución' : 'Resolución (opcional)'}
+            hint={exigeResolucion ? 'Obligatoria para la reincorporación.' : undefined}
             placeholder="Res. Directorio 145/2026"
             value={resolucion}
             onChange={(e) => {

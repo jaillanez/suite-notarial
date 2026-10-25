@@ -60,7 +60,7 @@ export function EscribanoPage() {
   const e = query.data
   const estado = ESTADO_MATRICULA[e.estado_matricula]
   const vigente = e.cargos.find((c) => c.is_current) ?? null
-  const terminal = e.estado_matricula === 'FALLECIDO'
+  const sinTransiciones = e.transiciones_permitidas.length === 0
   const canWrite = can('escribanos:write')
 
   return (
@@ -95,7 +95,7 @@ export function EscribanoPage() {
               Editar datos
             </Button>
           )}
-          {can('escribanos:status') && !terminal && (
+          {can('escribanos:status') && !sinTransiciones && (
             <Button
               icon={RefreshCw}
               onClick={() => {
@@ -287,7 +287,7 @@ export function EscribanoPage() {
         }}
       />
       <EstadoDialog
-        key={`estado-${e.estado_matricula}`}
+        key={`estado-${e.estado_matricula}-${String(dialog === 'estado')}`}
         escribano={e}
         open={dialog === 'estado'}
         onClose={() => {

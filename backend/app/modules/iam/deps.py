@@ -11,6 +11,8 @@ from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import Depends, Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.deps import SessionDep, SettingsDep
@@ -19,6 +21,7 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.cookies import ACCESS_COOKIE
 from app.modules.iam.models import User, UserSession
 from app.modules.iam.tokens import InvalidTokenError, decode_access_token
+from app.modules.padron.models import Escribano
 
 MFA_ENROLLMENT_TYPE = "urn:suite-notarial:auth:mfa-enrollment-required"
 
@@ -30,10 +33,30 @@ def get_request_context(request: Request) -> RequestContext:
 RequestContextDep = Annotated[RequestContext, Depends(get_request_context)]
 
 
+# Permisos de autogestión que implican ejercer: solo con matrícula ACTIVA. Un escribano
+# suspendido (o sin matrícula vinculada) conserva la consulta y puede adjuntar comprobantes
+# para regularizar deudas, pero no presentar declaraciones juradas.
+REQUIRES_ACTIVE_MATRICULA: frozenset[str] = frozenset({Perm.DDJJ_CREATE_OWN.value})
+
+
+async def effective_permissions(session: AsyncSession, user: User) -> frozenset[str]:
+    """Permisos de los roles, menos los que exigen matrícula activa si no la tiene."""
+    permissions = user.permission_codes
+    if not permissions & REQUIRES_ACTIVE_MATRICULA:
+        return permissions
+    estado = await session.scalar(
+        select(Escribano.estado_matricula).where(Escribano.user_id == user.id)
+    )
+    if estado == "ACTIVO":
+        return permissions
+    return permissions - REQUIRES_ACTIVE_MATRICULA
+
+
 @dataclass(frozen=True)
 class Principal:
     user: User
     session: UserSession
+    permissions: frozenset[str]
 
     @property
     def mfa_verified(self) -> bool:
@@ -68,7 +91,11 @@ async def get_principal(request: Request, session: SessionDep, settings: Setting
     user = await session.get(User, claims.user_id)
     if user is None or not user.is_active:
         raise _unauthenticated()
-    return Principal(user=user, session=user_session)
+    return Principal(
+        user=user,
+        session=user_session,
+        permissions=await effective_permissions(session, user),
+    )
 
 
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
@@ -87,7 +114,7 @@ def require_permissions(*required: Perm) -> Callable[..., Awaitable[Principal]]:
                 "Tu rol exige verificación en dos pasos. Activala para continuar.",
                 type_=MFA_ENROLLMENT_TYPE,
             )
-        missing = sorted(p.value for p in required if p.value not in user.permission_codes)
+        missing = sorted(p.value for p in required if p.value not in principal.permissions)
         if missing:
             record_audit(
                 session,

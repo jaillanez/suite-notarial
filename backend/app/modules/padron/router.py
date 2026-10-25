@@ -20,6 +20,8 @@ from app.modules.iam.schemas import UserCreate
 from app.modules.padron import service
 from app.modules.padron.catalog import (
     DEPARTAMENTOS_SAN_JUAN,
+    REQUIERE_RESOLUCION,
+    TRANSICIONES,
     Cargo,
     EstadoMatricula,
     EstadoRegistro,
@@ -136,8 +138,13 @@ async def escribano_detalle(session: SessionDep, item: Escribano) -> EscribanoDe
     historial = await service.list_historial(session, item.id)
     persona = item.persona
     base = escribano_out(item, vigente)
+    actual = EstadoMatricula(item.estado_matricula)
     return EscribanoDetalle(
         **base.model_dump(),
+        transiciones_permitidas=sorted(TRANSICIONES[actual]),
+        transiciones_con_resolucion=sorted(
+            nuevo for desde, nuevo in REQUIERE_RESOLUCION if desde == actual
+        ),
         persona=PersonaOut(
             id=persona.id,
             cuit=format_cuit(persona.cuit),

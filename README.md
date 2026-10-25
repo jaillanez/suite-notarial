@@ -164,17 +164,28 @@ Ya aplicadas:
 - **Personas y escribanos:** los datos personales viven solo en `padron_personas`; la matrícula en
   `padron_escribanos`. CUIT y matrícula únicos; el CUIT se valida con el dígito verificador de
   AFIP (incluida la reasignación a 23/33 cuando el cálculo da 10).
-- **Estados de matrícula:** ACTIVO, SUSPENDIDO, CESANTE, JUBILADO, FALLECIDO (terminal). Cada
-  cambio exige motivo y fecha efectiva y queda en `padron_historial_estados`, inmutable. Los
-  estados definitivos exigen cerrar antes los cargos vigentes y suspenden la cuenta de autogestión.
+- **Estados de matrícula:** ACTIVO, SUSPENDIDO, CESANTE, JUBILADO, FALLECIDO. Cada cambio exige
+  motivo y fecha efectiva y queda en `padron_historial_estados`, inmutable. Transiciones:
+
+  | Desde | Puede pasar a |
+  |-------|---------------|
+  | Activo | Suspendido, Cesante, Jubilado, Fallecido |
+  | Suspendido | Activo, Cesante, Jubilado, Fallecido |
+  | Cesante | Activo (reincorporación, con resolución obligatoria), Jubilado, Fallecido |
+  | Jubilado | Fallecido |
+  | Fallecido | — |
+
+  Los estados definitivos (Cesante, Jubilado, Fallecido) exigen cerrar antes los cargos
+  vigentes y suspenden la cuenta de autogestión (la reactiva un administrador).
+- **Autogestión según la matrícula:** sin matrícula ACTIVA (p. ej. suspendido) la cuenta queda en
+  solo consulta: ve sus DDJJ y boletas y puede adjuntar comprobantes de pago, pero no presentar
+  DDJJ. Se recalcula en cada request: al volver a ACTIVO recupera todo sin intervención.
 - **Registros y cargos:** un titular vigente por registro y un cargo vigente por escribano
   (índices únicos parciales). El registro pasa a *con titular* al designarlo y a *vacante* al
   cerrar su titularidad. Los cargos se cierran con fecha y motivo.
 - **Sin borrado físico (INM):** la app no tiene DELETE ni TRUNCATE sobre las tablas del padrón y un
   trigger lo impide también al dueño. Toda alta, edición, cambio de estado o cargo se audita.
 - **Endpoints:** `/api/v1/padron/{escribanos,registros,circunscripciones,departamentos,cargos}`.
-- **Pendiente de negocio:** transiciones permitidas entre estados y si SUSPENDIDO debe bloquear
-  la autogestión (marcados `TODO(negocio)` en `backend/app/modules/padron/`).
 
 ## Seguridad de acceso (Fase 1)
 
