@@ -223,3 +223,22 @@ async def test_filtros_invalidos(
     auditor: AsyncClient, datos: dict[str, Any], params: dict[str, str]
 ) -> None:
     assert (await auditor.get("/api/v1/reportes/BOLETAS", params=params)).status_code == 422
+
+
+async def test_exportar_exige_cabecera_csrf_y_no_se_cachea(
+    auditor: AsyncClient, datos: dict[str, Any], db_session: AsyncSession
+) -> None:
+    sin_cabecera = await auditor.get(
+        "/api/v1/reportes/BOLETAS/export",
+        params={"formato": "csv"},
+        headers={"X-Requested-With": ""},
+    )
+    grilla = await auditor.get("/api/v1/reportes/BOLETAS")
+
+    assert sin_cabecera.status_code == 403
+    assert sin_cabecera.json()["type"] == "urn:suite-notarial:csrf"
+    assert grilla.headers["cache-control"] == "no-store"
+    exportaciones = await db_session.scalar(
+        select(AuditSecurityLog).where(AuditSecurityLog.event_type == "REPORTE_EXPORTADO")
+    )
+    assert exportaciones is None

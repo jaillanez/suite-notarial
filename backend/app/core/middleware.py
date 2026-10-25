@@ -29,6 +29,9 @@ SECURITY_HEADERS = {
 
 
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# GET con efectos (las exportaciones se auditan): exigen la misma defensa CSRF, para que un
+# enlace desde otro sitio no dispare exportaciones a nombre de quien tiene la sesión abierta.
+CSRF_GET_PATHS = re.compile(r"^/api/v1/reportes/[^/]+/export$")
 CSRF_HEADER = "X-Requested-With"
 CSRF_HEADER_VALUE = "XMLHttpRequest"
 
@@ -40,7 +43,11 @@ def _csrf_violation(request: Request, allowed_origins: frozenset[str]) -> str | 
     un script de otro origen las envíe sin pasar la verificación CORS. Además, si el navegador
     informa el `Origin`, debe ser uno de los orígenes de la Suite.
     """
-    if request.method not in UNSAFE_METHODS or not request.url.path.startswith("/api/"):
+    path = request.url.path
+    protegido = request.method in UNSAFE_METHODS or (
+        request.method == "GET" and CSRF_GET_PATHS.match(path) is not None
+    )
+    if not protegido or not path.startswith("/api/"):
         return None
     if request.headers.get(CSRF_HEADER) != CSRF_HEADER_VALUE:
         return f"Falta la cabecera {CSRF_HEADER}."
@@ -98,4 +105,7 @@ def register_middleware(app: FastAPI, settings: Settings) -> None:
             response.headers[CLIENT_CORRELATION_HEADER] = client_correlation_id
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
+        if request.url.path.startswith("/api/"):
+            # Respuestas con datos de la sesión: ni el navegador ni un proxy las guardan.
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
