@@ -51,7 +51,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function SkeletonLine({ className }: { className: string }) {
-  return <span className={`block animate-pulse rounded bg-brand-50 ${className}`} />
+  return <span className={`block animate-pulse rounded-control bg-brand-50 ${className}`} />
 }
 
 export function SystemStatusPage() {

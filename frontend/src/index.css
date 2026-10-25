@@ -10,7 +10,6 @@
 @theme {
   --font-sans: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif;
 
-  --color-brand-950: #081a25;
   --color-brand-900: #0b2433;
   --color-brand-800: #113347;
   --color-brand-700: #1b4762;
@@ -52,7 +51,6 @@
 
   body {
     @apply bg-canvas font-sans text-ink antialiased;
-    font-feature-settings: 'tnum' 0;
   }
 
   ::selection {

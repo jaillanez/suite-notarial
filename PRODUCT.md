@@ -39,12 +39,15 @@ Es el sistema oficial de la propia Caja: sus boletas, saldos y parámetros son l
 ## Brand Commitments
 
 - Nombre institucional: **Caja Notarial de San Juan**.
-- La Caja tiene logo y colores institucionales; el usuario los va a proveer. Hasta entonces la identidad visual es provisional y debe poder reemplazarse ajustando tokens, sin rediseñar componentes.
+- Logo oficial (isologo con pluma estilográfica, petróleo `#113347`, logotipo pizarra `#21323B`) tomado del sitio institucional https://www.cajanotarial-sj.com.ar/; copia en `frontend/src/assets/brand/`.
+- Azul de acción del sitio institucional: `#1A76D1`.
+- No hay manual de marca formal: la identidad se expresa por tokens (ver DESIGN.md) para que un ajuste de marca no obligue a rediseñar componentes.
 
 ## Evidence on Hand
 
 - Documentación técnica y de requerimientos en `Docs/` (PDFs de arquitectura e ingeniería, borrador de requerimientos `.docx`, módulos en markdown).
-- Ausentes por ahora: logo, paleta oficial, fotografía, datos reales. No se fabrican.
+- Logo y colores institucionales: disponibles (ver Brand Commitments).
+- Ausentes por ahora: manual de marca, fotografía, datos reales. No se fabrican.
 
 ## Product Principles
 
