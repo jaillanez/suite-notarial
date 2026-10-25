@@ -238,3 +238,29 @@ async def test_admin_creates_self_service_account(
     assert baja.status_code == 200
     users = await client.get("/api/v1/users", params={"q": "autogestion"})
     assert users.json()["items"][0]["is_active"] is False
+
+
+async def test_caja_cannot_suspend_privileged_linked_account(
+    caja: AsyncClient, escribano: Factory, db_session: AsyncSession
+) -> None:
+    from sqlalchemy import update
+
+    from app.modules.padron.models import Escribano
+
+    privileged = await make_user(db_session, roles=("ROLE_ESCRIBANO", "ROLE_ADMIN"))
+    esc = await escribano()
+    await db_session.execute(
+        update(Escribano).where(Escribano.id == esc["id"]).values(user_id=privileged.id)
+    )
+    await db_session.commit()
+
+    response = await caja.post(
+        f"/api/v1/padron/escribanos/{esc['id']}/estado",
+        json={"nuevo_estado": "CESANTE", "motivo": "Cese por resolución", "fecha_efectiva": DATE},
+    )
+
+    assert response.status_code == 403
+    await db_session.refresh(privileged)
+    assert privileged.is_active is True
+    detail = (await caja.get(f"/api/v1/padron/escribanos/{esc['id']}")).json()
+    assert detail["estado_matricula"] == "ACTIVO"

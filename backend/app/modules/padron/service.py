@@ -16,6 +16,7 @@ from sqlalchemy.orm import aliased
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
+from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.iam.service import revoke_all_user_sessions
 from app.modules.padron.catalog import (
@@ -562,6 +563,18 @@ async def _suspend_linked_account(
     user = await session.get(User, escribano.user_id)
     if user is None or not user.is_active:
         return
+    if user.id == actor.id:
+        raise _conflict("No podés dar de baja tu propia matrícula: tu cuenta quedaría suspendida.")
+    # Una cuenta solo de autogestión se suspende como consecuencia directa de la baja. Si tiene
+    # otros roles, suspenderla es una decisión de administración de usuarios.
+    solo_autogestion = set(user.role_codes) <= {"ROLE_ESCRIBANO"}
+    if not solo_autogestion and Perm.USERS_SUSPEND.value not in actor.permission_codes:
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN,
+            "La cuenta vinculada tiene otros roles: suspenderla requiere el permiso users:suspend.",
+            type_="urn:suite-notarial:auth:forbidden",
+            extra={"missing_permissions": [Perm.USERS_SUSPEND.value]},
+        )
     old = {"is_active": True, "suspension_reason": user.suspension_reason}
     user.is_active = False
     user.suspension_reason = f"Matrícula {nuevo.value}: {motivo}"[:500]
