@@ -200,3 +200,31 @@ async def test_failed_codes_in_session_lock_account(
     await db_session.refresh(user)
     assert user.locked_until is not None
     assert (await client.get("/api/v1/auth/me")).status_code == 401
+
+
+async def test_mfa_enforcement_can_be_disabled_only_in_development(
+    client: AsyncClient, db_session: AsyncSession, app: object
+) -> None:
+    import pytest as _pytest
+
+    from app.core.config import Environment, Settings, get_settings
+
+    admin = await make_user(db_session, roles=("ROLE_ADMIN",))
+    relaxed = get_settings().model_copy(update={"MFA_ENFORCED": False})
+    from fastapi import FastAPI
+
+    assert isinstance(app, FastAPI)
+    app.dependency_overrides[get_settings] = lambda: relaxed
+    await _password_step(client, admin)
+
+    me = await client.get("/api/v1/auth/me")
+    assert me.json()["mfa_required"] is False
+    assert (await client.get("/api/v1/users")).status_code == 200
+
+    with _pytest.raises(ValueError, match="MFA_ENFORCED"):
+        Settings(
+            ENVIRONMENT=Environment.PRODUCTION,
+            PUBLIC_WEB_URL="https://suite.cajanotarial-sj.com.ar",
+            SMTP_SECURITY="tls",
+            MFA_ENFORCED=False,
+        )

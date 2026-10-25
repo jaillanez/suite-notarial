@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.deps import SessionDep, SettingsDep
+from app.core.config import Settings
 from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.cookies import ACCESS_COOKIE
@@ -101,14 +102,22 @@ async def get_principal(request: Request, session: SessionDep, settings: Setting
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
 
 
+def mfa_required_for(settings: Settings, user: User) -> bool:
+    """El rol exige 2FA y la exigencia está activa (solo se apaga en desarrollo)."""
+    return settings.MFA_ENFORCED and user.mfa_required
+
+
 def require_permissions(*required: Perm) -> Callable[..., Awaitable[Principal]]:
     """Exige todos los permisos indicados. Los rechazos quedan auditados."""
 
     async def checker(
-        principal: PrincipalDep, session: SessionDep, ctx: RequestContextDep
+        principal: PrincipalDep,
+        session: SessionDep,
+        settings: SettingsDep,
+        ctx: RequestContextDep,
     ) -> Principal:
         user = principal.user
-        if user.mfa_required and not principal.mfa_verified:
+        if mfa_required_for(settings, user) and not principal.mfa_verified:
             raise ProblemError(
                 HTTPStatus.FORBIDDEN,
                 "Tu rol exige verificación en dos pasos. Activala para continuar.",

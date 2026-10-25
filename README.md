@@ -13,8 +13,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 |------|---------|--------|
 | 0 | Bootstrap y cimientos | Completa |
 | 1 | IAM & RBAC: login, 2FA, sesiones, recuperación de clave, usuarios y auditoría | Completa |
-| 2 | Padrón: escribanos, matrículas, registros, cargos y circunscripciones | En revisión |
-| 3–10 | Ver `AGENTS.md` | Pendiente |
+| 2 | Padrón: escribanos, matrículas, registros, cargos y circunscripciones | Completa |
+| 3 | Motor paramétrico de aportes: conceptos, vigencias versionadas y cálculo | En revisión |
+| 4–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -88,10 +89,16 @@ corré `make db migrate` de nuevo.
 | Auditoría | `auditor@suite-notarial.example` | Obligatorio |
 | Escribano | `escribano@suite-notarial.example` | Opcional |
 
-Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
+También carga los **parámetros 2026 relevados del sistema en uso** (aporte por escrituras,
+fijos por acto, mínimo mensual, médico asistencial y tasa de mora; ver
+`backend/app/modules/parametros/sistema_actual.py`). La tasa de mora figura «a confirmar»
+porque la pantalla no indica su unidad. Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
 (el primero vinculado a la cuenta `escribano@suite-notarial.example`). Son datos inventados.
 
-Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. Para
+Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. En
+desarrollo local se puede apagar esa exigencia con `MFA_ENFORCED=false` en `backend/.env`, para
+no reactivarlo tras cada `make reset-dev`; la configuración rechaza ese valor fuera de
+development/test y los tests siempre corren con el 2FA exigido. Para
 producción, el primer administrador se crea con
 `make create-admin email=... cuit=... name="..."` (pide la contraseña por consola).
 
@@ -186,6 +193,32 @@ Ya aplicadas:
 - **Sin borrado físico (INM):** la app no tiene DELETE ni TRUNCATE sobre las tablas del padrón y un
   trigger lo impide también al dueño. Toda alta, edición, cambio de estado o cargo se audita.
 - **Endpoints:** `/api/v1/padron/{escribanos,registros,circunscripciones,departamentos,cargos}`.
+
+## Motor paramétrico (Fase 3)
+
+- **Conceptos** de cuatro tipos: porcentaje sobre escrituras (con mínimo y tope opcionales),
+  monto fijo por acto, monto fijo mensual y tasa de mora (mensual o anual, con días de gracia).
+  Cada uno tiene **vigencias** con fecha desde y hasta (o sin fin).
+- **Relevado del sistema actual:** la fórmula `aporte = base × 0,40 %` acotada por mínimo y tope
+  reproduce al centavo las 351 escrituras del reporte de agosto-septiembre 2026, y la boleta
+  09/2026 se reconstruye con el mínimo mensual (excedente = protocolos − mínimo) más el aporte
+  médico. Las capturas de origen están en `Docs/privado/` (fuera del repositorio).
+- **Nunca se sobreescribe:** una vigencia nueva es una fila nueva. Un trigger impide modificar o
+  borrar sus valores; solo se cierra la fecha hasta de una vigencia abierta cuando se aprueba la
+  que la reemplaza (el día anterior a su inicio), y queda auditado.
+- **Sin solapamiento:** una restricción de exclusión (GiST sobre rangos de fechas) impide en la
+  base que dos vigencias aprobadas del mismo concepto se superpongan; la API lo rechaza antes con
+  un mensaje claro.
+- **Cuatro ojos:** quien propone una vigencia no puede aprobarla (permiso `parameters:approve`,
+  verificado en la API y como CHECK en la base). Toda propuesta, aprobación, rechazo o cierre
+  queda en la auditoría.
+- **Resolución por fecha:** `get_vigencia(codigo, fecha)` devuelve la única vigencia aprobada
+  aplicable o un error explícito; las boletas guardarán su id (SNAP).
+- **Cálculo exacto:** montos `Numeric(15,2)`, tasas `Numeric(18,4)` expresadas en %, todo en
+  `Decimal` y transmitido como texto (nunca como número de punto flotante).
+- **Pendiente de negocio (`TODO(negocio)`):** unidad de la tasa de interés («34»: se tomó como
+  anual), interés simple o compuesto y base de días, días de gracia y desde cuándo corre la mora;
+  y la resolución que respalda cada valor (el sistema actual no la muestra).
 
 ## Seguridad de acceso (Fase 1)
 

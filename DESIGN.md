@@ -260,6 +260,7 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - `<dialog>` nativo con `showModal`: foco atrapado, Escape y fondo inerte del navegador; al abrir, el foco va al primer campo.
 - Panel de 8px, ancho máximo 32rem, cabecera con título y botón de cerrar de 44px, pie en Superficie Hundida con acciones a la derecha (apiladas en celular, la principal arriba). Fondo del backdrop: Petróleo 950 al 40%.
 - Solo para tareas que necesitan foco protegido: alta, suspensión con motivo, roles, códigos 2FA.
+- Alto máximo de la pantalla menos 2rem: si el contenido es largo, se desplaza solo el cuerpo; título y acciones quedan siempre visibles.
 
 ### Tables y listas de datos
 - Tabla dentro del panel, cabecera fija (`sticky`) en Superficie Hundida con texto Caption/600 en Tinta Secundaria; filas divididas por Línea; cifras tabulares en CUIT y fechas.
@@ -274,6 +275,11 @@ Contenidos y seguros: la acción se ofrece, no grita.
 
 ### Listas navegables
 - Cuando cada fila lleva a una ficha, la fila entera es el enlace (hover en Bruma Petróleo y chevron a la derecha). Un número identificador grande y tabular (p. ej. el Nº de registro) puede encabezar la fila.
+
+### Importes y tasas
+- Los importes y porcentajes llegan de la API como texto decimal y se formatean sin pasar por número de punto flotante: `$ 1.234.567,50`, `1,5 %` (sin ceros de más). Siempre con cifras tabulares.
+- Los campos de importe aceptan la forma local (`1.234,56`) y se normalizan antes de enviarse.
+- Un valor que no está confirmado como oficial lleva el indicador de atención "A confirmar" junto al valor y un aviso en la página; nunca se presenta igual que uno aprobado.
 
 ### Navigation (cabecera institucional)
 - Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio. Mismo ancho máximo que el contenido.

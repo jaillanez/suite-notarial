@@ -1,5 +1,6 @@
 """Punto de entrada de la API."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,7 @@ from app.modules.health.router import router as health_router
 from app.modules.iam.router_auth import router as auth_router
 from app.modules.iam.router_users import router as users_router
 from app.modules.padron.router import router as padron_router
+from app.modules.parametros.router import router as parametros_router
 
 
 @asynccontextmanager
@@ -26,6 +28,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.LOG_LEVEL)
+    if not settings.MFA_ENFORCED:
+        logging.getLogger(__name__).warning(
+            "2FA obligatorio DESACTIVADO (MFA_ENFORCED=false): solo para desarrollo local."
+        )
 
     app = FastAPI(
         title="Suite Notarial API",
@@ -49,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(padron_router, prefix="/api/v1")
+    app.include_router(parametros_router, prefix="/api/v1")
     return app
 
 

@@ -14,6 +14,8 @@ import { EscribanoPage } from './features/padron/EscribanoPage'
 import { EscribanosPage } from './features/padron/EscribanosPage'
 import { RegistroPage } from './features/padron/RegistroPage'
 import { RegistrosPage } from './features/padron/RegistrosPage'
+import { ConceptoPage } from './features/parametros/ConceptoPage'
+import { ParametrosPage } from './features/parametros/ParametrosPage'
 import { UsersPage } from './features/users/UsersPage'
 
 const router = createBrowserRouter([
@@ -59,6 +61,13 @@ const router = createBrowserRouter([
           {
             element: <RequirePermission permission="escribanos:write" />,
             children: [{ path: '/padron/escribanos/nuevo', element: <EscribanoNuevoPage /> }],
+          },
+          {
+            element: <RequirePermission permission="parameters:read" />,
+            children: [
+              { path: '/parametros', element: <ParametrosPage /> },
+              { path: '/parametros/:id', element: <ConceptoPage /> },
+            ],
           },
           {
             element: <RequirePermission permission="audit:read" />,

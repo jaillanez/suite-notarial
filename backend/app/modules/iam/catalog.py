@@ -27,6 +27,7 @@ class Perm(StrEnum):
     COMPROBANTES_VERIFY = "comprobantes:verify"
     PARAMETERS_READ = "parameters:read"
     PARAMETERS_WRITE = "parameters:write"
+    PARAMETERS_APPROVE = "parameters:approve"
     REPORTS_FINANCIAL = "reports:financial"
     AUDIT_READ = "audit:read"
     CMS_PUBLISH = "cms:publish"
@@ -49,7 +50,8 @@ PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
     Perm.COMPROBANTES_UPLOAD: "Adjuntar comprobantes de pago",
     Perm.COMPROBANTES_VERIFY: "Revisar y conciliar comprobantes de pago",
     Perm.PARAMETERS_READ: "Consultar parámetros previsionales vigentes",
-    Perm.PARAMETERS_WRITE: "Crear o actualizar parámetros y vigencias",
+    Perm.PARAMETERS_WRITE: "Proponer parámetros y vigencias",
+    Perm.PARAMETERS_APPROVE: "Aprobar o rechazar vigencias propuestas por otra persona",
     Perm.REPORTS_FINANCIAL: "Ver y exportar reportes de recaudación y deuda",
     Perm.AUDIT_READ: "Ver registros de auditoría",
     Perm.CMS_PUBLISH: "Publicar contenidos institucionales",
@@ -161,6 +163,7 @@ SENSITIVE_PERMISSIONS: frozenset[Perm] = frozenset(
         Perm.BOLETAS_READ_ALL,
         Perm.COMPROBANTES_VERIFY,
         Perm.PARAMETERS_WRITE,
+        Perm.PARAMETERS_APPROVE,
         Perm.REPORTS_FINANCIAL,
         Perm.AUDIT_READ,
         Perm.CMS_PUBLISH,

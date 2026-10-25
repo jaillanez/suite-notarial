@@ -532,7 +532,7 @@ async def disable_mfa(
 ) -> None:
     if not user.totp_enabled:
         raise ProblemError(HTTPStatus.CONFLICT, "La verificación en dos pasos no está activa.")
-    if user.mfa_required:
+    if settings.MFA_ENFORCED and user.mfa_required:
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
             "Tu rol exige verificación en dos pasos: no se puede desactivar.",

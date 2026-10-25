@@ -137,7 +137,63 @@ async def seed_dev() -> int:
     _out(f"Usuarios de desarrollo creados: {created} (contraseña: DEV_SEED_PASSWORD).")
     async with get_sessionmaker()() as session:
         await _seed_padron_demo(session)
+    async with get_sessionmaker()() as session:
+        await _seed_parametros_demo(session)
     return 0
+
+
+async def _seed_parametros_demo(session: AsyncSession) -> None:
+    """Parámetros 2026 relevados del sistema en uso (ver parametros/sistema_actual.py).
+
+    En desarrollo se cargan ya aprobados para poder calcular; los de significado dudoso quedan
+    marcados como ejemplo. En producción se cargan como propuestas que aprueba la Caja.
+    """
+    from datetime import UTC, datetime
+
+    from app.modules.parametros.models import Concepto, Vigencia
+    from app.modules.parametros.sistema_actual import CONCEPTOS, FUENTE
+
+    if await session.scalar(select(Concepto.id).limit(1)):
+        _out("Parámetros: ya existen, no se modifican.")
+        return
+    admin = await session.scalar(select(User).where(User.email == DEV_USERS[0][0]))
+    aprobador = await session.scalar(select(User).where(User.email == DEV_USERS[2][0]))
+    if admin is None or aprobador is None:
+        return
+    vigencias = 0
+    for relevado in CONCEPTOS:
+        concepto = Concepto(
+            id=uuid.uuid4(),
+            codigo=relevado.codigo,
+            nombre=relevado.nombre,
+            tipo=relevado.tipo.value,
+            descripcion=relevado.descripcion,
+            created_by_user_id=admin.id,
+        )
+        session.add(concepto)
+        for version, tramo in enumerate(relevado.tramos, start=1):
+            session.add(
+                Vigencia(
+                    concepto_id=concepto.id,
+                    version=version,
+                    fecha_desde=tramo.desde,
+                    fecha_hasta=tramo.hasta,
+                    **tramo.valores,
+                    es_ejemplo=tramo.a_confirmar,
+                    estado="VIGENTE",
+                    resolucion_respaldo="Sistema actual (sin resolución)",
+                    motivo=f"{FUENTE}. TODO(negocio): citar la resolución que lo dispuso.",
+                    created_by_user_id=admin.id,
+                    aprobado_por_user_id=aprobador.id,
+                    fecha_aprobacion=datetime.now(UTC),
+                )
+            )
+            vigencias += 1
+    await session.commit()
+    _out(
+        f"Parámetros del sistema actual: {len(CONCEPTOS)} conceptos, {vigencias} vigencias "
+        "(la tasa de mora queda marcada a confirmar)."
+    )
 
 
 DEMO_ESCRIBANOS: tuple[tuple[str, str, int, str | None, int | None], ...] = (
