@@ -1,0 +1,63 @@
+# Hooks de calidad. Instalar con `make hooks`.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^Docs/  # especificaciones originales: en markdown los espacios finales son saltos de línea
+      - id: end-of-file-fixer
+        exclude: ^Docs/
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: bash -c 'cd backend && .venv/bin/ruff check .'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff (format)
+        entry: bash -c 'cd backend && .venv/bin/ruff format --check .'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd backend && .venv/bin/mypy app tests'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+      - id: forbidden-tokens
+        name: sin print( / float en dinero
+        entry: python3 scripts/check_forbidden_tokens.py
+        language: system
+        types: [python]
+        files: ^backend/app/
+      - id: eslint
+        name: eslint
+        entry: bash -c 'cd frontend && ./node_modules/.bin/eslint --max-warnings=0 .'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js)$
+        pass_filenames: false
+      - id: prettier
+        name: prettier
+        entry: bash -c 'cd frontend && ./node_modules/.bin/prettier --check .'
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+      - id: tsc
+        name: tsc --noEmit
+        entry: bash -c 'cd frontend && ./node_modules/.bin/tsc -b --noEmit'
+        language: system
+        files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false
