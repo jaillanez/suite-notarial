@@ -108,6 +108,8 @@ async def create_user(
     ctx: RequestContext,
     actor: User,
     data: UserCreate,
+    *,
+    commit: bool = True,
 ) -> tuple[User, str]:
     """Crea la cuenta sin contraseña utilizable y devuelve el token para que la defina."""
     roles = await _resolve_roles(session, data.roles)
@@ -145,11 +147,13 @@ async def create_user(
             "roles": sorted(r.code for r in roles),
         },
     )
-    await session.commit()
-    await session.refresh(user, attribute_names=["roles"])
-    raw = await create_password_reset_token(session, settings, ctx, user)
+    await session.flush()
+    raw = await create_password_reset_token(session, settings, ctx, user, commit=False)
     if raw is None:
         raise ProblemError(HTTPStatus.INTERNAL_SERVER_ERROR, "No se pudo emitir el enlace de alta.")
+    if commit:
+        await session.commit()
+        await session.refresh(user, attribute_names=["roles"])
     return user, raw
 
 

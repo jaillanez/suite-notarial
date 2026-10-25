@@ -249,3 +249,9 @@ class EscribanoDetalle(EscribanoOut):
     fecha_ultimo_cambio_estado: datetime | None
     cargos: list[CargoOut]
     historial: list[HistorialOut]
+
+
+class CuentaIn(BaseModel):
+    """El operador confirma el correo: debe coincidir con el registrado en el padrón."""
+
+    email: EmailStr

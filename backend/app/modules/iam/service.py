@@ -590,9 +590,18 @@ def reset_link(settings: Settings, raw_token: str) -> str:
 
 
 async def create_password_reset_token(
-    session: AsyncSession, settings: Settings, ctx: RequestContext, user: User
+    session: AsyncSession,
+    settings: Settings,
+    ctx: RequestContext,
+    user: User,
+    *,
+    commit: bool = True,
 ) -> str | None:
-    """Emite un token de un solo uso. Devuelve `None` si se superó el límite por hora."""
+    """Emite un token de un solo uso. Devuelve `None` si se superó el límite por hora.
+
+    Con `commit=False` deja la escritura pendiente para que el llamador la confirme junto
+    con el resto de su operación (p. ej. el alta de una cuenta).
+    """
     now = _now()
     recent = await session.scalar(
         select(func.count())
@@ -637,7 +646,10 @@ async def create_password_reset_token(
         target_user_id=user.id,
         details={"sent": True, "expires_at": expires_at.isoformat()},
     )
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return raw
 
 

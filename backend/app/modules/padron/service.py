@@ -17,6 +17,7 @@ from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
 from app.modules.iam.models import User
+from app.modules.iam.service import revoke_all_user_sessions
 from app.modules.padron.catalog import (
     ESTADOS_DEFINITIVOS,
     ESTADOS_TERMINALES,
@@ -522,6 +523,8 @@ async def change_estado(
     escribano.estado_matricula = nuevo.value
     escribano.motivo_ultimo_cambio_estado = data.motivo
     escribano.fecha_ultimo_cambio_estado = datetime.now(UTC)
+    if nuevo in ESTADOS_DEFINITIVOS:
+        await _suspend_linked_account(session, ctx, actor, escribano, nuevo, data.motivo)
     record_audit(
         session,
         ctx,
@@ -540,6 +543,52 @@ async def change_estado(
     )
     await session.commit()
     return escribano
+
+
+async def _suspend_linked_account(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    escribano: Escribano,
+    nuevo: EstadoMatricula,
+    motivo: str,
+) -> None:
+    """Una baja definitiva de la matrícula suspende la cuenta de autogestión en la misma
+    transacción. Volver a ACTIVO no la reactiva: lo decide un administrador de usuarios.
+    TODO(negocio): definir si SUSPENDIDO también debe bloquear el acceso de autogestión.
+    """
+    if escribano.user_id is None:
+        return
+    user = await session.get(User, escribano.user_id)
+    if user is None or not user.is_active:
+        return
+    old = {"is_active": True, "suspension_reason": user.suspension_reason}
+    user.is_active = False
+    user.suspension_reason = f"Matrícula {nuevo.value}: {motivo}"[:500]
+    user.suspended_at = datetime.now(UTC)
+    user.suspended_by_user_id = actor.id
+    await revoke_all_user_sessions(session, user.id, "matricula_baja")
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.USER_STATUS_CHANGED,
+        severity=Severity.WARNING,
+        actor_user_id=actor.id,
+        target_user_id=user.id,
+        old_value=old,
+        new_value={"is_active": False, "suspension_reason": user.suspension_reason},
+        details={"origen": "padron", "escribano_id": str(escribano.id)},
+    )
+
+
+async def get_escribano_for_update(session: AsyncSession, escribano_id: uuid.UUID) -> Escribano:
+    result = await session.execute(
+        select(Escribano).where(Escribano.id == escribano_id).with_for_update(of=Escribano)
+    )
+    item = result.unique().scalars().first()
+    if item is None:
+        raise _not_found("El escribano")
+    return item
 
 
 async def list_historial(
@@ -678,6 +727,7 @@ async def link_account(
     escribano: Escribano,
     user: User,
 ) -> None:
+    """Vincula la cuenta recién creada. El llamador confirma todo en una sola transacción."""
     escribano.user_id = user.id
     record_audit(
         session,
@@ -685,6 +735,9 @@ async def link_account(
         AuditEvent.PADRON_CUENTA_CREATED,
         actor_user_id=actor.id,
         target_user_id=user.id,
-        details={"escribano_id": str(escribano.id), "matricula_numero": escribano.matricula_numero},
+        details={
+            "escribano_id": str(escribano.id),
+            "matricula_numero": escribano.matricula_numero,
+            "email": user.email,
+        },
     )
-    await _commit_unique(session)

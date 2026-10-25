@@ -33,6 +33,7 @@ from app.modules.padron.schemas import (
     CircunscripcionIn,
     CircunscripcionOut,
     CircunscripcionUpdate,
+    CuentaIn,
     EscribanoDetalle,
     EscribanoIn,
     EscribanoOut,
@@ -363,6 +364,7 @@ async def close_cargo(
 @router.post("/escribanos/{escribano_id}/cuenta", response_model=EscribanoDetalle, status_code=201)
 async def create_account(
     escribano_id: uuid.UUID,
+    body: CuentaIn,
     principal: CanCreateAccount,
     background: BackgroundTasks,
     session: SessionDep,
@@ -370,8 +372,11 @@ async def create_account(
     ctx: RequestContextDep,
     mailer: MailerDep,
 ) -> EscribanoDetalle:
-    """Crea la cuenta de autogestión del escribano y le envía el enlace para definir la clave."""
-    escribano = await service.get_escribano(session, escribano_id)
+    """Crea la cuenta de autogestión del escribano y le envía el enlace para definir la clave.
+
+    Cuenta, vínculo y token se confirman juntos: si algo falla no queda una cuenta huérfana.
+    """
+    escribano = await service.get_escribano_for_update(session, escribano_id)
     if escribano.user_id is not None:
         raise ProblemError(HTTPStatus.CONFLICT, "El escribano ya tiene cuenta de autogestión.")
     persona = escribano.persona
@@ -380,19 +385,29 @@ async def create_account(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "Cargá el correo electrónico del escribano antes de crearle la cuenta.",
         )
-    user, raw = await users_service.create_user(
-        session,
-        settings,
-        ctx,
-        principal.user,
-        UserCreate(
-            email=persona.email,
-            full_name=f"{persona.nombre} {persona.apellido}",
-            cuit=persona.cuit,
-            roles=["ROLE_ESCRIBANO"],
-        ),
-    )
-    escribano = await service.get_escribano(session, escribano_id)
-    await service.link_account(session, ctx, principal.user, escribano, user)
+    if str(body.email).lower() != persona.email.lower():
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "El correo confirmado no coincide con el registrado en el padrón.",
+        )
+    try:
+        user, raw = await users_service.create_user(
+            session,
+            settings,
+            ctx,
+            principal.user,
+            UserCreate(
+                email=persona.email,
+                full_name=f"{persona.nombre} {persona.apellido}",
+                cuit=persona.cuit,
+                roles=["ROLE_ESCRIBANO"],
+            ),
+            commit=False,
+        )
+        await service.link_account(session, ctx, principal.user, escribano, user)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     background.add_task(send_safely, mailer, account_created_mail(settings, user, raw))
-    return await escribano_detalle(session, escribano)
+    return await escribano_detalle(session, await service.get_escribano(session, escribano_id))

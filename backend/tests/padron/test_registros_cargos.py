@@ -177,7 +177,10 @@ async def test_self_service_account(
     esc = await escribano(email="escribano.sintetico@suite-notarial.example")
 
     # Caja no tiene users:write: no puede crear cuentas.
-    denied = await caja.post(f"/api/v1/padron/escribanos/{esc['id']}/cuenta")
+    denied = await caja.post(
+        f"/api/v1/padron/escribanos/{esc['id']}/cuenta",
+        json={"email": "escribano.sintetico@suite-notarial.example"},
+    )
     assert denied.status_code == 403
 
 
@@ -204,17 +207,34 @@ async def test_admin_creates_self_service_account(
     )
     esc_id = created.json()["id"]
 
-    without_email = await client.post(f"/api/v1/padron/escribanos/{esc_id}/cuenta")
+    url = f"/api/v1/padron/escribanos/{esc_id}/cuenta"
+    email = "cuenta.autogestion@suite-notarial.example"
+    without_email = await client.post(url, json={"email": email})
     assert without_email.status_code == 422
 
     await client.patch(
         f"/api/v1/padron/escribanos/{esc_id}",
         json={"persona": {"email": "Cuenta.Autogestion@suite-notarial.example"}},
     )
-    response = await client.post(f"/api/v1/padron/escribanos/{esc_id}/cuenta")
+    mismatch = await client.post(url, json={"email": "otro@suite-notarial.example"})
+    assert mismatch.status_code == 422
+    response = await client.post(url, json={"email": email})
 
     assert response.status_code == 201
     assert response.json()["tiene_cuenta"] is True
-    assert mailer.sent[-1].to == "cuenta.autogestion@suite-notarial.example"
-    again = await client.post(f"/api/v1/padron/escribanos/{esc_id}/cuenta")
+    assert mailer.sent[-1].to == email
+    again = await client.post(url, json={"email": email})
     assert again.status_code == 409
+
+    # Baja definitiva de la matrícula: la cuenta queda suspendida en la misma operación.
+    baja = await client.post(
+        f"/api/v1/padron/escribanos/{esc_id}/estado",
+        json={
+            "nuevo_estado": "JUBILADO",
+            "motivo": "Jubilación ordinaria",
+            "fecha_efectiva": "2026-10-01",
+        },
+    )
+    assert baja.status_code == 200
+    users = await client.get("/api/v1/users", params={"q": "autogestion"})
+    assert users.json()["items"][0]["is_active"] is False
