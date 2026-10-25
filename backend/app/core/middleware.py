@@ -13,7 +13,9 @@ from app.core.errors import problem_response
 logger = logging.getLogger(__name__)
 
 CORRELATION_HEADER = "X-Correlation-ID"
-# Solo se acepta un ID entrante acotado y seguro para logs; si no, se genera uno nuevo.
+CLIENT_CORRELATION_HEADER = "X-Client-Correlation-ID"
+# El ID autoritativo lo genera siempre el servidor. El del cliente se conserva aparte, solo si es
+# acotado y seguro para logs, para que un cliente no pueda suplantar ni mezclar trazas ajenas.
 _VALID_CORRELATION_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 SECURITY_HEADERS = {
@@ -25,9 +27,9 @@ SECURITY_HEADERS = {
 }
 
 
-def _correlation_id(request: Request) -> str:
+def _client_correlation_id(request: Request) -> str | None:
     incoming = request.headers.get(CORRELATION_HEADER, "")
-    return incoming if _VALID_CORRELATION_ID.fullmatch(incoming) else str(uuid.uuid4())
+    return incoming if _VALID_CORRELATION_ID.fullmatch(incoming) else None
 
 
 def register_middleware(app: FastAPI) -> None:
@@ -35,20 +37,28 @@ def register_middleware(app: FastAPI) -> None:
     async def correlation_and_security_headers(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        correlation_id = _correlation_id(request)
+        correlation_id = str(uuid.uuid4())
+        client_correlation_id = _client_correlation_id(request)
         request.state.correlation_id = correlation_id
+        request.state.client_correlation_id = client_correlation_id
         try:
             response = await call_next(request)
         except Exception:
             # Se resuelve acá para que también los 500 lleven correlación y cabeceras.
             logger.exception(
                 "Error no controlado",
-                extra={"path": request.url.path, "correlation_id": correlation_id},
+                extra={
+                    "path": request.url.path,
+                    "correlation_id": correlation_id,
+                    "client_correlation_id": client_correlation_id,
+                },
             )
             response = problem_response(
                 request, HTTPStatus.INTERNAL_SERVER_ERROR, "Error interno del servidor."
             )
         response.headers[CORRELATION_HEADER] = correlation_id
+        if client_correlation_id:
+            response.headers[CLIENT_CORRELATION_HEADER] = client_correlation_id
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
         return response

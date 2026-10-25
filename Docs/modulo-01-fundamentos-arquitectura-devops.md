@@ -185,7 +185,7 @@ El servicio no arranca si falta una variable obligatoria o si es inválida.
 - CORS estricto con `allow_credentials=True` y orígenes explícitos. En desarrollo Vite proxea `/api`, por lo que el navegador ve un único origen.
 - Documentación OpenAPI en `/api/docs` y `/api/openapi.json`, deshabilitada en producción.
 - Cada respuesta, incluidos los errores 500, lleva:
-  - `X-Correlation-ID`: se respeta el valor entrante solo si cumple `^[A-Za-z0-9._-]{1,128}$` (evita inyección en logs); si no, se genera un UUID.
+  - `X-Correlation-ID`: UUID generado siempre por el servidor; es el identificador autoritativo en logs, errores y auditoría. Un `X-Correlation-ID` enviado por el cliente nunca lo reemplaza: si cumple `^[A-Za-z0-9._-]{1,128}$` se conserva aparte y se devuelve como `X-Client-Correlation-ID`; si no, se descarta.
   - `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
 - Errores en RFC 7807 (`application/problem+json`) con `type`, `title`, `status`, `detail`, `instance` y `correlation_id`. Los 500 nunca exponen el mensaje interno.
 

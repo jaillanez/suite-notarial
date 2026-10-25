@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,  # cookies HttpOnly de sesión
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "X-Requested-With", "X-Correlation-ID"],
-        expose_headers=["X-Correlation-ID"],
+        expose_headers=["X-Correlation-ID", "X-Client-Correlation-ID"],
     )
     register_middleware(app)
     register_exception_handlers(app)
