@@ -63,11 +63,12 @@ class OutgoingMail:
 
 def render_mail(template: str, subject: str, to: str, context: dict[str, Any]) -> OutgoingMail:
     """Renderiza `<template>.txt` y `<template>.html`."""
+    full_context = {**context, "subject": subject}
     return OutgoingMail(
         to=to,
         subject=subject,
-        text=_env.get_template(f"{template}.txt").render(**context),
-        html=_env.get_template(f"{template}.html").render(**context),
+        text=_env.get_template(f"{template}.txt").render(**full_context),
+        html=_env.get_template(f"{template}.html").render(**full_context),
     )
 
 

@@ -86,7 +86,7 @@ ROLES: list[tuple[str, str, str, bool, list[str]]] = [('ROLE_ADMIN',
  ('ROLE_AUDITOR',
   'Auditoría y Fiscalización',
   'Consulta de solo lectura de registros, parámetros y auditoría.',
-  False,
+  True,
   ['audit:read',
    'boletas:read_all',
    'ddjj:read_all',
@@ -258,6 +258,27 @@ def upgrade() -> None:
         "CREATE TRIGGER audit_security_logs_no_update_delete "
         "BEFORE UPDATE OR DELETE ON audit_security_logs "
         "FOR EACH ROW EXECUTE FUNCTION audit_security_logs_immutable()"
+    )
+    # Defensa principal: ningún rol distinto del dueño conserva UPDATE/DELETE/TRUNCATE sobre la
+    # auditoría. El trigger queda como segunda barrera (también frena al dueño por error).
+    op.execute(
+        """
+        DO $$
+        DECLARE grantee_name text;
+        BEGIN
+            FOR grantee_name IN
+                SELECT DISTINCT grantee FROM information_schema.role_table_grants
+                WHERE table_schema = 'public' AND table_name = 'audit_security_logs'
+                  AND grantee <> current_user
+            LOOP
+                EXECUTE format(
+                    'REVOKE UPDATE, DELETE, TRUNCATE ON audit_security_logs FROM %I',
+                    grantee_name
+                );
+            END LOOP;
+        END
+        $$;
+        """
     )
     op.execute(
         "CREATE TRIGGER audit_security_logs_no_truncate "

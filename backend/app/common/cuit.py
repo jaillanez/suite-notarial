@@ -4,7 +4,10 @@ import re
 
 _WEIGHTS = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
 _VALID_PREFIXES = frozenset({"20", "23", "24", "27", "30", "33", "34"})
-_SEPARATORS = re.compile(r"[\s.\-/]")
+# Solo separadores ASCII: `\s` aceptaría NBSP y otros espacios Unicode.
+_SEPARATORS = re.compile(r"[ .\-/]")
+# Rango explícito: `isdigit()` y `\d` aceptan dígitos no ASCII (p. ej. arábigos).
+_DIGITS11 = re.compile(r"[0-9]{11}")
 
 
 class InvalidCuitError(ValueError):
@@ -25,7 +28,7 @@ def check_digit(first_ten: str) -> int | None:
 def normalize_cuit(value: str) -> str:
     """Devuelve los 11 dígitos sin separadores o lanza `InvalidCuitError`."""
     digits = _SEPARATORS.sub("", value)
-    if not digits.isdigit() or len(digits) != 11:
+    if not _DIGITS11.fullmatch(digits):
         raise InvalidCuitError("El CUIT debe tener 11 dígitos.")
     if digits[:2] not in _VALID_PREFIXES:
         raise InvalidCuitError("El prefijo del CUIT no es válido.")

@@ -79,6 +79,7 @@ class RequestContext:
     ip_address: str | None
     user_agent: str | None
     correlation_id: str | None
+    path: str | None = None
 
     @classmethod
     def from_request(cls, request: Request) -> "RequestContext":
@@ -87,6 +88,7 @@ class RequestContext:
             ip_address=request.client.host if request.client else None,
             user_agent=user_agent[:500] if user_agent else None,
             correlation_id=getattr(request.state, "correlation_id", None),
+            path=f"{request.method} {request.url.path}",
         )
 
 

@@ -58,7 +58,11 @@ async def test_domain_problem() -> None:
 
 async def test_validation_is_422_problem() -> None:
     async with await _client(_app_with_test_routes()) as ac:
-        response = await ac.post("/api/_test/validate", json={"cantidad": "no-numero"})
+        response = await ac.post(
+            "/api/_test/validate",
+            json={"cantidad": "no-numero"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
 
     assert response.status_code == 422
     assert response.headers["content-type"] == PROBLEM_JSON

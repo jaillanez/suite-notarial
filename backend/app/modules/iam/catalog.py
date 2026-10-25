@@ -123,7 +123,7 @@ ROLES: tuple[RoleDef, ...] = (
         "ROLE_AUDITOR",
         "Auditoría y Fiscalización",
         "Consulta de solo lectura de registros, parámetros y auditoría.",
-        False,
+        True,
         frozenset(
             {
                 Perm.USERS_READ,
@@ -146,3 +146,23 @@ ROLES: tuple[RoleDef, ...] = (
 )
 
 ROLES_BY_CODE: dict[str, RoleDef] = {r.code: r for r in ROLES}
+
+# Permisos que dan acceso a datos de terceros, finanzas o auditoría: el rol que los tenga debe
+# exigir 2FA. Lo verifica tests/test_iam_catalog.py.
+SENSITIVE_PERMISSIONS: frozenset[Perm] = frozenset(
+    {
+        Perm.USERS_WRITE,
+        Perm.USERS_SUSPEND,
+        Perm.ROLES_MANAGE,
+        Perm.ESCRIBANOS_WRITE,
+        Perm.ESCRIBANOS_STATUS,
+        Perm.DDJJ_READ_ALL,
+        Perm.DDJJ_APPROVE,
+        Perm.BOLETAS_READ_ALL,
+        Perm.COMPROBANTES_VERIFY,
+        Perm.PARAMETERS_WRITE,
+        Perm.REPORTS_FINANCIAL,
+        Perm.AUDIT_READ,
+        Perm.CMS_PUBLISH,
+    }
+)

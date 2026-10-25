@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     )
 
     ENVIRONMENT: Environment = Environment.DEVELOPMENT
+    # Rol de la aplicación (sin privilegios de dueño). Ver scripts/bootstrap_db.sh.
     DATABASE_URL: PostgresDsn
+    # Rol dueño del esquema, solo para migraciones. Si falta, se usa DATABASE_URL.
+    MIGRATIONS_DATABASE_URL: PostgresDsn | None = None
     PUBLIC_WEB_URL: HttpUrl
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
@@ -60,6 +63,9 @@ class Settings(BaseSettings):
     MAX_UPLOAD_MB: Annotated[int, Field(gt=0)] = 10
 
     LOG_LEVEL: str = "INFO"
+
+    # Solo desarrollo: contraseña de los usuarios de demostración (make seed-dev).
+    DEV_SEED_PASSWORD: SecretStr | None = None
 
     @field_validator("JWT_SECRET")
     @classmethod
@@ -102,6 +108,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT is Environment.PRODUCTION
+
+    @property
+    def migrations_database_url(self) -> str:
+        return str(self.MIGRATIONS_DATABASE_URL or self.DATABASE_URL)
 
     @property
     def public_web_base(self) -> str:

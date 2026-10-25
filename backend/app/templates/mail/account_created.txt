@@ -1,0 +1,9 @@
+Hola, {{ full_name }}.
+
+La Caja Notarial de San Juan creó tu cuenta en la Suite Notarial. Para ingresar, definí tu contraseña en este enlace:
+{{ link }}
+
+El enlace vence en {{ ttl_minutes }} minutos. Si vence, usá "Olvidé mi contraseña" en la pantalla de ingreso con tu correo o CUIT.
+
+—
+Caja Notarial de San Juan · Mensaje automático, no lo respondas.

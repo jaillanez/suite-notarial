@@ -14,7 +14,8 @@ export API_PORT ?= 8000
 export WEB_PORT ?= 5173
 
 .PHONY: help install install-backend install-frontend db mailpit backend frontend dev \
-        migrate revision test test-backend test-frontend lint lint-backend lint-frontend fmt hooks
+        migrate revision test test-backend test-frontend lint lint-backend lint-frontend fmt hooks \
+        create-admin seed-dev
 
 help: ## Lista los comandos disponibles
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -51,6 +52,13 @@ migrate: ## Aplica migraciones pendientes
 revision: ## Genera una migración: make revision m="descripcion"
 	@test -n "$(m)" || (echo 'Uso: make revision m="descripcion"' && exit 1)
 	cd $(BACKEND) && .venv/bin/alembic revision --autogenerate -m "$(m)"
+
+create-admin: ## Crea un administrador: make create-admin email=... cuit=... name="..."
+	@test -n "$(email)" -a -n "$(cuit)" -a -n "$(name)" || (echo 'Uso: make create-admin email=... cuit=... name="..."' && exit 1)
+	cd $(BACKEND) && .venv/bin/python -m app.modules.iam.cli create-admin --email "$(email)" --cuit "$(cuit)" --name "$(name)"
+
+seed-dev: ## Crea usuarios de demostración (solo development; usa DEV_SEED_PASSWORD)
+	cd $(BACKEND) && .venv/bin/python -m app.modules.iam.cli seed-dev
 
 test: test-backend test-frontend ## Corre todos los tests
 

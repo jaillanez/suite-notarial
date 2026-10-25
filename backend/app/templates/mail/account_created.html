@@ -1,0 +1,7 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p style="margin:0 0 16px;">Hola, {{ full_name }}.</p>
+<p style="margin:0 0 16px;">La Caja Notarial de San Juan creó tu cuenta en la Suite Notarial. Para ingresar, definí tu contraseña.</p>
+{% with label="Definir contraseña" %}{% include "_button.html" %}{% endwith %}
+<p style="margin:0 0 16px;">El enlace vence en {{ ttl_minutes }} minutos. Si vence, usá “Olvidé mi contraseña” en la pantalla de ingreso con tu correo o CUIT.</p>
+{% endblock %}
