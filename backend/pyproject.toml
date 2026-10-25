@@ -63,6 +63,8 @@ known-first-party = ["app"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
 "alembic/**" = ["T20"]
+# Nombres de eventos de auditoría como PASSWORD_RESET_REQUESTED no son contraseñas.
+"app/common/audit.py" = ["S105"]
 
 [tool.mypy]
 python_version = "3.12"
