@@ -6,7 +6,7 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-_RESERVED = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
+_RESERVED = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime", "color_message"}
 
 
 class JsonFormatter(logging.Formatter):
