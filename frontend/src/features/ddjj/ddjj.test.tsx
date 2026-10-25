@@ -68,6 +68,7 @@ const BOLETA: apiModule.Boleta = {
   emitida_por: 'Caja Notarial',
   anulada_en: null,
   motivo_anulacion: null,
+  comprobante: null,
 }
 
 const DDJJ: apiModule.DeclaracionDetalle = {

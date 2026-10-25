@@ -4,7 +4,6 @@ import base64
 import io
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
 
 import anyio
@@ -14,6 +13,7 @@ from barcode.writer import SVGWriter
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from qrcode.image.svg import SvgPathImage
 
+from app.common.money import format_pesos
 from app.core.config import Settings
 from app.modules.ddjj.models import Boleta
 
@@ -28,22 +28,11 @@ _env = Environment(
 )
 
 
-def pesos(monto: Decimal) -> str:
-    """`$ 1.081.699,06`: formato argentino sin pasar por float."""
-    signo = "-" if monto < 0 else ""
-    entero, _, centavos = f"{abs(monto):.2f}".partition(".")
-    grupos: list[str] = []
-    while entero:
-        grupos.insert(0, entero[-3:])
-        entero = entero[:-3]
-    return f"{signo}$ {'.'.join(grupos)},{centavos}"
-
-
 def fecha(valor: date) -> str:
     return valor.strftime("%d-%m-%Y")
 
 
-_env.filters["pesos"] = pesos
+_env.filters["pesos"] = format_pesos
 _env.filters["fecha"] = fecha
 
 

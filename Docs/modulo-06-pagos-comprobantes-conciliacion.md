@@ -5,6 +5,30 @@
 **Requerimientos del Pliego:** `DDJJ-04`, `DDJJ-05`, `DDJJ-06`, `DDJJ-07`, `SEC-01`, `SEC-03`, `SEC-07`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | python-magic | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 | React + TypeScript
 
+> **Implementación (Fase 5).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Estados:** comprobante `PENDIENTE_REVISION`, `APROBADO`, `RECHAZADO`; boleta `PENDIENTE`,
+>   `PAGADA`, `ANULADA` (Fase 4). No hay estado financiero aparte: el estado de la boleta y el de
+>   su último comprobante lo cubren (`VENCIDA` se deduce de la fecha).
+> - **Archivo:** tipo por *magic bytes* sobre el contenido (PDF, PNG, JPEG), máximo
+>   `MAX_UPLOAD_MB` controlado mientras se lee, nombre UUID bajo
+>   `UPLOAD_DIR/comprobantes/AAAA/MM/`, permisos 0600 y creación exclusiva. La huella SHA-256 se
+>   verifica cada vez que se sirve; si no coincide se audita como CRITICAL y no se entrega.
+> - **Un comprobante en revisión por boleta** (índice único parcial); rechazado, se puede
+>   adjuntar otro. Mientras haya uno en revisión, la boleta no se reemite ni se rectifica.
+> - **Aprobación:** Tesorería tipea el importe y la fecha de acreditación del extracto (no se
+>   precargan). Solo se aprueba el total exacto de la boleta; acreditación posterior a la fecha de
+>   pago exige observaciones. `TODO(negocio)`: pagos parciales o con diferencia y la mora por
+>   acreditación tardía. Quien adjuntó no puede revisar.
+> - **Asiento inmutable** en `pagos_conciliaciones` (aprobación o rechazo; sin UPDATE/DELETE para
+>   la aplicación). Un trigger impide pasar una boleta a `PAGADA` sin un asiento aprobado.
+> - **Rechazo con motivo** obligatorio y aviso por correo al escribano (también al aprobar), con
+>   enlace desde `PUBLIC_WEB_URL`.
+> - **Cuenta recaudadora** por configuración (`BANCO_*`, Fase 4), sin tabla de cuentas
+>   bancarias: hay una sola. `TODO(negocio)` si la Caja recauda en más de una.
+> - **Rutas:** `/api/v1/pagos/{boletas/{id}/comprobantes, comprobantes, comprobantes/{id},
+>   comprobantes/{id}/archivo, comprobantes/{id}/aprobar, comprobantes/{id}/rechazar}`.
+
 ---
 
 ### 1. Propósito, Alcance y Mitigación de Defectos Críticos

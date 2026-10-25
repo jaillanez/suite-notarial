@@ -6,6 +6,7 @@ corre dentro de una transacción que se revierte al terminar.
 """
 
 import os
+import tempfile
 from collections.abc import AsyncIterator
 
 os.environ.setdefault("ENVIRONMENT", "test")
@@ -22,6 +23,8 @@ os.environ.setdefault("JWT_SECRET", "test-secret-no-usar-en-produccion-012345678
 # Clave fija de test (32 bytes de 0x01): no es un secreto.
 os.environ.setdefault("DATA_ENCRYPTION_KEY", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=")
 os.environ.setdefault("COOKIE_SECURE", "true")
+# Comprobantes de los tests en un directorio temporal propio de la corrida.
+os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="suite-notarial-uploads-")
 # Los tests corren siempre con 2FA exigido, aunque el .env local lo tenga apagado.
 os.environ["MFA_ENFORCED"] = "true"
 

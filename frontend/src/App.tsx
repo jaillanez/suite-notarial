@@ -10,6 +10,8 @@ import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { DeclaracionesPage } from './features/ddjj/DeclaracionesPage'
 import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
 import { VerificarBoletaPage } from './features/ddjj/VerificarBoletaPage'
+import { ComprobantePage } from './features/pagos/ComprobantePage'
+import { ConciliacionPage } from './features/pagos/ConciliacionPage'
 import { SystemStatusPage } from './features/health/SystemStatusPage'
 import { HomePage } from './features/home/HomePage'
 import { EscribanoNuevoPage } from './features/padron/EscribanoNuevoPage'
@@ -84,6 +86,13 @@ const router = createBrowserRouter([
             children: [
               { path: '/ddjj', element: <DeclaracionesPage /> },
               { path: '/ddjj/:id', element: <DeclaracionPage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission="comprobantes:verify" />,
+            children: [
+              { path: '/tesoreria/conciliacion', element: <ConciliacionPage /> },
+              { path: '/tesoreria/conciliacion/:id', element: <ComprobantePage /> },
             ],
           },
           {

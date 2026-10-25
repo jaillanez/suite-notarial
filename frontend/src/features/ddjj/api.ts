@@ -1,5 +1,6 @@
 import { api } from '../../lib/api'
 import type { Cargo } from '../padron/api'
+import type { EstadoComprobante } from '../pagos/api'
 
 export type EstadoDDJJ = 'BORRADOR' | 'PRESENTADA' | 'RECTIFICADA'
 export type EstadoBoleta = 'PENDIENTE' | 'PAGADA' | 'ANULADA'
@@ -67,6 +68,14 @@ export interface Boleta {
   emitida_por: string | null
   anulada_en: string | null
   motivo_anulacion: string | null
+  /** Último comprobante adjuntado (adjuntar no es pagar: lo confirma Tesorería). */
+  comprobante: {
+    id: string
+    estado: EstadoComprobante
+    importe_declarado: string
+    motivo_rechazo: string | null
+    created_at: string
+  } | null
 }
 
 export interface Declaracion {

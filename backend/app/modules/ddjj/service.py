@@ -56,6 +56,8 @@ from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.padron.catalog import Cargo, EstadoRegistro
 from app.modules.padron.models import Adscripcion, Escribano, RegistroNotarial
+from app.modules.pagos.catalog import EstadoComprobante
+from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
 from app.modules.parametros.models import Vigencia
 from app.modules.parametros.motor import VigenciaSnapshot
@@ -163,7 +165,7 @@ class Alcance:
         return and_(*partes)
 
 
-def _incluye(alcance: list[Alcance], registro_id: uuid.UUID, periodo: str) -> bool:
+def incluye(alcance: list[Alcance], registro_id: uuid.UUID, periodo: str) -> bool:
     return any(a.incluye(registro_id, periodo) for a in alcance)
 
 
@@ -885,6 +887,24 @@ async def presentar(
     return boleta
 
 
+async def _exigir_sin_comprobante_en_revision(session: AsyncSession, ddjj_id: uuid.UUID) -> None:
+    """Mientras Tesorería revisa un pago, la boleta no se anula (regla PAGO)."""
+    en_revision = await session.scalar(
+        select(func.count())
+        .select_from(Comprobante)
+        .join(Boleta, Boleta.id == Comprobante.boleta_id)
+        .where(
+            Boleta.ddjj_id == ddjj_id,
+            Comprobante.estado == EstadoComprobante.PENDIENTE_REVISION.value,
+        )
+    )
+    if en_revision:
+        raise _conflict(
+            "Hay un comprobante de pago en revisión por Tesorería: esperá su respuesta antes "
+            "de cambiar la boleta."
+        )
+
+
 async def emitir_boleta(
     session: AsyncSession,
     ctx: RequestContext,
@@ -902,6 +922,7 @@ async def emitir_boleta(
     if ddjj.estado != EstadoDDJJ.PRESENTADA.value:
         raise _conflict("Solo se emiten boletas de una declaración jurada presentada.")
     _validar_fecha_pago(fecha_pago)
+    await _exigir_sin_comprobante_en_revision(session, ddjj.id)
     if await session.scalar(
         select(func.count()).where(
             Boleta.ddjj_id == ddjj.id, Boleta.estado == EstadoBoleta.PAGADA.value
@@ -953,7 +974,7 @@ async def rectificar(
     """Abre la rectificativa de una DDJJ presentada, con una copia editable de sus actos.
 
     La original pasa a RECTIFICADA (queda intacta como antecedente) y su boleta pendiente se
-    anula. TODO(negocio): rectificar una DDJJ ya paga requiere imputar lo pagado (Fase 5).
+    anula. TODO(negocio): rectificar una DDJJ ya paga requiere definir cómo se imputa lo pagado.
     """
     original = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, original.registro_id)
@@ -968,6 +989,7 @@ async def rectificar(
             "La declaración jurada ya está paga: la rectificación con pago a cuenta todavía no "
             "está disponible."
         )
+    await _exigir_sin_comprobante_en_revision(session, original.id)
     pendiente = await _boleta_pendiente(session, original.id)
     if pendiente is not None:
         _anular(session, ctx, principal.user, pendiente, "DDJJ en rectificación.")
@@ -1026,16 +1048,21 @@ async def list_boletas(session: AsyncSession, ddjj_id: uuid.UUID) -> list[Boleta
     return list(result.all())
 
 
-async def get_boleta(session: AsyncSession, principal: Principal, boleta_id: uuid.UUID) -> Boleta:
-    boleta = await session.get(Boleta, boleta_id)
-    if boleta is None:
-        raise _not_found("La boleta")
-    alcance = await _alcance_lectura(
+async def alcance_boletas(session: AsyncSession, principal: Principal) -> list[Alcance] | None:
+    """Boletas visibles: todas (`boletas:read_all`) o las de los meses con cargo propio."""
+    return await _alcance_lectura(
         session, principal, todo=(Perm.BOLETAS_READ_ALL,), propio=Perm.BOLETAS_READ_OWN
     )
-    if alcance is not None and not any(
-        a.incluye(boleta.registro_id, boleta.periodo) for a in alcance
-    ):
+
+
+async def get_boleta(
+    session: AsyncSession, principal: Principal, boleta_id: uuid.UUID, *, lock: bool = False
+) -> Boleta:
+    boleta = await session.get(Boleta, boleta_id, with_for_update=lock)
+    if boleta is None:
+        raise _not_found("La boleta")
+    alcance = await alcance_boletas(session, principal)
+    if alcance is not None and not incluye(alcance, boleta.registro_id, boleta.periodo):
         raise _not_found("La boleta")
     return boleta
 

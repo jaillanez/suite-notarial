@@ -21,6 +21,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyotp>=2.9",
     "python-magic>=0.4.27",
+    "python-multipart>=0.0.9",
     "cryptography>=43",
     # Documentos
     "weasyprint>=62",

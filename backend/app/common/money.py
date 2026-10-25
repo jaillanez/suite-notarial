@@ -33,3 +33,14 @@ def to_money(value: DecimalInput) -> Decimal:
 def to_rate(value: DecimalInput) -> Decimal:
     """Cuantiza a 4 decimales con ROUND_HALF_UP (columnas `Numeric(18,4)` / `Numeric(6,4)`)."""
     return _to_decimal(value).quantize(RATE_QUANT, rounding=ROUND_HALF_UP)
+
+
+def format_pesos(monto: Decimal) -> str:
+    """`$ 1.081.699,06`: formato argentino para textos (boleta, correos), sin pasar por float."""
+    signo = "-" if monto < 0 else ""
+    entero, _, centavos = f"{abs(monto):.2f}".partition(".")
+    grupos: list[str] = []
+    while entero:
+        grupos.insert(0, entero[-3:])
+        entero = entero[:-3]
+    return f"{signo}$ {'.'.join(grupos)},{centavos}"

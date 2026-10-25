@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p style="margin:0 0 16px;">Hola, {{ full_name }}.</p>
+<p style="margin:0 0 16px;">Tesorería revisó el comprobante que adjuntaste para la boleta N° {{ numero }} (período {{ periodo }}, total {{ total }}) y no pudo confirmar el pago.</p>
+<p style="margin:0 0 16px;"><strong>Motivo:</strong> {{ motivo }}</p>
+<p style="margin:0 0 16px;">La boleta sigue pendiente. Revisá el motivo y adjuntá un comprobante nuevo desde la declaración jurada.</p>
+{% with label="Ver la declaración jurada" %}{% include "_button.html" %}{% endwith %}
+{% endblock %}
