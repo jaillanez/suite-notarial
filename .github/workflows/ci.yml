@@ -36,8 +36,10 @@ jobs:
       PGPASSWORD: postgres
       ENVIRONMENT: test
       DATABASE_URL: postgresql+asyncpg://suite_app:suite_app_dev@localhost:5432/suite_notarial
+      MIGRATIONS_DATABASE_URL: postgresql+asyncpg://suite_owner:suite_owner_dev@localhost:5432/suite_notarial
       PUBLIC_WEB_URL: http://localhost:5173
       JWT_SECRET: ci-secret-no-usar-en-produccion-0123456789abcdef
+      DATA_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +76,8 @@ jobs:
         run: make test-backend
         env:
           DATABASE_URL: postgresql+asyncpg://suite_app:suite_app_dev@localhost:5432/suite_notarial_test
+          MIGRATIONS_DATABASE_URL: postgresql+asyncpg://suite_owner:suite_owner_dev@localhost:5432/suite_notarial_test
+          PUBLIC_WEB_URL: https://suite.cajanotarial-sj.test
 
   frontend:
     name: Frontend (lint + tests + build)

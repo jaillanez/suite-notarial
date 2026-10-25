@@ -5,6 +5,30 @@
 **Requerimientos del Pliego:** `SEC-01`, `SEC-02`, `SEC-03`, `SEC-04`, `SEC-05`, `USR-01`, `USR-02`, `USR-03`, `USR-04`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 | JWT | Argon2id / Bcrypt | PyOTP (2FA TOTP) | React + TypeScript
 
+> **Implementación (Fase 1).** Lo construido sigue este documento con estas diferencias, que
+> prevalecen sobre el texto de abajo (el playbook `AGENTS.md` manda):
+>
+> - **Access token en cookie HttpOnly** (`sn_access`, path `/api`, SameSite=Lax), no en
+>   `Authorization: Bearer`: el plan pide sesión en cookie. Defensa CSRF por cabecera
+>   `X-Requested-With` y verificación de `Origin`.
+> - **Permisos leídos de la base en cada request**, no desde claims del JWT: un logout, una
+>   suspensión o un cambio de rol surten efecto en la request siguiente.
+> - **Login en dos pasos con 2FA:** `POST /auth/login` y luego `POST /auth/login/mfa` (TOTP o
+>   código de recuperación), en lugar de enviar el TOTP junto con la contraseña. 2FA obligatorio
+>   también para `ROLE_AUDITOR` (lee auditoría y reportes financieros).
+> - **Mensajes de error genéricos** también ante cuenta bloqueada o suspendida (anti-enumeración);
+>   el bloqueo es de 5 intentos por 15 minutos, como dice §10.
+> - **Datos:** semilla TOTP cifrada con AES-GCM (`totp_secret_encrypted`), tabla
+>   `security_recovery_codes` (HMAC-SHA256 con clave del servidor), columnas `old_value` /
+>   `new_value` en `audit_security_logs`, IP como `INET`, CUIT de 11 dígitos sin guiones.
+>   Las FK usan `ON DELETE RESTRICT`: los usuarios no se borran.
+> - **Roles de base separados:** las migraciones corren con `suite_owner`; la aplicación con
+>   `suite_app`, que no puede modificar ni borrar filas de auditoría.
+> - **Rutas:** `/api/v1/auth/*`, `/api/v1/users`, `/api/v1/roles`, `/api/v1/audit/security-logs`.
+>   El enlace de recuperación es `PUBLIC_WEB_URL/restablecer-clave#token=...`.
+> - La matriz rol → permisos (§2) se implementó como propuesta técnica en
+>   `backend/app/modules/iam/catalog.py`, marcada `TODO(negocio)` para validar con la Caja.
+
 ---
 
 ### 1. Propósito, Alcance y Mitigación de Defectos Críticos

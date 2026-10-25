@@ -12,6 +12,8 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import register_middleware
 from app.modules.health.router import router as health_router
+from app.modules.iam.router_auth import router as auth_router
+from app.modules.iam.router_users import router as users_router
 
 
 @asynccontextmanager
@@ -40,9 +42,11 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "X-Requested-With", "X-Correlation-ID"],
         expose_headers=["X-Correlation-ID", "X-Client-Correlation-ID"],
     )
-    register_middleware(app)
+    register_middleware(app, settings)
     register_exception_handlers(app)
     app.include_router(health_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(users_router, prefix="/api/v1")
     return app
 
 

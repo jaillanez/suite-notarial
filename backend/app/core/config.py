@@ -1,12 +1,14 @@
 """Configuración tipada de la aplicación, leída de variables de entorno / `.env`."""
 
+import base64
+import binascii
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, HttpUrl, PostgresDsn, SecretStr, field_validator
+from pydantic import Field, HttpUrl, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,7 +30,10 @@ class Settings(BaseSettings):
     )
 
     ENVIRONMENT: Environment = Environment.DEVELOPMENT
+    # Rol de la aplicación (sin privilegios de dueño). Ver scripts/bootstrap_db.sh.
     DATABASE_URL: PostgresDsn
+    # Rol dueño del esquema, solo para migraciones. Si falta, se usa DATABASE_URL.
+    MIGRATIONS_DATABASE_URL: PostgresDsn | None = None
     PUBLIC_WEB_URL: HttpUrl
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
@@ -38,8 +43,19 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = True
     COOKIE_DOMAIN: str | None = None
 
+    # Clave AES-256 en base64 (32 bytes) para cifrar secretos en reposo (p. ej. semillas TOTP).
+    DATA_ENCRYPTION_KEY: SecretStr
+    LOGIN_MAX_ATTEMPTS: Annotated[int, Field(gt=0)] = 5
+    LOGIN_LOCK_MINUTES: Annotated[int, Field(gt=0)] = 15
+    MFA_PENDING_TTL_MIN: Annotated[int, Field(gt=0)] = 5
+    TOTP_ISSUER: str = "Caja Notarial de San Juan"
+
     SMTP_HOST: str = "localhost"
     SMTP_PORT: Annotated[int, Field(gt=0, lt=65536)] = 1025
+    # "none" solo se admite en development/test (Mailpit local); fuera de eso, TLS obligatorio.
+    SMTP_SECURITY: Literal["none", "starttls", "tls"] = "none"
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
     MAIL_FROM: str = "no-responder@cajanotarial.local"
     PASSWORD_RESET_TTL_MIN: Annotated[int, Field(gt=0)] = 30
 
@@ -48,11 +64,25 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
 
+    # Solo desarrollo: contraseña de los usuarios de demostración (make seed-dev).
+    DEV_SEED_PASSWORD: SecretStr | None = None
+
     @field_validator("JWT_SECRET")
     @classmethod
     def _jwt_secret_length(cls, value: SecretStr) -> SecretStr:
         if len(value.get_secret_value()) < 32:
             raise ValueError("JWT_SECRET debe tener al menos 32 caracteres")
+        return value
+
+    @field_validator("DATA_ENCRYPTION_KEY")
+    @classmethod
+    def _encryption_key_size(cls, value: SecretStr) -> SecretStr:
+        try:
+            raw = base64.b64decode(value.get_secret_value(), validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("DATA_ENCRYPTION_KEY debe estar en base64") from exc
+        if len(raw) != 32:
+            raise ValueError("DATA_ENCRYPTION_KEY debe decodificar a 32 bytes (AES-256)")
         return value
 
     @field_validator("PUBLIC_WEB_URL")
@@ -66,9 +96,35 @@ class Settings(BaseSettings):
             raise ValueError("PUBLIC_WEB_URL no puede apuntar a un host privado en este entorno")
         return value
 
+    @model_validator(mode="after")
+    def _smtp_tls_outside_dev(self) -> "Settings":
+        if (
+            self.ENVIRONMENT in (Environment.STAGING, Environment.PRODUCTION)
+            and self.SMTP_SECURITY == "none"
+        ):
+            raise ValueError("SMTP_SECURITY debe ser 'starttls' o 'tls' fuera de desarrollo")
+        if self.SMTP_USER and self.SMTP_SECURITY == "none":
+            raise ValueError(
+                "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"
+            )
+        return self
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT is Environment.PRODUCTION
+
+    @property
+    def migrations_database_url(self) -> str:
+        return str(self.MIGRATIONS_DATABASE_URL or self.DATABASE_URL)
+
+    @property
+    def public_web_base(self) -> str:
+        """`PUBLIC_WEB_URL` sin barra final, para construir enlaces (SEC-04)."""
+        return str(self.PUBLIC_WEB_URL).rstrip("/")
+
+    @property
+    def data_encryption_key(self) -> bytes:
+        return base64.b64decode(self.DATA_ENCRYPTION_KEY.get_secret_value())
 
     @property
     def max_upload_bytes(self) -> int:

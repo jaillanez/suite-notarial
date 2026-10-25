@@ -8,6 +8,7 @@ from http import HTTPStatus
 
 from fastapi import FastAPI, Request, Response
 
+from app.core.config import Settings
 from app.core.errors import problem_response
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,38 @@ SECURITY_HEADERS = {
 }
 
 
+UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+CSRF_HEADER = "X-Requested-With"
+CSRF_HEADER_VALUE = "XMLHttpRequest"
+
+
+def _csrf_violation(request: Request, allowed_origins: frozenset[str]) -> str | None:
+    """Defensa CSRF para la sesión en cookies.
+
+    Un formulario de otro sitio no puede enviar cabeceras propias, y el navegador no deja que
+    un script de otro origen las envíe sin pasar la verificación CORS. Además, si el navegador
+    informa el `Origin`, debe ser uno de los orígenes de la Suite.
+    """
+    if request.method not in UNSAFE_METHODS or not request.url.path.startswith("/api/"):
+        return None
+    if request.headers.get(CSRF_HEADER) != CSRF_HEADER_VALUE:
+        return f"Falta la cabecera {CSRF_HEADER}."
+    origin = request.headers.get("origin")
+    if origin is not None and origin.rstrip("/") not in allowed_origins:
+        return "Origen no permitido."
+    return None
+
+
 def _client_correlation_id(request: Request) -> str | None:
     incoming = request.headers.get(CORRELATION_HEADER, "")
     return incoming if _VALID_CORRELATION_ID.fullmatch(incoming) else None
 
 
-def register_middleware(app: FastAPI) -> None:
+def register_middleware(app: FastAPI, settings: Settings) -> None:
+    allowed_origins = frozenset(
+        [o.rstrip("/") for o in settings.CORS_ORIGINS] + [settings.public_web_base]
+    )
+
     @app.middleware("http")
     async def correlation_and_security_headers(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -41,8 +68,18 @@ def register_middleware(app: FastAPI) -> None:
         client_correlation_id = _client_correlation_id(request)
         request.state.correlation_id = correlation_id
         request.state.client_correlation_id = client_correlation_id
+        response: Response
         try:
-            response = await call_next(request)
+            violation = _csrf_violation(request, allowed_origins)
+            if violation is not None:
+                response = problem_response(
+                    request,
+                    HTTPStatus.FORBIDDEN,
+                    violation,
+                    type_="urn:suite-notarial:csrf",
+                )
+            else:
+                response = await call_next(request)
         except Exception:
             # Se resuelve acá para que también los 500 lleven correlación y cabeceras.
             logger.exception(

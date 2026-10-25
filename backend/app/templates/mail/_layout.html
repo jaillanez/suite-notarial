@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ subject }}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f6f8;font-family:'Public Sans',Arial,Helvetica,sans-serif;color:#16232b;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6f8;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #d3dce2;border-radius:8px;">
+            <tr>
+              <td style="padding:24px 28px;border-bottom:1px solid #d3dce2;">
+                <p style="margin:0;font-size:15px;font-weight:600;color:#113347;">Caja Notarial de San Juan</p>
+                <p style="margin:2px 0 0;font-size:13px;color:#4c5c66;">Suite Notarial</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;font-size:15px;line-height:1.6;">
+                {% block body %}{% endblock %}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 28px;border-top:1px solid #d3dce2;background:#f7f9fa;font-size:12px;line-height:1.5;color:#4c5c66;">
+                Este es un mensaje automático; no lo respondas. Si no reconocés esta actividad, comunicate con la Caja Notarial.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

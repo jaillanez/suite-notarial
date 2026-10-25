@@ -13,7 +13,7 @@ from app.db import models  # noqa: F401  # registra todos los modelos en la meta
 from app.db.base import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", str(get_settings().DATABASE_URL))
+config.set_main_option("sqlalchemy.url", get_settings().migrations_database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -11,8 +11,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 
 | Fase | Alcance | Estado |
 |------|---------|--------|
-| 0 | Bootstrap y cimientos | En revisión |
-| 1–10 | Ver `AGENTS.md` | Pendiente |
+| 0 | Bootstrap y cimientos | Completa |
+| 1 | IAM & RBAC: login, 2FA, sesiones, recuperación de clave, usuarios y auditoría | En revisión |
+| 2–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -56,16 +57,39 @@ brew install postgresql@16 libmagic pango gdk-pixbuf libffi mailpit pre-commit
 
 ```bash
 make install    # venv + deps backend, npm ci, hooks de pre-commit; crea backend/.env desde .env.example
-make db         # crea rol suite_app y bases suite_notarial / suite_notarial_test (idempotente)
-make migrate    # aplica migraciones
+make db         # roles suite_owner / suite_app y bases suite_notarial / suite_notarial_test (idempotente)
+make migrate    # aplica migraciones con el rol dueño
+make seed-dev   # usuarios de demostración (solo development)
 make dev        # Mailpit + API + frontend
 ```
 
-Después de `make install`, generá un `JWT_SECRET` propio en `backend/.env`:
+Después de `make install`, completá en `backend/.env` los secretos propios:
 
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"                 # JWT_SECRET
+python3 -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"  # DATA_ENCRYPTION_KEY
 ```
+
+y una `DEV_SEED_PASSWORD` que cumpla la política (10+ caracteres, mayúscula, minúscula, número y
+símbolo). Si venís de la Fase 0, las bases eran del rol `suite_app`: borralas
+(`psql -d postgres -c "DROP DATABASE suite_notarial"` y lo mismo para `suite_notarial_test`) y
+corré `make db migrate` de nuevo.
+
+### Usuarios de demostración
+
+`make seed-dev` crea una cuenta por rol, todas con la contraseña `DEV_SEED_PASSWORD`:
+
+| Rol | Correo | 2FA |
+|-----|--------|-----|
+| Administración del sistema | `admin@suite-notarial.example` | Obligatorio |
+| Administración de Caja | `caja@suite-notarial.example` | Obligatorio |
+| Tesorería | `tesoreria@suite-notarial.example` | Obligatorio |
+| Auditoría | `auditor@suite-notarial.example` | Obligatorio |
+| Escribano | `escribano@suite-notarial.example` | Opcional |
+
+Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. Para
+producción, el primer administrador se crea con
+`make create-admin email=... cuit=... name="..."` (pide la contraseña por consola).
 
 ### Puertos
 
@@ -86,6 +110,9 @@ proxea `/api` al backend, así que el navegador ve un único origen y las cookie
 | `make backend` / `make frontend` / `make mailpit` | Cada servicio por separado |
 | `make migrate` | `alembic upgrade head` |
 | `make revision m="descripcion"` | Genera una migración con autogenerate |
+| `make seed-dev` / `make reset-dev` | Usuarios de demostración / recrear el esquema local desde cero |
+| `make create-admin email=... cuit=... name="..."` | Alta del primer administrador |
+| `make e2e` | Flujo punta a punta de la Fase 1 contra `make dev` y Mailpit |
 | `make test` | pytest + Vitest |
 | `make lint` | ruff, mypy, ESLint, Prettier, tsc |
 | `make fmt` | Formatea backend y frontend |
@@ -97,13 +124,19 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | Variable | Descripción |
 |----------|-------------|
 | `ENVIRONMENT` | `development` · `test` · `staging` · `production` |
-| `DATABASE_URL` | `postgresql+asyncpg://suite_app:...@localhost:5432/suite_notarial` |
+| `DATABASE_URL` | Rol de la aplicación (`suite_app`): DML, sin privilegios de dueño |
+| `MIGRATIONS_DATABASE_URL` | Rol dueño del esquema (`suite_owner`), solo para migraciones |
 | `PUBLIC_WEB_URL` | Base de todos los enlaces enviados por mail (SEC-04). Fuera de dev/test no puede ser un host privado |
 | `CORS_ORIGINS` | Orígenes permitidos (JSON) |
 | `JWT_SECRET` | Secreto de firma, mínimo 32 caracteres |
-| `JWT_ACCESS_TTL_MIN` / `JWT_REFRESH_TTL_DAYS` | Vigencia de tokens |
+| `JWT_ACCESS_TTL_MIN` / `JWT_REFRESH_TTL_DAYS` | Vigencia del access token (15 min) y del refresh (7 días) |
+| `DATA_ENCRYPTION_KEY` | AES-256 en base64 (32 bytes) para secretos en reposo: semillas TOTP y clave HMAC de códigos de recuperación |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Bloqueo temporal tras intentos fallidos (5 / 15) |
+| `MFA_PENDING_TTL_MIN` | Tiempo para completar el segundo paso del ingreso (5) |
 | `COOKIE_SECURE` / `COOKIE_DOMAIN` | Atributos de la cookie de sesión (`COOKIE_SECURE=true` en producción) |
 | `SMTP_HOST` / `SMTP_PORT` / `MAIL_FROM` | Correo saliente (Mailpit en dev) |
+| `SMTP_SECURITY` / `SMTP_USER` / `SMTP_PASSWORD` | `none` solo en dev/test; fuera de eso `starttls` o `tls` obligatorio |
+| `DEV_SEED_PASSWORD` | Solo desarrollo: contraseña de los usuarios de demostración |
 | `PASSWORD_RESET_TTL_MIN` | Vigencia del token de recuperación (30) |
 | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB) |
 | `LOG_LEVEL` | Nivel de logging (JSON a stdout) |
@@ -111,12 +144,31 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 ## Reglas innegociables
 
 Resumen operativo en [`AGENTS.md`](AGENTS.md#1-reglas-innegociables-resumen-operativo--aplican-en-todas-las-fases).
-Ya aplicadas en la Fase 0:
+Ya aplicadas:
 
 - **FIN:** dinero y tasas solo con `Decimal` vía `app/common/money.py` (`ROUND_HALF_UP`); un test y un hook
   de pre-commit bloquean `float` en módulos monetarios.
-- **API:** todos los errores salen como `application/problem+json` (RFC 7807).
-- **SEC-04:** test que rechaza URLs privadas en plantillas de mail.
+- **API:** todos los errores salen como `application/problem+json` (RFC 7807), con `correlation_id`.
+- **SEC-01:** cada endpoint protegido usa `Depends(require_permissions(...))`, que lee los permisos
+  de la base en cada request y audita los rechazos. Ocultar en React es solo experiencia de uso.
+- **SEC-04:** los enlaces de correo salen de `PUBLIC_WEB_URL`; un test rechaza URLs privadas en plantillas.
+- **AUD:** `audit_security_logs` guarda actor, UTC, IP, valor anterior y nuevo. El rol de la app no
+  tiene UPDATE/DELETE/TRUNCATE sobre la tabla y un trigger lo impide también al dueño.
+
+## Seguridad de acceso (Fase 1)
+
+- **Contraseñas:** Argon2id; política de 10+ caracteres con las cuatro clases.
+- **Sesión:** cookies `HttpOnly` + `Secure` + `SameSite`. Access JWT de 15 min (`/api`) y refresh
+  opaco rotativo de 7 días (`/api/v1/auth`); si un refresh ya usado reaparece, se revoca toda la
+  familia de sesiones. Logout, suspensión o cambio de clave cortan el acceso en la request siguiente.
+- **CSRF:** los métodos que modifican exigen `X-Requested-With: XMLHttpRequest` y, si el navegador
+  informa `Origin`, que sea de la Suite.
+- **2FA TOTP:** semilla cifrada con AES-GCM, anti-replay, 10 códigos de recuperación de un solo uso.
+  Obligatorio para ADMIN, CAJA, TESORERIA y AUDITOR.
+- **Intentos fallidos:** 5 errores de contraseña o de código bloquean la cuenta 15 minutos. Los
+  mensajes son siempre genéricos, sin revelar si la cuenta existe.
+- **Recuperación de clave:** token de un solo uso, guardado como SHA-256, vence a los 30 minutos,
+  viaja en el fragmento de la URL (`#token=`) y la respuesta es idéntica exista o no la cuenta.
 
 ## Producción
 
