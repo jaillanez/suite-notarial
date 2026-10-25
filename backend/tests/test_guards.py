@@ -1,6 +1,8 @@
 """Guardas estáticas de reglas innegociables (FIN, SEC-04)."""
 
+import io
 import re
+import tokenize
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
@@ -9,7 +11,6 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 MONEY_PATHS = ["common/money.py"]
 MONEY_DIR_HINTS = ("aportes", "boletas", "pagos", "prestamos", "liquidacion", "parametros")
 
-_FLOAT_RE = re.compile(r"\bfloat\b")
 _PRIVATE_URL_RE = re.compile(
     r"https?://(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|0\.0\.0\.0)",
     re.IGNORECASE,
@@ -24,26 +25,19 @@ def _money_files() -> list[Path]:
     return files
 
 
-def _code_lines(path: Path) -> list[tuple[int, str]]:
-    lines = []
-    in_docstring = False
-    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        stripped = line.strip()
-        if stripped.count('"""') == 1:
-            in_docstring = not in_docstring
-            continue
-        if in_docstring or stripped.startswith(("#", '"""')):
-            continue
-        lines.append((n, line.split("#", 1)[0]))
-    return lines
+def _float_lines(path: Path) -> list[int]:
+    """Líneas con el nombre `float`, según el tokenizador real (ignora comentarios y strings)."""
+    source = path.read_text(encoding="utf-8")
+    return [
+        tok.start[0]
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline)
+        if tok.type == tokenize.NAME and tok.string == "float"
+    ]
 
 
 def test_no_float_in_money_logic() -> None:
     offenders = [
-        f"{path.relative_to(APP_DIR)}:{n}"
-        for path in _money_files()
-        for n, code in _code_lines(path)
-        if _FLOAT_RE.search(code)
+        f"{path.relative_to(APP_DIR)}:{n}" for path in _money_files() for n in _float_lines(path)
     ]
     assert not offenders, f"Uso de float en lógica monetaria: {offenders}"
 
