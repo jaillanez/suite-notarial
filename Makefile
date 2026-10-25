@@ -15,7 +15,7 @@ export WEB_PORT ?= 5173
 
 .PHONY: help install install-backend install-frontend db mailpit backend frontend dev \
         migrate revision test test-backend test-frontend lint lint-backend lint-frontend fmt hooks \
-        create-admin seed-dev
+        create-admin seed-dev reset-dev e2e
 
 help: ## Lista los comandos disponibles
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -59,6 +59,13 @@ create-admin: ## Crea un administrador: make create-admin email=... cuit=... nam
 
 seed-dev: ## Crea usuarios de demostración (solo development; usa DEV_SEED_PASSWORD)
 	cd $(BACKEND) && .venv/bin/python -m app.modules.iam.cli seed-dev
+
+reset-dev: ## Recrea el esquema local desde cero y siembra usuarios de demostración
+	cd $(BACKEND) && .venv/bin/alembic downgrade base && .venv/bin/alembic upgrade head
+	$(MAKE) seed-dev
+
+e2e: ## Prueba punta a punta de la Fase 1 contra `make dev` y Mailpit (modifica datos locales)
+	$(PY) scripts/e2e_fase1.py --web http://localhost:$(WEB_PORT)
 
 test: test-backend test-frontend ## Corre todos los tests
 

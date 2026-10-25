@@ -227,7 +227,9 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - **Hover / Active:** el borde pasa a Petróleo Medio y el fondo a Bruma Petróleo; presionado, Velo Petróleo. Transición de color de 150ms con `cubic-bezier(0.22, 1, 0.36, 1)`.
 - **Focus:** anillo global de 2px en Azul de Acción con separación de 2px.
 - **Disabled / en curso:** opacidad 0.6, cursor de progreso, el ícono gira y el texto cambia a gerundio ("Verificando…").
-- Todavía no existe un botón primario relleno; cuando aparezca debe derivarse de la escala petróleo y registrarse aquí.
+- **Primario (relleno), Fase 1:** fondo Petróleo Institucional, texto blanco 0.875rem/600; hover Petróleo Medio, presionado Petróleo Profundo. Uno por vista: la acción que la Caja afirma (Ingresar, Guardar, Crear y enviar correo).
+- **Peligro (contorno):** como el secundario pero con texto Rojo Rechazo; hover con borde Rojo Rechazo y fondo Tinte Rechazo. Solo para acciones que quitan acceso (Suspender, Desactivar 2FA).
+- **Fantasma:** sin borde ni fondo, texto Petróleo Institucional, hover Bruma Petróleo. Acciones por fila en grillas.
 
 ### Chips (indicador de estado)
 - **Style:** píldora con ícono lucide de 16px (trazo 2.25) y texto 0.875rem/600, padding 4px 12px 4px 8px, separación 6px; texto y tinte del mismo tono.
@@ -241,8 +243,32 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - **Internal Padding:** 20px horizontal en celular, 24px desde 640px; filas 16px vertical, cabecera 20px, pie 12px.
 - **Carga:** esqueletos en Bruma Petróleo con pulso, del alto del contenido final, dentro de una región `aria-live="polite"` con `aria-busy`.
 
+### Inputs (campos de formulario)
+- Etiqueta arriba (Label 0.875rem/500 en Tinta), campo de 44px de alto mínimo, borde 1px Línea Firme, esquinas 6px, texto 1rem en Tinta.
+- Foco: borde Azul de Acción más el anillo global. Error: borde y mensaje en Rojo Rechazo debajo, enlazado con `aria-describedby`; la ayuda va en Tinta Secundaria.
+- Contraseña con botón de mostrar/ocultar de 40px dentro del campo. Códigos (TOTP, recuperación) con cifras tabulares y tracking abierto; `autocomplete="one-time-code"`.
+- Requisitos de contraseña como lista viva: ícono de check en Verde Conforme o círculo en Tinta Secundaria, con texto para lector de pantalla.
+
+### Alerts (avisos en línea)
+- Caja de 6px con borde del tono al 25%, fondo Tinte y texto del tono; ícono lucide de 20px (trazo 2.25) a la izquierda, título opcional en 600.
+- Tonos: conforme, atención, rechazo (con `role="alert"`) e informativo en Bruma Petróleo con texto Petróleo Institucional.
+
+### Dialog (modal)
+- `<dialog>` nativo con `showModal`: foco atrapado, Escape y fondo inerte del navegador; al abrir, el foco va al primer campo.
+- Panel de 8px, ancho máximo 32rem, cabecera con título y botón de cerrar de 44px, pie en Superficie Hundida con acciones a la derecha (apiladas en celular, la principal arriba). Fondo del backdrop: Petróleo 950 al 40%.
+- Solo para tareas que necesitan foco protegido: alta, suspensión con motivo, roles, códigos 2FA.
+
+### Tables y listas de datos
+- Tabla dentro del panel, cabecera fija (`sticky`) en Superficie Hundida con texto Caption/600 en Tinta Secundaria; filas divididas por Línea; cifras tabulares en CUIT y fechas.
+- Paginación en servidor en el pie del panel: rango "1–20 de 57" y botones de 44px.
+- Bajo 640px la tabla se reemplaza por una lista apilada (nombre, estado a la derecha, pares etiqueta/valor y acciones), sin scroll horizontal.
+- Esqueletos en Bruma Petróleo mientras carga; estado vacío que explica qué buscar.
+
 ### Navigation (cabecera institucional)
-- Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio; a la derecha, "Suite Notarial" en Label y Tinta Secundaria. Mismo ancho máximo que el contenido.
+- Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio. Mismo ancho máximo que el contenido.
+- Pública (ingreso, recuperación): a la derecha, "Suite Notarial" en Label y Tinta Secundaria; el formulario va en una columna de 28rem.
+- Autenticada: a la derecha, nombre de la persona con "Seguridad de la cuenta" debajo y "Cerrar sesión"; debajo, fila de navegación con las secciones que el usuario puede ver (la activa sobre Bruma Petróleo). En celular, un botón de menú despliega la navegación.
+- Si el rol exige 2FA y falta activarlo, la navegación se oculta: solo existe Seguridad de la cuenta.
 
 ## Do's and Don'ts
 
