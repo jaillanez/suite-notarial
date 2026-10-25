@@ -44,6 +44,12 @@ const SECTIONS: Section[] = [
     permission: 'parameters:read',
   },
   {
+    to: '/reportes',
+    title: 'Reportes',
+    description: 'Padrón, boletas, pagos, recaudación y auditoría, exportables a Excel y CSV.',
+    permission: ['reports:financial', 'audit:read', 'escribanos:read'],
+  },
+  {
     to: '/usuarios',
     title: 'Usuarios',
     description: 'Altas, suspensiones y roles de las cuentas de la Suite.',

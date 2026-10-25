@@ -12,6 +12,8 @@ import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
 import { VerificarBoletaPage } from './features/ddjj/VerificarBoletaPage'
 import { ComprobantePage } from './features/pagos/ComprobantePage'
 import { ConciliacionPage } from './features/pagos/ConciliacionPage'
+import { ReportePage } from './features/reportes/ReportePage'
+import { ReportesPage } from './features/reportes/ReportesPage'
 import { SystemStatusPage } from './features/health/SystemStatusPage'
 import { HomePage } from './features/home/HomePage'
 import { EscribanoNuevoPage } from './features/padron/EscribanoNuevoPage'
@@ -93,6 +95,17 @@ const router = createBrowserRouter([
             children: [
               { path: '/tesoreria/conciliacion', element: <ConciliacionPage /> },
               { path: '/tesoreria/conciliacion/:id', element: <ComprobantePage /> },
+            ],
+          },
+          {
+            element: (
+              <RequirePermission
+                permission={['reports:financial', 'audit:read', 'escribanos:read']}
+              />
+            ),
+            children: [
+              { path: '/reportes', element: <ReportesPage /> },
+              { path: '/reportes/:codigo', element: <ReportePage /> },
             ],
           },
           {

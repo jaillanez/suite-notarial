@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { Link } from 'react-router'
 
 import { StatusIndicator, type Tone } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
@@ -61,7 +62,13 @@ export function AuditPage() {
     <>
       <PageHeader
         title="Auditoría de seguridad"
-        description="Registro inmutable: ninguna fila se puede modificar ni borrar, ni siquiera desde la base de datos con el usuario de la aplicación."
+        description={
+          <>
+            Registro inmutable: ninguna fila se puede modificar ni borrar, ni siquiera desde la base
+            de datos con el usuario de la aplicación. Para filtrar por fechas o exportar a Excel o
+            CSV, usá el <Link to="/reportes/auditoria">reporte de auditoría</Link>.
+          </>
+        }
       />
       <Panel title="Eventos">
         <div className="border-b border-line px-5 py-4 sm:px-6">
