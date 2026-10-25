@@ -10,11 +10,17 @@ import { BrandLogo } from './BrandLogo'
 interface NavItem {
   to: string
   label: string
-  permission?: string
+  /** Alcanza con uno de los permisos. */
+  permission?: string | string[]
 }
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Inicio' },
+  {
+    to: '/ddjj',
+    label: 'Declaraciones juradas',
+    permission: ['ddjj:read_own', 'ddjj:read_all', 'ddjj:approve'],
+  },
   { to: '/padron/escribanos', label: 'Escribanos', permission: 'escribanos:read' },
   { to: '/padron/registros', label: 'Registros', permission: 'escribanos:read' },
   { to: '/parametros', label: 'Parámetros', permission: 'parameters:read' },
@@ -47,7 +53,9 @@ export function AppShell() {
 
   // Mientras falte el 2FA obligatorio, el backend rechaza todo lo demás: no se ofrece.
   const locked = user ? needsMfaEnrollment(user) : false
-  const items = locked ? [] : NAV.filter((item) => !item.permission || can(item.permission))
+  const items = locked
+    ? []
+    : NAV.filter((item) => !item.permission || [item.permission].flat().some((p) => can(p)))
   const navLinks = items.map((item) => (
     <NavLink
       key={item.to}

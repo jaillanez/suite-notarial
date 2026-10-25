@@ -19,7 +19,7 @@ export function StatusIndicator({ tone, label }: StatusIndicatorProps) {
   const { icon: Icon, className } = TONES[tone]
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full py-1 pr-3 pl-2 text-sm font-semibold ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full py-1 pr-3 pl-2 text-sm font-semibold whitespace-nowrap ${className}`}
     >
       <Icon aria-hidden="true" className="size-4" strokeWidth={2.25} />
       {label}

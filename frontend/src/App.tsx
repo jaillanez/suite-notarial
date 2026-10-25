@@ -7,6 +7,9 @@ import { ForgotPasswordPage } from './features/auth/ForgotPasswordPage'
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from './features/auth/guards'
 import { LoginPage } from './features/auth/LoginPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
+import { DeclaracionesPage } from './features/ddjj/DeclaracionesPage'
+import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
+import { VerificarBoletaPage } from './features/ddjj/VerificarBoletaPage'
 import { SystemStatusPage } from './features/health/SystemStatusPage'
 import { HomePage } from './features/home/HomePage'
 import { EscribanoNuevoPage } from './features/padron/EscribanoNuevoPage'
@@ -34,7 +37,12 @@ const router = createBrowserRouter([
   {
     // Accesible con o sin sesión: el enlace llega por correo.
     element: <PublicShell />,
-    children: [{ path: '/restablecer-clave', element: <ResetPasswordPage /> }],
+    children: [
+      { path: '/restablecer-clave', element: <ResetPasswordPage /> },
+      // Verificación pública de boletas (QR impreso): no requiere sesión.
+      { path: '/verificar', element: <VerificarBoletaPage /> },
+      { path: '/verificar/:codigo', element: <VerificarBoletaPage /> },
+    ],
   },
   {
     element: <RequireAuth />,
@@ -67,6 +75,15 @@ const router = createBrowserRouter([
             children: [
               { path: '/parametros', element: <ParametrosPage /> },
               { path: '/parametros/:id', element: <ConceptoPage /> },
+            ],
+          },
+          {
+            element: (
+              <RequirePermission permission={['ddjj:read_own', 'ddjj:read_all', 'ddjj:approve']} />
+            ),
+            children: [
+              { path: '/ddjj', element: <DeclaracionesPage /> },
+              { path: '/ddjj/:id', element: <DeclaracionPage /> },
             ],
           },
           {
