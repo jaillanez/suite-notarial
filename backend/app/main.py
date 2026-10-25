@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.db import get_engine
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.middleware import register_middleware
 from app.modules.health.router import router as health_router
 
 
@@ -36,8 +37,10 @@ def create_app() -> FastAPI:
         allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,  # cookies HttpOnly de sesión
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Content-Type", "X-Requested-With"],
+        allow_headers=["Content-Type", "X-Requested-With", "X-Correlation-ID"],
+        expose_headers=["X-Correlation-ID"],
     )
+    register_middleware(app)
     register_exception_handlers(app)
     app.include_router(health_router, prefix="/api")
     return app

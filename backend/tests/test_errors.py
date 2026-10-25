@@ -72,3 +72,5 @@ async def test_unhandled_is_500_without_leaking() -> None:
     assert response.status_code == 500
     assert response.headers["content-type"] == PROBLEM_JSON
     assert "fallo inesperado" not in response.text
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.json()["correlation_id"] == response.headers["X-Correlation-ID"]

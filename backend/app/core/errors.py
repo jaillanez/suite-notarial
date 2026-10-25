@@ -51,6 +51,9 @@ def problem_response(
         "detail": detail,
         "instance": request.url.path,
     }
+    correlation_id = getattr(request.state, "correlation_id", None)
+    if correlation_id:
+        body["correlation_id"] = correlation_id
     if extra:
         body.update(extra)
     return JSONResponse(body, status_code=status, media_type=PROBLEM_JSON, headers=headers)
