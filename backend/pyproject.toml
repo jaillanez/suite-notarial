@@ -65,6 +65,8 @@ known-first-party = ["app"]
 "alembic/**" = ["T20"]
 # Nombres de eventos de auditoría como PASSWORD_RESET_REQUESTED no son contraseñas.
 "app/common/audit.py" = ["S105"]
+# Mensajes de error como INVALID_RESET_TOKEN no son contraseñas.
+"app/modules/iam/service.py" = ["S105"]
 
 [tool.mypy]
 python_version = "3.12"

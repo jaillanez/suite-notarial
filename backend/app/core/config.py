@@ -5,10 +5,10 @@ import binascii
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, HttpUrl, PostgresDsn, SecretStr, field_validator
+from pydantic import Field, HttpUrl, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +49,10 @@ class Settings(BaseSettings):
 
     SMTP_HOST: str = "localhost"
     SMTP_PORT: Annotated[int, Field(gt=0, lt=65536)] = 1025
+    # "none" solo se admite en development/test (Mailpit local); fuera de eso, TLS obligatorio.
+    SMTP_SECURITY: Literal["none", "starttls", "tls"] = "none"
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
     MAIL_FROM: str = "no-responder@cajanotarial.local"
     PASSWORD_RESET_TTL_MIN: Annotated[int, Field(gt=0)] = 30
 
@@ -85,6 +89,15 @@ class Settings(BaseSettings):
         if env in (Environment.STAGING, Environment.PRODUCTION) and host.startswith(_PRIVATE_HOSTS):
             raise ValueError("PUBLIC_WEB_URL no puede apuntar a un host privado en este entorno")
         return value
+
+    @model_validator(mode="after")
+    def _smtp_tls_outside_dev(self) -> "Settings":
+        if (
+            self.ENVIRONMENT in (Environment.STAGING, Environment.PRODUCTION)
+            and self.SMTP_SECURITY == "none"
+        ):
+            raise ValueError("SMTP_SECURITY debe ser 'starttls' o 'tls' fuera de desarrollo")
+        return self
 
     @property
     def is_production(self) -> bool:
