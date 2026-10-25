@@ -38,6 +38,13 @@
 | **REP** | Grillas con paginación **en servidor** + cabeceras fijas. Export XLSX/CSV sale de la MISMA query y filtros. Paridad exacta de totales. | Test que compara totales pantalla vs export. |
 | **API** | Errores en RFC 7807 (Problem Details) con HTTP semántico (400/401/403/404/422/500). | Tests de contrato. |
 
+### 1.1 Protocolo obligatorio para agentes y desarrolladores
+
+1. **Reglas financieras:** prohibido deducir, extrapolar o inventar fórmulas de aportes, escalas arancelarias o tasas de mora. Todo cálculo se basa en especificaciones aprobadas por la Caja o en parámetros vigentes de la base.
+2. **Datos sensibles:** prohibido interactuar con bases de producción durante desarrollo o pruebas; prohibidas credenciales reales o llaves privadas en el código; todo correo de desarrollo y test va a Mailpit; se trabaja con fixtures sintéticos.
+3. **Entrega por fase:** cobertura mínima del 85% en código de negocio (desde la Fase 1); pruebas negativas de autorización (403); migraciones reversibles (`upgrade` y `downgrade`, verificadas en CI); contrato OpenAPI sin inconsistencias de tipado.
+4. **Entorno:** sin Docker. Ante cualquier diferencia con `Docs/`, este archivo prevalece; `Docs/modulo-01-fundamentos-arquitectura-devops.md` (v2.1) ya está alineado.
+
 ---
 
 ## 2. ENTORNO BASE (macOS, sin Docker)
