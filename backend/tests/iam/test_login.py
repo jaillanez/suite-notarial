@@ -126,3 +126,31 @@ async def test_success_is_audited_with_ip(client: AsyncClient, db_session: Async
     assert str(row.ip_address) == "203.0.113.10"
     assert row.correlation_id is not None
     assert row.event_timestamp.tzinfo is not None
+
+
+async def test_unknown_identifier_is_not_stored_in_clear(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    typed_password_by_mistake = "MiClaveSecreta-2026!"
+
+    await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": typed_password_by_mistake, "password": "x"},
+    )
+
+    row = (
+        (
+            await db_session.execute(
+                select(AuditSecurityLog)
+                .where(AuditSecurityLog.event_type == "LOGIN_FAILED")
+                .order_by(AuditSecurityLog.event_timestamp.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert row is not None
+    assert row.details is not None
+    assert typed_password_by_mistake not in str(row.details)
+    assert row.details["identifier_kind"] == "other"
+    assert len(str(row.details["identifier_sha256"])) == 64

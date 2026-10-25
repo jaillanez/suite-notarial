@@ -100,12 +100,15 @@ async def test_enrollment_enables_mfa_with_recovery_codes(
     assert me.json()["mfa_enabled"] is True
     assert me.json()["mfa_verified"] is True
 
-    stored = (
-        await db_session.execute(
-            select(RecoveryCode.code_hash).where(RecoveryCode.user_id == user.id)
-        )
-    ).scalars()
-    assert not set(codes) & set(stored)
+    stored = list(
+        (
+            await db_session.execute(
+                select(RecoveryCode.code_hash).where(RecoveryCode.user_id == user.id)
+            )
+        ).scalars()
+    )
+    assert len(stored) == 10
+    assert all(h.startswith("$argon2id$") for h in stored)
 
 
 async def test_recovery_code_is_single_use(client: AsyncClient, db_session: AsyncSession) -> None:

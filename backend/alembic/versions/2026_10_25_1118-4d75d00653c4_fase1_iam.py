@@ -205,7 +205,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_security_password_reset_tokens_user_id'), 'security_password_reset_tokens', ['user_id'], unique=False)
     op.create_table('security_recovery_codes',
     sa.Column('user_id', sa.UUID(), nullable=False),
-    sa.Column('code_hash', sa.String(length=64), nullable=False),
+    sa.Column('code_hash', sa.String(length=255), nullable=False),
     sa.Column('used_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),

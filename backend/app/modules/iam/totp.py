@@ -9,7 +9,7 @@ import pyotp
 import qrcode
 import qrcode.image.svg
 
-from app.core.security import sha256_hex
+from app.modules.iam import passwords
 
 STEP_SECONDS = 30
 VALID_WINDOW = 1  # tolera ±30 s de desfase de reloj
@@ -50,18 +50,31 @@ def verify_code(
     return None
 
 
+RECOVERY_CODE_LENGTH = 12  # 32^12 = 60 bits por código
+_RECOVERY_RE = re.compile(rf"^[{_RECOVERY_ALPHABET}]{{{RECOVERY_CODE_LENGTH}}}$")
+
+
 def normalize_recovery_code(code: str) -> str:
     return re.sub(r"[\s-]", "", code).upper()
 
 
+def looks_like_recovery_code(code: str) -> bool:
+    return _RECOVERY_RE.fullmatch(normalize_recovery_code(code)) is not None
+
+
 def generate_recovery_codes() -> list[str]:
-    """Códigos `XXXX-XXXX` (40 bits cada uno). Se muestran una sola vez."""
+    """Códigos `XXXX-XXXX-XXXX` (60 bits cada uno). Se muestran una sola vez."""
     codes = []
     for _ in range(RECOVERY_CODE_COUNT):
-        raw = "".join(secrets.choice(_RECOVERY_ALPHABET) for _ in range(8))
-        codes.append(f"{raw[:4]}-{raw[4:]}")
+        raw = "".join(secrets.choice(_RECOVERY_ALPHABET) for _ in range(RECOVERY_CODE_LENGTH))
+        codes.append(f"{raw[:4]}-{raw[4:8]}-{raw[8:]}")
     return codes
 
 
 def hash_recovery_code(code: str) -> str:
-    return sha256_hex(normalize_recovery_code(code))
+    """Argon2id con sal propia: el mismo tratamiento que una contraseña."""
+    return passwords.hash_password(normalize_recovery_code(code))
+
+
+def verify_recovery_code(hashed: str, code: str) -> bool:
+    return passwords.verify_password(hashed, normalize_recovery_code(code))

@@ -12,7 +12,7 @@ Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 PasswordInput = Annotated[str, StringConstraints(min_length=1, max_length=256)]
 FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)]
 Phone = Annotated[str, StringConstraints(strip_whitespace=True, max_length=50)]
-OtpInput = Annotated[str, StringConstraints(strip_whitespace=True, min_length=6, max_length=12)]
+OtpInput = Annotated[str, StringConstraints(strip_whitespace=True, min_length=6, max_length=20)]
 
 
 class LoginRequest(BaseModel):

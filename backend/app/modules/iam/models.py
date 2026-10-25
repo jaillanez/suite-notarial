@@ -189,7 +189,7 @@ class UserSession(UUIDMixin, Base):
 
 
 class RecoveryCode(UUIDMixin, Base):
-    """Código de recuperación de 2FA, de un solo uso, guardado como hash SHA-256."""
+    """Código de recuperación de 2FA, de un solo uso, guardado como hash Argon2id."""
 
     __tablename__ = "security_recovery_codes"
 
@@ -199,7 +199,7 @@ class RecoveryCode(UUIDMixin, Base):
         nullable=False,
         index=True,
     )
-    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

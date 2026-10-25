@@ -58,6 +58,21 @@ def _totp_aad(user: User) -> bytes:
 # --------------------------------------------------------------------------- búsqueda
 
 
+def _identifier_fingerprint(identifier: str) -> dict[str, str]:
+    """Huella del identificador para la auditoría, nunca el texto.
+
+    Quien tipea la contraseña en el campo de usuario no debe dejarla escrita en la auditoría;
+    el hash permite correlacionar intentos repetidos sin conservar el valor.
+    """
+    normalized = identifier.strip().lower()
+    try:
+        normalize_cuit(normalized)
+        kind = "cuit"
+    except InvalidCuitError:
+        kind = "email" if "@" in normalized else "other"
+    return {"identifier_kind": kind, "identifier_sha256": sha256_hex(normalized)}
+
+
 async def find_user_by_identifier(session: AsyncSession, identifier: str) -> User | None:
     identifier = identifier.strip()
     conditions = [User.email == identifier.lower()]
@@ -132,7 +147,7 @@ async def authenticate_password(
             ctx,
             AuditEvent.LOGIN_FAILED,
             severity=Severity.WARNING,
-            details={"reason": "unknown_identifier", "identifier": identifier[:255]},
+            details={"reason": "unknown_identifier", **_identifier_fingerprint(identifier)},
         )
         await session.commit()
         raise _credentials_error()
@@ -185,18 +200,18 @@ def _decrypt_totp_secret(settings: Settings, user: User) -> str:
 
 
 async def _consume_recovery_code(session: AsyncSession, user: User, code: str) -> bool:
-    result = await session.execute(
-        select(RecoveryCode).where(
-            RecoveryCode.user_id == user.id,
-            RecoveryCode.code_hash == totp.hash_recovery_code(code),
-            RecoveryCode.used_at.is_(None),
-        )
-    )
-    record = result.scalars().first()
-    if record is None:
+    if not totp.looks_like_recovery_code(code):
         return False
-    record.used_at = _now()
-    return True
+    result = await session.execute(
+        select(RecoveryCode)
+        .where(RecoveryCode.user_id == user.id, RecoveryCode.used_at.is_(None))
+        .with_for_update()
+    )
+    for record in result.scalars():
+        if totp.verify_recovery_code(record.code_hash, code):
+            record.used_at = _now()
+            return True
+    return False
 
 
 async def verify_mfa_login(
@@ -318,8 +333,12 @@ async def refresh_session(
     session: AsyncSession, settings: Settings, ctx: RequestContext, raw_refresh: str
 ) -> IssuedSession:
     expired = ProblemError(HTTPStatus.UNAUTHORIZED, "La sesión expiró. Volvé a ingresar.")
+    # FOR UPDATE: dos refresh simultáneos del mismo token se serializan; el segundo ve la
+    # fila ya rotada y no puede emitir una segunda sesión válida.
     result = await session.execute(
-        select(UserSession).where(UserSession.refresh_token_hash == sha256_hex(raw_refresh))
+        select(UserSession)
+        .where(UserSession.refresh_token_hash == sha256_hex(raw_refresh))
+        .with_for_update()
     )
     current = result.scalars().first()
     if current is None:

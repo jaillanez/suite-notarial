@@ -42,9 +42,14 @@ def test_totp_window_and_replay() -> None:
     assert totp.verify_code(secret, "12ab56", last_used_step=None, now=now) is None
 
 
-def test_recovery_codes_format() -> None:
+def test_recovery_codes_format_and_hashing() -> None:
     codes = totp.generate_recovery_codes()
 
     assert len(codes) == 10
-    assert all(len(c) == 9 and c[4] == "-" for c in codes)
-    assert totp.hash_recovery_code(codes[0].lower()) == totp.hash_recovery_code(codes[0])
+    assert all(len(c) == 14 and c[4] == "-" and c[9] == "-" for c in codes)
+    hashed = totp.hash_recovery_code(codes[0])
+    assert hashed.startswith("$argon2id$")
+    assert hashed != totp.hash_recovery_code(codes[0])  # sal propia por código
+    assert totp.verify_recovery_code(hashed, codes[0].lower().replace("-", " "))
+    assert not totp.verify_recovery_code(hashed, codes[1])
+    assert not totp.looks_like_recovery_code("1234-5678")
