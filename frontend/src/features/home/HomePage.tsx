@@ -14,6 +14,18 @@ interface Section {
 
 const SECTIONS: Section[] = [
   {
+    to: '/padron/escribanos',
+    title: 'Escribanos',
+    description: 'Padrón de matriculados: datos, estado de la matrícula y cargos.',
+    permission: 'escribanos:read',
+  },
+  {
+    to: '/padron/registros',
+    title: 'Registros notariales',
+    description: 'Registros con su titular, adscriptos y circunscripción.',
+    permission: 'escribanos:read',
+  },
+  {
     to: '/usuarios',
     title: 'Usuarios',
     description: 'Altas, suspensiones y roles de las cuentas de la Suite.',

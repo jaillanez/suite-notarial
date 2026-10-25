@@ -15,6 +15,8 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Inicio' },
+  { to: '/padron/escribanos', label: 'Escribanos', permission: 'escribanos:read' },
+  { to: '/padron/registros', label: 'Registros', permission: 'escribanos:read' },
   { to: '/usuarios', label: 'Usuarios', permission: 'users:read' },
   { to: '/auditoria', label: 'Auditoría', permission: 'audit:read' },
   { to: '/estado', label: 'Estado del sistema' },
