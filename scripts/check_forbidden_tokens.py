@@ -15,6 +15,8 @@ MONEY_HINTS = ("money", "aportes", "boletas", "pagos", "prestamos", "liquidacion
 
 
 def check(path: Path) -> list[str]:
+    if not path.is_file():
+        return [f"{path}: el archivo no existe"]
     if "app" not in path.parts:
         return []
     is_money = any(hint in part for part in path.parts for hint in MONEY_HINTS)
@@ -43,6 +45,9 @@ def check(path: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if not argv:
+        sys.stderr.write("No se recibieron archivos para revisar.\n")
+        return 2
     errors = [e for arg in argv for e in check(Path(arg))]
     for e in errors:
         sys.stderr.write(e + "\n")

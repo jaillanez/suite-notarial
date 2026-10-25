@@ -68,7 +68,7 @@ jobs:
         run: make lint-backend
 
       - name: Guardas print/float
-        run: python scripts/check_forbidden_tokens.py $(git ls-files 'backend/app/*.py')
+        run: git ls-files -z -- 'backend/app/*.py' | xargs -0 python scripts/check_forbidden_tokens.py
 
       - name: Tests
         run: make test-backend
