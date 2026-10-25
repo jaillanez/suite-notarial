@@ -16,8 +16,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 2 | Padrón: escribanos, matrículas, registros, cargos y circunscripciones | Completa |
 | 3 | Motor paramétrico de aportes: conceptos, vigencias versionadas y cálculo | Completa |
 | 4 | DDJJ, liquidación y boletas con PDF, QR y verificación pública | Completa |
-| 5 | Pagos: comprobantes y mesa de conciliación de Tesorería | En revisión |
-| 6–10 | Ver `AGENTS.md` | Pendiente |
+| 5 | Pagos: comprobantes y mesa de conciliación de Tesorería | Completa |
+| 6 | Reportes con paginación en servidor y exportación XLSX/CSV con paridad de totales | En revisión |
+| 7–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -271,6 +272,19 @@ Ya aplicadas:
   borrarlos. Mientras un comprobante está en revisión, la boleta no se reemite ni se rectifica.
 - **Pendiente de negocio (`TODO(negocio)`):** pagos parciales o con diferencia, mora por
   acreditación tardía, rectificación de una DDJJ paga y más de una cuenta recaudadora.
+
+## Reportes (Fase 6)
+
+- **Paridad pantalla ↔ archivo (REP):** cada reporte es una sola consulta con columnas y filtros
+  declarados. La grilla (paginada en el servidor), los totales y las exportaciones XLSX y CSV
+  usan la misma consulta, filtros y orden; los totales suman todas las filas filtradas.
+- **Reportes:** padrón de escribanos, boletas emitidas, pagos y conciliaciones, recaudación por
+  período y registro de auditoría, cada uno con su permiso (`/reportes`).
+- **Grilla:** cabecera y totales fijos, columnas configurables (algunas ocultas por defecto, se
+  recuerdan por navegador) y lista apilada en celular, sin scroll horizontal infinito.
+- **Exportación:** XLSX con importes `Decimal` exactos, autofiltro y fila de totales; CSV es-AR
+  (`;`, coma decimal, UTF-8 con BOM). Fechas en hora de San Juan, protección contra inyección de
+  fórmulas y registro de cada exportación en la auditoría (máximo 50.000 filas).
 
 ## Seguridad de acceso (Fase 1)
 
