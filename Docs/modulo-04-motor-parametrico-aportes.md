@@ -5,6 +5,25 @@
 **Requerimientos del Pliego:** `PAR-01`, `PAR-02`, `PAR-03`, `PAR-04`, `SEC-01`, `SEC-03`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 (Decimal) | React + TypeScript
 
+> **Implementación (Fase 3).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Porcentajes en %** (`1.5000` = 1,5 %) en `Numeric(18,4)`, no como fracción en `Numeric(6,4)`:
+>   se leen igual que en las resoluciones y admiten alícuotas de hasta cuatro decimales de %.
+> - **Valores según el tipo:** porcentual (porcentaje, mínimo, tope), fijo mensual (monto) y mora
+>   (tasa mensual, días de gracia); la API rechaza campos que no corresponden al tipo.
+> - **Sin solapamiento garantizado por la base** (restricción de exclusión GiST) y **valores
+>   inmutables por trigger**. Estados: `PENDIENTE_APROBACION`, `VIGENTE`, `RECHAZADA` (no hay
+>   REEMPLAZADO/ANULADO: una vigencia reemplazada sigue VIGENTE en su rango, cerrado con fecha).
+> - **Cuatro ojos:** quien propone no puede aprobar (API + CHECK en la base). Permiso
+>   `parameters:approve` para `ROLE_ADMIN`.
+> - **Auditoría** en `audit_security_logs` (actor, UTC, IP, valor anterior y nuevo), sin la tabla
+>   `parametros_auditoria_log` aparte.
+> - **Fechas de consulta** en hora de San Juan, no del servidor.
+> - **Mora:** se implementó la fórmula de §3 (interés simple, tasa mensual / 30 por día), marcada
+>   `TODO(negocio)` junto con desde cuándo corre (vencimiento o fin de la gracia).
+> - **Rutas:** `/api/v1/parametros/{conceptos, conceptos/{id}/vigencias, vigencias/{id}/aprobar,
+>   vigencias/{id}/rechazar, simulacion}`.
+
 ---
 
 ### 1. Propósito, Alcance y Mitigación de Defectos Previos
