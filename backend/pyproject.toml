@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "suite-notarial-backend"
+version = "0.1.0"
+description = "Backend de la Suite Notarial — Caja Notarial de San Juan"
+requires-python = ">=3.12"
+dependencies = [
+    # Runtime
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "sqlalchemy[asyncio]>=2.0.32",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    # Seguridad
+    "pyjwt>=2.9",
+    "argon2-cffi>=23.1",
+    "pyotp>=2.9",
+    "python-magic>=0.4.27",
+    # Documentos
+    "weasyprint>=62",
+    "qrcode[pil]>=7.4",
+    "python-barcode>=0.15",
+    "openpyxl>=3.1",
+    # Email
+    "aiosmtplib>=3.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-qrcode",
+    "types-openpyxl",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "N", "S", "T20", "SIM", "RUF", "ASYNC", "DTZ"]
+ignore = []
+
+[tool.ruff.lint.isort]
+# La carpeta local `alembic/` no debe hacer que el paquete se clasifique como first-party.
+known-third-party = ["alembic"]
+known-first-party = ["app"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"alembic/**" = ["T20"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/versions/"]
+
+[[tool.mypy.overrides]]
+module = ["magic", "barcode.*", "weasyprint.*", "pyotp.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
