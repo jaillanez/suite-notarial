@@ -26,6 +26,12 @@ const SECTIONS: Section[] = [
     permission: 'escribanos:read',
   },
   {
+    to: '/parametros',
+    title: 'Parámetros previsionales',
+    description: 'Alícuotas, montos fijos y tasas con sus vigencias y aprobaciones.',
+    permission: 'parameters:read',
+  },
+  {
     to: '/usuarios',
     title: 'Usuarios',
     description: 'Altas, suspensiones y roles de las cuentas de la Suite.',
