@@ -38,6 +38,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://suite_app:suite_app_dev@localhost:5432/suite_notarial
       PUBLIC_WEB_URL: http://localhost:5173
       JWT_SECRET: ci-secret-no-usar-en-produccion-0123456789abcdef
+      DATA_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
     steps:
       - uses: actions/checkout@v4
 

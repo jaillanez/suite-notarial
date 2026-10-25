@@ -1,5 +1,7 @@
 """Configuración tipada de la aplicación, leída de variables de entorno / `.env`."""
 
+import base64
+import binascii
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -38,6 +40,13 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = True
     COOKIE_DOMAIN: str | None = None
 
+    # Clave AES-256 en base64 (32 bytes) para cifrar secretos en reposo (p. ej. semillas TOTP).
+    DATA_ENCRYPTION_KEY: SecretStr
+    LOGIN_MAX_ATTEMPTS: Annotated[int, Field(gt=0)] = 5
+    LOGIN_LOCK_MINUTES: Annotated[int, Field(gt=0)] = 15
+    MFA_PENDING_TTL_MIN: Annotated[int, Field(gt=0)] = 5
+    TOTP_ISSUER: str = "Caja Notarial de San Juan"
+
     SMTP_HOST: str = "localhost"
     SMTP_PORT: Annotated[int, Field(gt=0, lt=65536)] = 1025
     MAIL_FROM: str = "no-responder@cajanotarial.local"
@@ -55,6 +64,17 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET debe tener al menos 32 caracteres")
         return value
 
+    @field_validator("DATA_ENCRYPTION_KEY")
+    @classmethod
+    def _encryption_key_size(cls, value: SecretStr) -> SecretStr:
+        try:
+            raw = base64.b64decode(value.get_secret_value(), validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("DATA_ENCRYPTION_KEY debe estar en base64") from exc
+        if len(raw) != 32:
+            raise ValueError("DATA_ENCRYPTION_KEY debe decodificar a 32 bytes (AES-256)")
+        return value
+
     @field_validator("PUBLIC_WEB_URL")
     @classmethod
     def _public_url_not_private(cls, value: HttpUrl, info: object) -> HttpUrl:
@@ -69,6 +89,15 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT is Environment.PRODUCTION
+
+    @property
+    def public_web_base(self) -> str:
+        """`PUBLIC_WEB_URL` sin barra final, para construir enlaces (SEC-04)."""
+        return str(self.PUBLIC_WEB_URL).rstrip("/")
+
+    @property
+    def data_encryption_key(self) -> bytes:
+        return base64.b64decode(self.DATA_ENCRYPTION_KEY.get_secret_value())
 
     @property
     def max_upload_bytes(self) -> int:
