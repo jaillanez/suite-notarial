@@ -43,7 +43,8 @@
 1. **Reglas financieras:** prohibido deducir, extrapolar o inventar fórmulas de aportes, escalas arancelarias o tasas de mora. Todo cálculo se basa en especificaciones aprobadas por la Caja o en parámetros vigentes de la base.
 2. **Datos sensibles:** prohibido interactuar con bases de producción durante desarrollo o pruebas; prohibidas credenciales reales o llaves privadas en el código; todo correo de desarrollo y test va a Mailpit; se trabaja con fixtures sintéticos.
 3. **Entrega por fase:** cobertura mínima del 85% en código de negocio (desde la Fase 1); pruebas negativas de autorización (403); migraciones reversibles (`upgrade` y `downgrade`, verificadas en CI); contrato OpenAPI sin inconsistencias de tipado.
-4. **Entorno:** sin Docker. Ante cualquier diferencia con `Docs/`, este archivo prevalece; `Docs/modulo-01-fundamentos-arquitectura-devops.md` (v2.1) ya está alineado.
+4. **Migraciones:** una revisión de Alembic se puede editar solo mientras su PR no está mergeado y ninguna base compartida (staging, producción, la de otra persona) la aplicó. Después, todo cambio va en una revisión nueva. `alembic check` corre en CI y antes de cada push.
+5. **Entorno:** sin Docker. Ante cualquier diferencia con `Docs/`, este archivo prevalece; `Docs/modulo-01-fundamentos-arquitectura-devops.md` (v2.1) ya está alineado.
 
 ---
 
