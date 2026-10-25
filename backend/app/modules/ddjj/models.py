@@ -175,6 +175,10 @@ class Boleta(UUIDMixin, Base):
         CheckConstraint(PERIODO_CHECK, name="periodo_formato"),
         CheckConstraint("estado IN ('PENDIENTE', 'PAGADA', 'ANULADA')", name="estado_valido"),
         CheckConstraint("fecha_pago >= fecha_emision", name="fecha_pago"),
+        CheckConstraint(
+            "dias_mora = 0 OR fecha_pago > fecha_vencimiento", name="mora_solo_fuera_de_termino"
+        ),
+        CheckConstraint("interes_mora = 0 OR dias_mora > 0", name="interes_con_mora"),
         CheckConstraint("total_a_pagar = total_en_termino + interes_mora", name="total_cuadra"),
         CheckConstraint(
             "total_en_termino = aporte_minimo + excedente + aporte_medico", name="termino_cuadra"

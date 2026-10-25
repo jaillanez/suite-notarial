@@ -16,45 +16,74 @@ TABLES = ("ddjj_vencimientos", "ddjj_declaraciones", "ddjj_actos", "ddjj_boletas
 GUARD_FN = """
 CREATE OR REPLACE FUNCTION ddjj_guard() RETURNS trigger
 LANGUAGE plpgsql AS $$
+DECLARE
+    ddjj_estado text;
 BEGIN
     IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
         RAISE EXCEPTION '%: % no permitido (sin borrado físico, regla INM)', TG_TABLE_NAME, TG_OP
             USING ERRCODE = 'insufficient_privilege';
     END IF;
-    IF TG_TABLE_NAME = 'ddjj_actos' AND OLD.aporte IS NOT NULL THEN
-        RAISE EXCEPTION 'ddjj_actos: un acto liquidado no se modifica (usar rectificativa)'
-            USING ERRCODE = 'insufficient_privilege';
+    -- plpgsql no corta la evaluación de AND: cada tabla va en su propio IF porque OLD y NEW
+    -- tienen la forma de la fila de esa tabla (y no existen según la operación).
+    IF TG_TABLE_NAME = 'ddjj_actos' THEN
+        -- Los actos solo se agregan o cambian mientras su DDJJ está en borrador. La única
+        -- excepción es congelar la liquidación al presentar (aporte y vigencia de NULL a valor).
+        SELECT estado INTO ddjj_estado FROM ddjj_declaraciones WHERE id = NEW.ddjj_id;
+        IF TG_OP = 'UPDATE' THEN
+            IF OLD.aporte IS NOT NULL OR NEW.ddjj_id IS DISTINCT FROM OLD.ddjj_id THEN
+                RAISE EXCEPTION 'ddjj_actos: un acto liquidado no se modifica (usar rectificativa)'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+        END IF;
+        IF ddjj_estado IS DISTINCT FROM 'BORRADOR' THEN
+            RAISE EXCEPTION 'ddjj_actos: la DDJJ no está en borrador'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
     END IF;
-    IF TG_TABLE_NAME = 'ddjj_declaraciones' AND OLD.estado <> 'BORRADOR' THEN
+    IF TG_TABLE_NAME = 'ddjj_declaraciones' THEN
         -- Presentada: solo puede pasar a RECTIFICADA, sin tocar nada más.
-        IF NOT (OLD.estado = 'PRESENTADA' AND NEW.estado = 'RECTIFICADA'
-                AND (NEW.registro_id, NEW.periodo, NEW.numero_rectificativa,
-                     NEW.total_protocolos, NEW.cantidad_actos, NEW.fecha_presentacion)
+        IF OLD.estado <> 'BORRADOR'
+           AND NOT (OLD.estado = 'PRESENTADA' AND NEW.estado = 'RECTIFICADA'
+                AND (NEW.id, NEW.registro_id, NEW.periodo, NEW.numero_rectificativa,
+                     NEW.observaciones, NEW.fecha_presentacion, NEW.presentada_por_user_id,
+                     NEW.rectifica_a_id, NEW.created_by_user_id, NEW.created_at,
+                     NEW.total_protocolos, NEW.cantidad_actos)
                     IS NOT DISTINCT FROM
-                    (OLD.registro_id, OLD.periodo, OLD.numero_rectificativa,
-                     OLD.total_protocolos, OLD.cantidad_actos, OLD.fecha_presentacion)) THEN
+                    (OLD.id, OLD.registro_id, OLD.periodo, OLD.numero_rectificativa,
+                     OLD.observaciones, OLD.fecha_presentacion, OLD.presentada_por_user_id,
+                     OLD.rectifica_a_id, OLD.created_by_user_id, OLD.created_at,
+                     OLD.total_protocolos, OLD.cantidad_actos)) THEN
             RAISE EXCEPTION 'ddjj_declaraciones: una DDJJ % no se modifica', OLD.estado
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+    END IF;
+    IF TG_TABLE_NAME = 'ddjj_vencimientos' THEN
+        -- El vencimiento se corrige solo mientras no haya boletas del período.
+        IF NEW.periodo IS DISTINCT FROM OLD.periodo
+           OR (NEW.fecha_vencimiento IS DISTINCT FROM OLD.fecha_vencimiento
+               AND EXISTS (SELECT 1 FROM ddjj_boletas WHERE periodo = OLD.periodo)) THEN
+            RAISE EXCEPTION 'ddjj_vencimientos: el período % ya tiene boletas emitidas', OLD.periodo
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
     END IF;
     IF TG_TABLE_NAME = 'ddjj_boletas' THEN
         -- Solo cambia el estado (PENDIENTE -> PAGADA o ANULADA) y los datos de anulación.
         IF OLD.estado <> 'PENDIENTE'
-           OR (NEW.numero, NEW.codigo_verificacion, NEW.ddjj_id, NEW.registro_id, NEW.periodo,
-               NEW.fecha_emision, NEW.fecha_vencimiento, NEW.fecha_pago, NEW.dias_mora,
-               NEW.total_protocolos, NEW.aporte_minimo, NEW.excedente, NEW.aporte_medico,
-               NEW.cantidad_aportes_medicos, NEW.total_en_termino, NEW.interes_mora,
-               NEW.total_a_pagar, NEW.vigencia_minimo_id, NEW.vigencia_medico_id,
-               NEW.vigencia_mora_id, NEW.checksum_sha256, NEW.emitida_por_user_id,
-               NEW.created_at)
+           OR (NEW.id, NEW.numero, NEW.codigo_verificacion, NEW.ddjj_id, NEW.registro_id,
+               NEW.periodo, NEW.fecha_emision, NEW.fecha_vencimiento, NEW.fecha_pago,
+               NEW.dias_mora, NEW.total_protocolos, NEW.aporte_minimo, NEW.excedente,
+               NEW.aporte_medico, NEW.cantidad_aportes_medicos, NEW.total_en_termino,
+               NEW.interes_mora, NEW.total_a_pagar, NEW.vigencia_minimo_id,
+               NEW.vigencia_medico_id, NEW.vigencia_mora_id, NEW.checksum_sha256,
+               NEW.emitida_por_user_id, NEW.created_at)
               IS DISTINCT FROM
-              (OLD.numero, OLD.codigo_verificacion, OLD.ddjj_id, OLD.registro_id, OLD.periodo,
-               OLD.fecha_emision, OLD.fecha_vencimiento, OLD.fecha_pago, OLD.dias_mora,
-               OLD.total_protocolos, OLD.aporte_minimo, OLD.excedente, OLD.aporte_medico,
-               OLD.cantidad_aportes_medicos, OLD.total_en_termino, OLD.interes_mora,
-               OLD.total_a_pagar, OLD.vigencia_minimo_id, OLD.vigencia_medico_id,
-               OLD.vigencia_mora_id, OLD.checksum_sha256, OLD.emitida_por_user_id,
-               OLD.created_at) THEN
+              (OLD.id, OLD.numero, OLD.codigo_verificacion, OLD.ddjj_id, OLD.registro_id,
+               OLD.periodo, OLD.fecha_emision, OLD.fecha_vencimiento, OLD.fecha_pago,
+               OLD.dias_mora, OLD.total_protocolos, OLD.aporte_minimo, OLD.excedente,
+               OLD.aporte_medico, OLD.cantidad_aportes_medicos, OLD.total_en_termino,
+               OLD.interes_mora, OLD.total_a_pagar, OLD.vigencia_minimo_id,
+               OLD.vigencia_medico_id, OLD.vigencia_mora_id, OLD.checksum_sha256,
+               OLD.emitida_por_user_id, OLD.created_at) THEN
             RAISE EXCEPTION 'ddjj_boletas: una boleta emitida no se modifica'
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
@@ -92,7 +121,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Numeración correlativa de boletas, sin huecos por concurrencia (secuencia de la base).
+    # Numeración correlativa y única aun con emisiones concurrentes (secuencia de la base).
+    # Una transacción revertida puede dejar un número sin usar (ninguna boleta lo lleva).
     op.execute("CREATE SEQUENCE ddjj_boletas_numero_seq START 1")
     # ### commands auto generated by Alembic - please adjust! ###
     op.create_table('ddjj_vencimientos',
@@ -199,6 +229,8 @@ def upgrade() -> None:
     sa.CheckConstraint("estado IN ('PENDIENTE', 'PAGADA', 'ANULADA')", name=op.f('ck_ddjj_boletas_estado_valido')),
     sa.CheckConstraint("periodo ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'", name=op.f('ck_ddjj_boletas_periodo_formato')),
     sa.CheckConstraint('fecha_pago >= fecha_emision', name=op.f('ck_ddjj_boletas_fecha_pago')),
+    sa.CheckConstraint('dias_mora = 0 OR fecha_pago > fecha_vencimiento', name=op.f('ck_ddjj_boletas_mora_solo_fuera_de_termino')),
+    sa.CheckConstraint('interes_mora = 0 OR dias_mora > 0', name=op.f('ck_ddjj_boletas_interes_con_mora')),
     sa.CheckConstraint('total_a_pagar = total_en_termino + interes_mora', name=op.f('ck_ddjj_boletas_total_cuadra')),
     sa.CheckConstraint('total_en_termino = aporte_minimo + excedente + aporte_medico', name=op.f('ck_ddjj_boletas_termino_cuadra')),
     sa.ForeignKeyConstraint(['ddjj_id'], ['ddjj_declaraciones.id'], name=op.f('fk_ddjj_boletas_ddjj_id_ddjj_declaraciones'), ondelete='RESTRICT'),
@@ -224,21 +256,21 @@ def upgrade() -> None:
             f"CREATE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
             "FOR EACH STATEMENT EXECUTE FUNCTION ddjj_guard()"
         )
-    for table in ("ddjj_declaraciones", "ddjj_actos", "ddjj_boletas"):
+    for table in TABLES:
         op.execute(
             f"CREATE TRIGGER {table}_guard BEFORE UPDATE OR DELETE ON {table} "
             "FOR EACH ROW EXECUTE FUNCTION ddjj_guard()"
         )
     op.execute(
-        "CREATE TRIGGER ddjj_vencimientos_no_delete BEFORE DELETE ON ddjj_vencimientos "
+        "CREATE TRIGGER ddjj_actos_insert_guard BEFORE INSERT ON ddjj_actos "
         "FOR EACH ROW EXECUTE FUNCTION ddjj_guard()"
     )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.execute("DROP TRIGGER IF EXISTS ddjj_vencimientos_no_delete ON ddjj_vencimientos")
-    for table in ("ddjj_declaraciones", "ddjj_actos", "ddjj_boletas"):
+    op.execute("DROP TRIGGER IF EXISTS ddjj_actos_insert_guard ON ddjj_actos")
+    for table in TABLES:
         op.execute(f"DROP TRIGGER IF EXISTS {table}_guard ON {table}")
     for table in TABLES:
         op.execute(f"DROP TRIGGER IF EXISTS {table}_no_truncate ON {table}")

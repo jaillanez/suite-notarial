@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Boleta N° {{ b.numero }}</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 18mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Public Sans", "Helvetica Neue", Arial, sans-serif; color: #16232b; font-size: 9.5pt; line-height: 1.4; margin: 0; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2pt solid #113347; padding-bottom: 8pt; }
+  header img { height: 36pt; }
+  .titulo { text-align: right; }
+  .titulo h1 { font-size: 14pt; margin: 0; color: #113347; letter-spacing: 0.02em; }
+  .titulo p { margin: 2pt 0 0; color: #4c5c66; }
+  .estado { display: inline-block; margin-top: 4pt; padding: 1pt 6pt; border: 1pt solid #a8201a; color: #a8201a; font-weight: 700; letter-spacing: 0.08em; }
+  .grid { display: flex; gap: 12pt; margin-top: 12pt; }
+  .card { flex: 1; border: 0.75pt solid #d3dce2; padding: 8pt 10pt; }
+  .label { color: #63737d; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+  .value { font-size: 11pt; font-weight: 600; margin: 1pt 0 0; }
+  ul.escribanos { list-style: none; padding: 0; margin: 2pt 0 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12pt; }
+  td { padding: 4pt 0; border-bottom: 0.5pt solid #d3dce2; }
+  td.importe { text-align: right; }
+  tr.subtotal td { font-weight: 600; border-bottom: 1pt solid #b4c2ca; }
+  tr.total td { font-size: 13pt; font-weight: 700; color: #113347; border-bottom: 2pt solid #113347; padding-top: 6pt; }
+  .detalle { color: #4c5c66; font-size: 8.5pt; }
+  .pago { margin-top: 14pt; border: 0.75pt solid #d3dce2; background: #f7f9fa; padding: 10pt; }
+  .pago p { margin: 0 0 3pt; }
+  .pago dl { display: flex; flex-wrap: wrap; margin: 6pt 0 0; }
+  .pago dt { width: 30%; color: #63737d; }
+  .pago dd { width: 70%; margin: 0 0 2pt; font-weight: 600; }
+  .verif { display: flex; align-items: center; gap: 12pt; margin-top: 14pt; }
+  .verif img.qr { width: 72pt; height: 72pt; }
+  .verif .codigo { font-family: "DejaVu Sans Mono", monospace; font-size: 11pt; font-weight: 700; letter-spacing: 0.08em; }
+  .barras { margin-top: 14pt; text-align: center; }
+  .barras img { height: 40pt; width: 80%; }
+  .barras p { margin: 2pt 0 0; font-family: "DejaVu Sans Mono", monospace; font-size: 8pt; letter-spacing: 0.1em; }
+  footer { position: fixed; bottom: -10mm; left: 0; right: 0; text-align: center; color: #63737d; font-size: 7.5pt; }
+  .huella { word-break: break-all; font-family: "DejaVu Sans Mono", monospace; font-size: 6.5pt; color: #63737d; margin-top: 8pt; }
+</style>
+</head>
+<body>
+<header>
+  <img src="logo.png" alt="{{ caja.CAJA_NOMBRE }}">
+  <div class="titulo">
+    <h1>Boleta de aportes</h1>
+    <p>N° <strong class="num">{{ b.numero }}</strong> · Emitida el <span class="num">{{ b.fecha_emision|fecha }}</span></p>
+    {% if b.estado != "PENDIENTE" %}<span class="estado">{{ b.estado }}</span>{% endif %}
+  </div>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <p class="label">Registro notarial</p>
+    <p class="value num">N° {{ registro }}</p>
+    <ul class="escribanos">
+      {% for e in escribanos %}<li>{{ e.apellido_nombre }} ({{ e.cargo }})</li>{% endfor %}
+    </ul>
+  </div>
+  <div class="card">
+    <p class="label">Período</p>
+    <p class="value num">{{ periodo }}{% if rectificativa %} · Rectificativa {{ rectificativa }}{% endif %}</p>
+  </div>
+  <div class="card">
+    <p class="label">Vencimiento</p>
+    <p class="value num">{{ b.fecha_vencimiento|fecha }}</p>
+    <p class="label" style="margin-top:6pt">Pagar hasta</p>
+    <p class="value num">{{ b.fecha_pago|fecha }}</p>
+  </div>
+</div>
+
+<table>
+  <tr><td>Total protocolos</td><td class="importe num">{{ b.total_protocolos|pesos }}</td></tr>
+  <tr><td>Aporte mínimo</td><td class="importe num">{{ b.aporte_minimo|pesos }}</td></tr>
+  <tr><td>Excedente</td><td class="importe num">{{ b.excedente|pesos }}</td></tr>
+  <tr><td>Aporte médico asistencial{% if b.cantidad_aportes_medicos != 1 %} <span class="detalle">({{ b.cantidad_aportes_medicos }} aportes)</span>{% endif %}</td><td class="importe num">{{ b.aporte_medico|pesos }}</td></tr>
+  <tr class="subtotal"><td>Total a pagar en término</td><td class="importe num">{{ b.total_en_termino|pesos }}</td></tr>
+  <tr><td>Interés por fuera de término <span class="detalle num">({{ b.dias_mora }} {{ "día" if b.dias_mora == 1 else "días" }})</span></td><td class="importe num">{{ b.interes_mora|pesos }}</td></tr>
+  <tr class="total"><td>Total a pagar</td><td class="importe num">{{ b.total_a_pagar|pesos }}</td></tr>
+</table>
+
+<div class="pago">
+  <p>El total a pagar debe depositarse en la cuenta de la {{ caja.CAJA_NOMBRE }} hasta la fecha indicada como «pagar hasta».</p>
+  {% if caja.BANCO_CBU %}
+  <dl>
+    {% if caja.BANCO_NOMBRE %}<dt>Banco</dt><dd>{{ caja.BANCO_NOMBRE }}</dd>{% endif %}
+    {% if caja.BANCO_CUENTA %}<dt>Cuenta</dt><dd class="num">{{ caja.BANCO_CUENTA }}</dd>{% endif %}
+    <dt>CBU</dt><dd class="num">{{ caja.BANCO_CBU }}</dd>
+    {% if caja.BANCO_ALIAS %}<dt>Alias</dt><dd>{{ caja.BANCO_ALIAS }}</dd>{% endif %}
+    <dt>Titular</dt><dd>{{ caja.CAJA_NOMBRE }}</dd>
+    {% if caja.CAJA_CUIT %}<dt>CUIT</dt><dd class="num">{{ caja.CAJA_CUIT }}</dd>{% endif %}
+  </dl>
+  {% else %}
+  <p><strong>Datos bancarios a confirmar.</strong></p>
+  {% endif %}
+</div>
+
+<div class="verif">
+  <img class="qr" src="data:image/svg+xml;base64,{{ qr }}" alt="Código QR de verificación">
+  <div>
+    <p class="label">Código de verificación</p>
+    <p class="codigo">{{ codigo }}</p>
+    <p class="detalle">Verificá esta boleta en {{ verificacion }}</p>
+  </div>
+</div>
+
+<div class="barras">
+  <img src="data:image/svg+xml;base64,{{ barras }}" alt="Código de barras">
+  <p>{{ barras_texto }}</p>
+</div>
+
+<p class="huella">SHA-256 {{ b.checksum_sha256 }}</p>
+
+<footer>{{ caja.CAJA_NOMBRE }}{% if caja.CAJA_DOMICILIO %} · {{ caja.CAJA_DOMICILIO }}{% endif %}{% if caja.CAJA_CONTACTO %} · {{ caja.CAJA_CONTACTO }}{% endif %}</footer>
+</body>
+</html>

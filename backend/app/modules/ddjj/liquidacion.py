@@ -81,10 +81,35 @@ def liquidar(
     if cantidad_aportes_medicos < 0:
         raise LiquidacionError("La cantidad de aportes médicos no puede ser negativa.")
     aportes = tuple(aporte_de_acto(acto, vigencia) for acto, vigencia in actos)
-    total_protocolos = to_money(sum((a.aporte for a in aportes), CERO))
-    aporte_minimo = motor.aporte_fijo(minimo)
+    return totalizar(
+        aportes,
+        to_money(sum((a.aporte for a in aportes), CERO)),
+        aporte_minimo=motor.aporte_fijo(minimo),
+        aporte_medico=to_money(motor.aporte_fijo(medico) * cantidad_aportes_medicos),
+        cantidad_aportes_medicos=cantidad_aportes_medicos,
+        vencimiento=vencimiento,
+        fecha_pago=fecha_pago,
+        mora=mora,
+    )
+
+
+def totalizar(
+    aportes: tuple[AporteActo, ...],
+    total_protocolos: Decimal,
+    *,
+    aporte_minimo: Decimal,
+    aporte_medico: Decimal,
+    cantidad_aportes_medicos: int,
+    vencimiento: date,
+    fecha_pago: date,
+    mora: VigenciaSnapshot | None,
+) -> Liquidacion:
+    """Mínimo, excedente e interés sobre importes ya calculados.
+
+    Se usa también para reemitir una boleta con otra fecha de pago a partir de los importes
+    congelados de la original: solo cambia la mora.
+    """
     excedente = max(CERO, total_protocolos - aporte_minimo)
-    aporte_medico = to_money(motor.aporte_fijo(medico) * cantidad_aportes_medicos)
     total_en_termino = aporte_minimo + excedente + aporte_medico
     dias_mora = 0
     interes = CERO
