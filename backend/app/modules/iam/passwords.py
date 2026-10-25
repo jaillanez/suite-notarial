@@ -1,5 +1,6 @@
 """Hash de contraseñas con Argon2id y política de complejidad."""
 
+import asyncio
 import re
 from functools import lru_cache
 
@@ -37,6 +38,22 @@ def burn_verification_time(password: str) -> None:
     verify_password(_dummy_hash(), password)
 
 
+# Argon2id es CPU intensivo a propósito: en el camino async corre en un hilo para no frenar
+# el event loop (y con él, a todos los demás usuarios).
+
+
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(hashed: str, password: str) -> bool:
+    return await asyncio.to_thread(verify_password, hashed, password)
+
+
+async def burn_verification_time_async(password: str) -> None:
+    await asyncio.to_thread(burn_verification_time, password)
+
+
 class WeakPasswordError(ValueError):
     pass
 
@@ -56,9 +73,14 @@ def check_password_policy(password: str, *, email: str | None = None) -> None:
         problems.append("un número")
     if not re.search(r"[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ]", password):
         problems.append("un carácter especial")
+    contains_email = False
     if email:
         local = email.split("@", 1)[0].lower()
-        if len(local) >= 4 and local in password.lower():
-            problems.append("no contener tu usuario de correo")
+        contains_email = len(local) >= 4 and local in password.lower()
+    messages: list[str] = []
     if problems:
-        raise WeakPasswordError("La contraseña debe tener " + ", ".join(problems) + ".")
+        messages.append("La contraseña debe tener " + ", ".join(problems) + ".")
+    if contains_email:
+        messages.append("La contraseña no puede contener tu usuario de correo.")
+    if messages:
+        raise WeakPasswordError(" ".join(messages))

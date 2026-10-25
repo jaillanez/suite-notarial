@@ -44,12 +44,17 @@ def test_totp_window_and_replay() -> None:
 
 def test_recovery_codes_format_and_hashing() -> None:
     codes = totp.generate_recovery_codes()
+    key = totp.recovery_code_key(KEY)
 
     assert len(codes) == 10
     assert all(len(c) == 14 and c[4] == "-" and c[9] == "-" for c in codes)
-    hashed = totp.hash_recovery_code(codes[0])
-    assert hashed.startswith("$argon2id$")
-    assert hashed != totp.hash_recovery_code(codes[0])  # sal propia por código
-    assert totp.verify_recovery_code(hashed, codes[0].lower().replace("-", " "))
-    assert not totp.verify_recovery_code(hashed, codes[1])
+    hashed = totp.hash_recovery_code(codes[0], key=key, user_id="u1")
+    assert len(hashed) == 64
+    assert hashed == totp.hash_recovery_code(
+        codes[0].lower().replace("-", " "), key=key, user_id="u1"
+    )
+    assert hashed != totp.hash_recovery_code(codes[0], key=key, user_id="u2")
+    assert hashed != totp.hash_recovery_code(
+        codes[0], key=totp.recovery_code_key(bytes(32)), user_id="u1"
+    )
     assert not totp.looks_like_recovery_code("1234-5678")

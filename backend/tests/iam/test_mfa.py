@@ -108,7 +108,8 @@ async def test_enrollment_enables_mfa_with_recovery_codes(
         ).scalars()
     )
     assert len(stored) == 10
-    assert all(h.startswith("$argon2id$") for h in stored)
+    assert all(len(h) == 64 for h in stored)
+    assert not {c.replace("-", "") for c in codes} & set(stored)
 
 
 async def test_recovery_code_is_single_use(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -182,3 +183,20 @@ async def test_escribano_can_disable_mfa(client: AsyncClient, db_session: AsyncS
     await db_session.refresh(user)
     assert user.totp_enabled is False
     assert user.totp_secret_encrypted is None
+
+
+async def test_failed_codes_in_session_lock_account(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    secret = pyotp.random_base32()
+    user = await make_user(db_session, totp_secret=secret)
+    await _password_step(client, user)
+    await client.post("/api/v1/auth/login/mfa", json={"code": totp_code(secret)})
+
+    for _ in range(5):
+        response = await client.post("/api/v1/auth/mfa/recovery-codes", json={"code": "000000"})
+        assert response.status_code in (401, 422)
+
+    await db_session.refresh(user)
+    assert user.locked_until is not None
+    assert (await client.get("/api/v1/auth/me")).status_code == 401

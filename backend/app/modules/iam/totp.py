@@ -1,5 +1,7 @@
 """TOTP (RFC 6238) con protección anti-replay y códigos de recuperación de un solo uso."""
 
+import hashlib
+import hmac
 import io
 import re
 import secrets
@@ -8,8 +10,6 @@ import time
 import pyotp
 import qrcode
 import qrcode.image.svg
-
-from app.modules.iam import passwords
 
 STEP_SECONDS = 30
 VALID_WINDOW = 1  # tolera ±30 s de desfase de reloj
@@ -71,10 +71,17 @@ def generate_recovery_codes() -> list[str]:
     return codes
 
 
-def hash_recovery_code(code: str) -> str:
-    """Argon2id con sal propia: el mismo tratamiento que una contraseña."""
-    return passwords.hash_password(normalize_recovery_code(code))
+def recovery_code_key(master_key: bytes) -> bytes:
+    """Clave HMAC derivada (separada por dominio) de la clave de cifrado del servidor."""
+    return hmac.new(master_key, b"suite-notarial:recovery-codes:v1", hashlib.sha256).digest()
 
 
-def verify_recovery_code(hashed: str, code: str) -> bool:
-    return passwords.verify_password(hashed, normalize_recovery_code(code))
+def hash_recovery_code(code: str, *, key: bytes, user_id: str) -> str:
+    """HMAC-SHA256 con clave del servidor, atado al usuario.
+
+    Los códigos son 60 bits aleatorios: no hay diccionario que atacar, así que una función
+    lenta no agrega seguridad y sí costo. Sin la clave del servidor, la base sola no sirve
+    para probar códigos. La búsqueda queda en una sola comparación indexada.
+    """
+    message = f"{user_id}:{normalize_recovery_code(code)}".encode()
+    return hmac.new(key, message, hashlib.sha256).hexdigest()

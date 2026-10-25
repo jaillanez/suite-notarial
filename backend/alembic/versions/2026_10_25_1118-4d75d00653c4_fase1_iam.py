@@ -205,12 +205,13 @@ def upgrade() -> None:
     op.create_index(op.f('ix_security_password_reset_tokens_user_id'), 'security_password_reset_tokens', ['user_id'], unique=False)
     op.create_table('security_recovery_codes',
     sa.Column('user_id', sa.UUID(), nullable=False),
-    sa.Column('code_hash', sa.String(length=255), nullable=False),
+    sa.Column('code_hash', sa.String(length=64), nullable=False),
     sa.Column('used_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['security_users.id'], name=op.f('fk_security_recovery_codes_user_id_security_users'), ondelete='RESTRICT'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_security_recovery_codes'))
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_security_recovery_codes')),
+    sa.UniqueConstraint('user_id', 'code_hash', name=op.f('uq_security_recovery_codes_user_code'))
     )
     op.create_index(op.f('ix_security_recovery_codes_user_id'), 'security_recovery_codes', ['user_id'], unique=False)
     op.create_table('security_role_permissions',

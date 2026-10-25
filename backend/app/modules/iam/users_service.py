@@ -118,7 +118,7 @@ async def create_user(
         full_name=data.full_name,
         phone_number=data.phone_number,
         # Contraseña aleatoria descartada: la cuenta solo se activa con el enlace por correo.
-        hashed_password=passwords.hash_password(generate_token(32)),
+        hashed_password=await passwords.hash_password_async(generate_token(32)),
         created_by_user_id=actor.id,
     )
     session.add(user)

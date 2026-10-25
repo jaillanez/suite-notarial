@@ -141,7 +141,7 @@ async def authenticate_password(
 ) -> PasswordStep:
     user = await find_user_by_identifier(session, identifier)
     if user is None:
-        passwords.burn_verification_time(password)
+        await passwords.burn_verification_time_async(password)
         record_audit(
             session,
             ctx,
@@ -153,7 +153,7 @@ async def authenticate_password(
         raise _credentials_error()
 
     if _is_locked(user):
-        passwords.burn_verification_time(password)
+        await passwords.burn_verification_time_async(password)
         record_audit(
             session,
             ctx,
@@ -165,7 +165,7 @@ async def authenticate_password(
         await session.commit()
         raise _credentials_error()
 
-    if not passwords.verify_password(user.hashed_password, password):
+    if not await passwords.verify_password_async(user.hashed_password, password):
         await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_FAILED)
         raise _credentials_error()
 
@@ -182,7 +182,7 @@ async def authenticate_password(
         raise _credentials_error()
 
     if passwords.needs_rehash(user.hashed_password):
-        user.hashed_password = passwords.hash_password(password)
+        user.hashed_password = await passwords.hash_password_async(password)
 
     if user.totp_enabled:
         record_audit(session, ctx, AuditEvent.LOGIN_MFA_CHALLENGE, target_user_id=user.id)
@@ -199,19 +199,32 @@ def _decrypt_totp_secret(settings: Settings, user: User) -> str:
     )
 
 
-async def _consume_recovery_code(session: AsyncSession, user: User, code: str) -> bool:
+def _recovery_hash(settings: Settings, user: User, code: str) -> str:
+    return totp.hash_recovery_code(
+        code, key=totp.recovery_code_key(settings.data_encryption_key), user_id=str(user.id)
+    )
+
+
+async def _consume_recovery_code(
+    session: AsyncSession, settings: Settings, user: User, code: str
+) -> bool:
     if not totp.looks_like_recovery_code(code):
         return False
+    # Una sola búsqueda indexada: el costo no depende de cuántos códigos queden.
     result = await session.execute(
         select(RecoveryCode)
-        .where(RecoveryCode.user_id == user.id, RecoveryCode.used_at.is_(None))
+        .where(
+            RecoveryCode.user_id == user.id,
+            RecoveryCode.code_hash == _recovery_hash(settings, user, code),
+            RecoveryCode.used_at.is_(None),
+        )
         .with_for_update()
     )
-    for record in result.scalars():
-        if totp.verify_recovery_code(record.code_hash, code):
-            record.used_at = _now()
-            return True
-    return False
+    record = result.scalars().first()
+    if record is None:
+        return False
+    record.used_at = _now()
+    return True
 
 
 async def verify_mfa_login(
@@ -231,7 +244,7 @@ async def verify_mfa_login(
         user.totp_last_used_step = step
         return user
 
-    if await _consume_recovery_code(session, user, code):
+    if await _consume_recovery_code(session, settings, user, code):
         remaining = await session.scalar(
             select(func.count())
             .select_from(RecoveryCode)
@@ -445,21 +458,37 @@ async def start_mfa_enrollment(
     return MfaSetup(secret=secret, otpauth_uri=uri, qr_svg=totp.qr_svg(uri))
 
 
-async def _replace_recovery_codes(session: AsyncSession, user: User) -> list[str]:
+async def _replace_recovery_codes(
+    session: AsyncSession, settings: Settings, user: User
+) -> list[str]:
     existing = await session.execute(select(RecoveryCode).where(RecoveryCode.user_id == user.id))
     for code in existing.scalars():
         await session.delete(code)
+    await session.flush()
     codes = totp.generate_recovery_codes()
     session.add_all(
-        RecoveryCode(user_id=user.id, code_hash=totp.hash_recovery_code(c)) for c in codes
+        RecoveryCode(user_id=user.id, code_hash=_recovery_hash(settings, user, c)) for c in codes
     )
     return codes
 
 
-def _require_valid_totp(settings: Settings, user: User, code: str) -> None:
+async def _require_valid_totp(
+    session: AsyncSession, settings: Settings, ctx: RequestContext, user: User, code: str
+) -> None:
+    """Valida un código TOTP en una acción con sesión abierta.
+
+    Los fallos cuentan para el mismo bloqueo que el ingreso: una sesión robada no sirve para
+    probar códigos por fuerza bruta. Al bloquearse la cuenta se cierran todas sus sesiones.
+    """
+    if _is_locked(user):
+        raise ProblemError(HTTPStatus.FORBIDDEN, "La cuenta está bloqueada temporalmente.")
     secret = _decrypt_totp_secret(settings, user)
     step = totp.verify_code(secret, code, last_used_step=user.totp_last_used_step)
     if step is None:
+        await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_MFA_FAILED)
+        if _is_locked(user):
+            await revoke_all_user_sessions(session, user.id, "mfa_lockout")
+            await session.commit()
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, INVALID_MFA)
     user.totp_last_used_step = step
 
@@ -474,9 +503,9 @@ async def enable_mfa(
 ) -> list[str]:
     if user.totp_enabled:
         raise ProblemError(HTTPStatus.CONFLICT, "La verificación en dos pasos ya está activa.")
-    _require_valid_totp(settings, user, code)
+    await _require_valid_totp(session, settings, ctx, user, code)
     user.totp_enabled = True
-    codes = await _replace_recovery_codes(session, user)
+    codes = await _replace_recovery_codes(session, settings, user)
     # Quien acaba de probar la posesión del segundo factor queda verificado en esta sesión.
     current.mfa_verified = True
     record_audit(
@@ -508,9 +537,10 @@ async def disable_mfa(
             HTTPStatus.FORBIDDEN,
             "Tu rol exige verificación en dos pasos: no se puede desactivar.",
         )
-    if not passwords.verify_password(user.hashed_password, password):
+    if not await passwords.verify_password_async(user.hashed_password, password):
+        await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_FAILED)
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "La contraseña no es correcta.")
-    _require_valid_totp(settings, user, code)
+    await _require_valid_totp(session, settings, ctx, user, code)
     user.totp_enabled = False
     user.totp_secret_encrypted = None
     user.totp_last_used_step = None
@@ -535,8 +565,8 @@ async def regenerate_recovery_codes(
 ) -> list[str]:
     if not user.totp_enabled:
         raise ProblemError(HTTPStatus.CONFLICT, "La verificación en dos pasos no está activa.")
-    _require_valid_totp(settings, user, code)
-    codes = await _replace_recovery_codes(session, user)
+    await _require_valid_totp(session, settings, ctx, user, code)
+    codes = await _replace_recovery_codes(session, settings, user)
     record_audit(
         session,
         ctx,
@@ -676,7 +706,7 @@ async def confirm_password_reset(
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     token.used_at = now
-    user.hashed_password = passwords.hash_password(new_password)
+    user.hashed_password = await passwords.hash_password_async(new_password)
     user.password_changed_at = now
     user.failed_login_attempts = 0
     user.locked_until = None
