@@ -38,3 +38,6 @@ backend/var/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# Material de referencia con datos reales (capturas del sistema actual): nunca al repositorio
+Docs/privado/

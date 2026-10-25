@@ -22,6 +22,8 @@ os.environ.setdefault("JWT_SECRET", "test-secret-no-usar-en-produccion-012345678
 # Clave fija de test (32 bytes de 0x01): no es un secreto.
 os.environ.setdefault("DATA_ENCRYPTION_KEY", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=")
 os.environ.setdefault("COOKIE_SECURE", "true")
+# Los tests corren siempre con 2FA exigido, aunque el .env local lo tenga apagado.
+os.environ["MFA_ENFORCED"] = "true"
 
 from pathlib import Path
 

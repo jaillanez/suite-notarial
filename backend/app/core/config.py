@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     LOGIN_LOCK_MINUTES: Annotated[int, Field(gt=0)] = 15
     MFA_PENDING_TTL_MIN: Annotated[int, Field(gt=0)] = 5
     TOTP_ISSUER: str = "Caja Notarial de San Juan"
+    # 2FA obligatorio para los roles que lo exigen. Solo se puede apagar en development/test,
+    # para no tener que reactivarlo después de cada `make reset-dev`.
+    MFA_ENFORCED: bool = True
 
     SMTP_HOST: str = "localhost"
     SMTP_PORT: Annotated[int, Field(gt=0, lt=65536)] = 1025
@@ -103,6 +106,11 @@ class Settings(BaseSettings):
             and self.SMTP_SECURITY == "none"
         ):
             raise ValueError("SMTP_SECURITY debe ser 'starttls' o 'tls' fuera de desarrollo")
+        if not self.MFA_ENFORCED and self.ENVIRONMENT not in (
+            Environment.DEVELOPMENT,
+            Environment.TEST,
+        ):
+            raise ValueError("MFA_ENFORCED=false solo se admite en development o test")
         if self.SMTP_USER and self.SMTP_SECURITY == "none":
             raise ValueError(
                 "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"

@@ -94,7 +94,10 @@ También siembra tres conceptos de parámetros con **valores de ejemplo** (aport
 ejemplo y hay que reemplazarlos por los oficiales de la Caja. Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
 (el primero vinculado a la cuenta `escribano@suite-notarial.example`). Son datos inventados.
 
-Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. Para
+Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. En
+desarrollo local se puede apagar esa exigencia con `MFA_ENFORCED=false` en `backend/.env`, para
+no reactivarlo tras cada `make reset-dev`; la configuración rechaza ese valor fuera de
+development/test y los tests siempre corren con el 2FA exigido. Para
 producción, el primer administrador se crea con
 `make create-admin email=... cuit=... name="..."` (pide la contraseña por consola).
 

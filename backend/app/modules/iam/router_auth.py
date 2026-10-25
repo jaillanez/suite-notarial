@@ -24,6 +24,7 @@ from app.modules.iam.deps import (
     PrincipalDep,
     RequestContextDep,
     effective_permissions,
+    mfa_required_for,
 )
 from app.modules.iam.mails import password_changed_mail, password_reset_mail
 from app.modules.iam.models import User
@@ -57,7 +58,9 @@ def get_mailer(settings: Annotated[Settings, Depends(get_settings)]) -> Mailer:
 MailerDep = Annotated[Mailer, Depends(get_mailer)]
 
 
-def session_user(user: User, *, mfa_verified: bool, permissions: frozenset[str]) -> SessionUser:
+def session_user(
+    user: User, *, mfa_verified: bool, permissions: frozenset[str], mfa_required: bool
+) -> SessionUser:
     return SessionUser(
         id=user.id,
         email=user.email,
@@ -66,7 +69,7 @@ def session_user(user: User, *, mfa_verified: bool, permissions: frozenset[str])
         roles=user.role_codes,
         permissions=sorted(permissions),
         mfa_enabled=user.totp_enabled,
-        mfa_required=user.mfa_required,
+        mfa_required=mfa_required,
         mfa_verified=mfa_verified,
     )
 
@@ -90,7 +93,12 @@ async def login(
     permissions = await effective_permissions(session, step.user)
     return LoginResponse(
         status="authenticated",
-        user=session_user(step.user, mfa_verified=False, permissions=permissions),
+        user=session_user(
+            step.user,
+            mfa_verified=False,
+            permissions=permissions,
+            mfa_required=mfa_required_for(settings, step.user),
+        ),
     )
 
 
@@ -120,7 +128,12 @@ async def login_mfa(
     permissions = await effective_permissions(session, user)
     return LoginResponse(
         status="authenticated",
-        user=session_user(user, mfa_verified=True, permissions=permissions),
+        user=session_user(
+            user,
+            mfa_verified=True,
+            permissions=permissions,
+            mfa_required=mfa_required_for(settings, user),
+        ),
     )
 
 
@@ -150,6 +163,7 @@ async def refresh(
             user,
             mfa_verified=issued.session.mfa_verified,
             permissions=await effective_permissions(session, user),
+            mfa_required=mfa_required_for(settings, user),
         ),
     )
 
@@ -168,9 +182,12 @@ async def logout(
 
 
 @router.get("/me", response_model=SessionUser)
-async def me(principal: PrincipalDep) -> SessionUser:
+async def me(principal: PrincipalDep, settings: SettingsDep) -> SessionUser:
     return session_user(
-        principal.user, mfa_verified=principal.mfa_verified, permissions=principal.permissions
+        principal.user,
+        mfa_verified=principal.mfa_verified,
+        permissions=principal.permissions,
+        mfa_required=mfa_required_for(settings, principal.user),
     )
 
 

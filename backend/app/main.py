@@ -1,5 +1,6 @@
 """Punto de entrada de la API."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -27,6 +28,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.LOG_LEVEL)
+    if not settings.MFA_ENFORCED:
+        logging.getLogger(__name__).warning(
+            "2FA obligatorio DESACTIVADO (MFA_ENFORCED=false): solo para desarrollo local."
+        )
 
     app = FastAPI(
         title="Suite Notarial API",
