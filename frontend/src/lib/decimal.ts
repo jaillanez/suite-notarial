@@ -18,8 +18,11 @@ export function formatDecimal(value: string, decimals = 2): string {
   return `${sign}${group(integer.replace(/^0+(?=\d)/, ''))}${decimals > 0 ? `,${frac}` : ''}`
 }
 
+/** "-1500.5" → "−$ 1.500,50": el signo va antes del símbolo. */
 export function formatMoney(value: string | null): string {
-  return value === null ? '—' : `$ ${formatDecimal(value, 2)}`
+  if (value === null) return '—'
+  const formatted = formatDecimal(value, 2)
+  return formatted.startsWith('-') ? `−$ ${formatted.slice(1)}` : `$ ${formatted}`
 }
 
 /** Porcentaje sin ceros finales innecesarios: "1.5000" → "1,5 %". */

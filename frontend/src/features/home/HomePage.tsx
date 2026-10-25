@@ -20,6 +20,12 @@ const SECTIONS: Section[] = [
     permission: ['ddjj:read_own', 'ddjj:read_all', 'ddjj:approve'],
   },
   {
+    to: '/tesoreria/conciliacion',
+    title: 'Conciliación de pagos',
+    description: 'Comprobantes en revisión: confirmar el pago contra el extracto o rechazarlo.',
+    permission: 'comprobantes:verify',
+  },
+  {
     to: '/padron/escribanos',
     title: 'Escribanos',
     description: 'Padrón de matriculados: datos, estado de la matrícula y cargos.',

@@ -1,5 +1,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, FilePenLine, Plus, ReceiptText, Send, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Download,
+  FilePenLine,
+  Paperclip,
+  Plus,
+  ReceiptText,
+  Send,
+  Trash2,
+} from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
@@ -14,7 +23,9 @@ import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { formatMoney, normalizeDecimalInput } from '../../lib/decimal'
+import { useSession } from '../auth/session'
 import { CARGO, formatDate, todayIso } from '../padron/labels'
+import { AdjuntarComprobanteDialog } from '../pagos/AdjuntarComprobanteDialog'
 import {
   agregarActo,
   bajaActo,
@@ -629,7 +640,37 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
 
 // --------------------------------------------------------------------------- boletas
 
-function BoletaItem({ boleta }: { boleta: Boleta }) {
+/** Mientras Tesorería revisa un comprobante, la boleta no se reemite ni se rectifica. */
+function enRevision(ddjj: DeclaracionDetalle): boolean {
+  return ddjj.boletas.some((b) => b.comprobante?.estado === 'PENDIENTE_REVISION')
+}
+
+function EstadoComprobanteBoleta({ boleta }: { boleta: Boleta }) {
+  const c = boleta.comprobante
+  if (!c || boleta.estado === 'ANULADA') return null
+  if (c.estado === 'RECHAZADO' && boleta.estado === 'PENDIENTE') {
+    return (
+      <Alert tone="danger" title="Tesorería rechazó el comprobante">
+        {c.motivo_rechazo} La boleta sigue pendiente: adjuntá un comprobante nuevo.
+      </Alert>
+    )
+  }
+  if (c.estado === 'PENDIENTE_REVISION') {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <StatusIndicator tone="warning" label="Comprobante en revisión" />
+        <span className="text-sm text-ink-muted tabular-nums">
+          Enviado el {formatLocalDateTime(new Date(c.created_at)).slice(0, 10)} por{' '}
+          {formatMoney(c.importe_declarado)}. Tesorería confirma el pago contra el extracto.
+        </span>
+      </div>
+    )
+  }
+  return null
+}
+
+function BoletaItem({ boleta, puedeAdjuntar }: { boleta: Boleta; puedeAdjuntar: boolean }) {
+  const [adjuntando, setAdjuntando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const descarga = useMutation({
     mutationFn: () => descargarBoleta(boleta),
@@ -673,8 +714,11 @@ function BoletaItem({ boleta }: { boleta: Boleta }) {
           <StatusIndicator tone={estado.tone} label={estado.label} />
         </div>
       </div>
+      <div className="mt-3 empty:hidden">
+        <EstadoComprobanteBoleta boleta={boleta} />
+      </div>
       {boleta.estado !== 'ANULADA' && (
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-3">
           <Button
             icon={Download}
             busy={descarga.isPending}
@@ -685,8 +729,28 @@ function BoletaItem({ boleta }: { boleta: Boleta }) {
           >
             Descargar PDF
           </Button>
+          {puedeAdjuntar &&
+            boleta.estado === 'PENDIENTE' &&
+            boleta.comprobante?.estado !== 'PENDIENTE_REVISION' && (
+              <Button
+                icon={Paperclip}
+                onClick={() => {
+                  setAdjuntando(true)
+                }}
+              >
+                Adjuntar comprobante
+              </Button>
+            )}
         </div>
       )}
+      <AdjuntarComprobanteDialog
+        key={`adjuntar-${String(adjuntando)}`}
+        boleta={boleta}
+        open={adjuntando}
+        onClose={() => {
+          setAdjuntando(false)
+        }}
+      />
       {error && (
         <div className="mt-3">
           <Alert tone="danger">{error}</Alert>
@@ -697,9 +761,13 @@ function BoletaItem({ boleta }: { boleta: Boleta }) {
 }
 
 function BoletasPanel({ ddjj, onNueva }: { ddjj: DeclaracionDetalle; onNueva: () => void }) {
+  const { can } = useSession()
   const vigente = ddjj.boletas.find((b) => b.estado !== 'ANULADA')
   const puedeEmitir =
-    ddjj.estado === 'PRESENTADA' && ddjj.puede_operar && vigente?.estado !== 'PAGADA'
+    ddjj.estado === 'PRESENTADA' &&
+    ddjj.puede_operar &&
+    vigente?.estado !== 'PAGADA' &&
+    !enRevision(ddjj)
   return (
     <Panel
       title="Boletas"
@@ -719,7 +787,7 @@ function BoletasPanel({ ddjj, onNueva }: { ddjj: DeclaracionDetalle; onNueva: ()
       ) : (
         <ul className="divide-y divide-line">
           {ddjj.boletas.map((b) => (
-            <BoletaItem key={b.id} boleta={b} />
+            <BoletaItem key={b.id} boleta={b} puedeAdjuntar={can('comprobantes:upload')} />
           ))}
         </ul>
       )}
@@ -985,7 +1053,7 @@ export function DeclaracionPage() {
                 />
               </div>
             </div>
-            {ddjj.estado === 'PRESENTADA' && ddjj.puede_operar && (
+            {ddjj.estado === 'PRESENTADA' && ddjj.puede_operar && !enRevision(ddjj) && (
               <div className="flex flex-wrap gap-3">
                 <Button
                   icon={FilePenLine}
