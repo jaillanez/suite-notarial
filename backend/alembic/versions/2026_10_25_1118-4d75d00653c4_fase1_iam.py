@@ -211,7 +211,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['security_users.id'], name=op.f('fk_security_recovery_codes_user_id_security_users'), ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_security_recovery_codes')),
-    sa.UniqueConstraint('user_id', 'code_hash', name=op.f('uq_security_recovery_codes_user_code'))
+    sa.UniqueConstraint('user_id', 'code_hash', name=op.f('uq_security_recovery_codes_user_id'))
     )
     op.create_index(op.f('ix_security_recovery_codes_user_id'), 'security_recovery_codes', ['user_id'], unique=False)
     op.create_table('security_role_permissions',

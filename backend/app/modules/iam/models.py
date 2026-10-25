@@ -193,7 +193,7 @@ class RecoveryCode(UUIDMixin, Base):
     """Código de recuperación de 2FA, de un solo uso, guardado como HMAC-SHA256."""
 
     __tablename__ = "security_recovery_codes"
-    __table_args__ = (UniqueConstraint("user_id", "code_hash", name="user_code"),)
+    __table_args__ = (UniqueConstraint("user_id", "code_hash"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
