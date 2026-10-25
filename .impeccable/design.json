@@ -1,0 +1,513 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-25T13:43:23+00:00",
+  "title": "Design System: Suite Notarial · Caja Notarial de San Juan",
+  "extensions": {
+    "colorMeta": {
+      "petroleo-institucional": {
+        "role": "primary",
+        "displayName": "Petróleo Institucional",
+        "canonical": "#113347",
+        "tonalRamp": [
+          "#081a25",
+          "#0b2433",
+          "#113347",
+          "#1b4762",
+          "#dce6ec",
+          "#eef3f6"
+        ],
+        "cssVariable": "--color-brand-800"
+      },
+      "petroleo-profundo": {
+        "role": "primary",
+        "displayName": "Petróleo Profundo",
+        "canonical": "#0b2433",
+        "tonalRamp": [
+          "#081a25",
+          "#0b2433",
+          "#113347",
+          "#1b4762",
+          "#dce6ec",
+          "#eef3f6"
+        ],
+        "cssVariable": "--color-brand-900"
+      },
+      "petroleo-medio": {
+        "role": "primary",
+        "displayName": "Petróleo Medio",
+        "canonical": "#1b4762",
+        "tonalRamp": [
+          "#081a25",
+          "#0b2433",
+          "#113347",
+          "#1b4762",
+          "#dce6ec",
+          "#eef3f6"
+        ],
+        "cssVariable": "--color-brand-700"
+      },
+      "petroleo-velo": {
+        "role": "primary",
+        "displayName": "Velo Petróleo",
+        "canonical": "#dce6ec",
+        "tonalRamp": [
+          "#081a25",
+          "#0b2433",
+          "#113347",
+          "#1b4762",
+          "#dce6ec",
+          "#eef3f6"
+        ],
+        "cssVariable": "--color-brand-100"
+      },
+      "petroleo-bruma": {
+        "role": "primary",
+        "displayName": "Bruma Petróleo",
+        "canonical": "#eef3f6",
+        "tonalRamp": [
+          "#081a25",
+          "#0b2433",
+          "#113347",
+          "#1b4762",
+          "#dce6ec",
+          "#eef3f6"
+        ],
+        "cssVariable": "--color-brand-50"
+      },
+      "azul-accion": {
+        "role": "secondary",
+        "displayName": "Azul de Acción",
+        "canonical": "#1a76d1",
+        "tonalRamp": [
+          "#000532",
+          "#002351",
+          "#003b91",
+          "#005cb5",
+          "#2981dd",
+          "#52a7ff",
+          "#79cfff",
+          "#c1f3ff"
+        ],
+        "cssVariable": "--color-action-600"
+      },
+      "azul-accion-profundo": {
+        "role": "secondary",
+        "displayName": "Azul de Acción Profundo",
+        "canonical": "#135ea8",
+        "tonalRamp": [
+          "#000532",
+          "#002351",
+          "#003b91",
+          "#005cb5",
+          "#2981dd",
+          "#52a7ff",
+          "#79cfff",
+          "#c1f3ff"
+        ],
+        "cssVariable": "--color-action-700"
+      },
+      "tinta": {
+        "role": "neutral",
+        "displayName": "Tinta",
+        "canonical": "#16232b",
+        "tonalRamp": [
+          "#060c10",
+          "#1e252a",
+          "#34424b",
+          "#516069",
+          "#73838d",
+          "#97a7b2",
+          "#bdcdd8",
+          "#e6f0f7"
+        ],
+        "cssVariable": "--color-ink"
+      },
+      "tinta-secundaria": {
+        "role": "neutral",
+        "displayName": "Tinta Secundaria",
+        "canonical": "#4c5c66",
+        "tonalRamp": [
+          "#060c10",
+          "#1e252a",
+          "#34424b",
+          "#516069",
+          "#73838d",
+          "#97a7b2",
+          "#bdcdd8",
+          "#e6f0f7"
+        ],
+        "cssVariable": "--color-ink-muted"
+      },
+      "tinta-tenue": {
+        "role": "neutral",
+        "displayName": "Tinta Tenue",
+        "canonical": "#63737d",
+        "tonalRamp": [
+          "#060c10",
+          "#1e252a",
+          "#34424b",
+          "#516069",
+          "#73838d",
+          "#97a7b2",
+          "#bdcdd8",
+          "#e6f0f7"
+        ],
+        "cssVariable": "--color-ink-subtle"
+      },
+      "linea": {
+        "role": "neutral",
+        "displayName": "Línea",
+        "canonical": "#d3dce2",
+        "tonalRamp": [
+          "#080c0e",
+          "#212527",
+          "#3a4146",
+          "#575f64",
+          "#798287",
+          "#9da6ac",
+          "#c3ccd2",
+          "#eaeff3"
+        ],
+        "cssVariable": "--color-line"
+      },
+      "linea-firme": {
+        "role": "neutral",
+        "displayName": "Línea Firme",
+        "canonical": "#b4c2ca",
+        "tonalRamp": [
+          "#080c0e",
+          "#212527",
+          "#3a4146",
+          "#575f64",
+          "#798287",
+          "#9da6ac",
+          "#c3ccd2",
+          "#eaeff3"
+        ],
+        "cssVariable": "--color-line-strong"
+      },
+      "lienzo": {
+        "role": "neutral",
+        "displayName": "Lienzo",
+        "canonical": "#f3f6f8",
+        "tonalRamp": [
+          "#080c0e",
+          "#212527",
+          "#3a4146",
+          "#575f64",
+          "#798287",
+          "#9da6ac",
+          "#c3ccd2",
+          "#eaeff3"
+        ],
+        "cssVariable": "--color-canvas"
+      },
+      "superficie": {
+        "role": "neutral",
+        "displayName": "Superficie",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#080c0e",
+          "#212527",
+          "#3a4146",
+          "#575f64",
+          "#798287",
+          "#9da6ac",
+          "#c3ccd2",
+          "#eaeff3"
+        ],
+        "cssVariable": "--color-surface"
+      },
+      "superficie-hundida": {
+        "role": "neutral",
+        "displayName": "Superficie Hundida",
+        "canonical": "#f7f9fa",
+        "tonalRamp": [
+          "#080c0e",
+          "#212527",
+          "#3a4146",
+          "#575f64",
+          "#798287",
+          "#9da6ac",
+          "#c3ccd2",
+          "#eaeff3"
+        ],
+        "cssVariable": "--color-surface-sunken"
+      },
+      "exito": {
+        "role": "tertiary",
+        "displayName": "Verde Conforme",
+        "canonical": "#1b6e40",
+        "tonalRamp": [
+          "#001201",
+          "#012d15",
+          "#004f23",
+          "#1c6f41",
+          "#459362",
+          "#6bb886",
+          "#91dfab",
+          "#cefcdb"
+        ],
+        "cssVariable": "--color-success-700"
+      },
+      "exito-tinte": {
+        "role": "tertiary",
+        "displayName": "Tinte Conforme",
+        "canonical": "#e8f4ed",
+        "tonalRamp": [
+          "#001201",
+          "#012d15",
+          "#004f23",
+          "#1c6f41",
+          "#459362",
+          "#6bb886",
+          "#91dfab",
+          "#cefcdb"
+        ],
+        "cssVariable": "--color-success-50"
+      },
+      "advertencia": {
+        "role": "tertiary",
+        "displayName": "Ámbar Atención",
+        "canonical": "#845300",
+        "tonalRamp": [
+          "#1a0400",
+          "#371d00",
+          "#613300",
+          "#825100",
+          "#a87431",
+          "#ce9957",
+          "#f6bf7d",
+          "#ffe8c1"
+        ],
+        "cssVariable": "--color-warning-700"
+      },
+      "advertencia-tinte": {
+        "role": "tertiary",
+        "displayName": "Tinte Atención",
+        "canonical": "#fdf3dc",
+        "tonalRamp": [
+          "#1a0400",
+          "#371d00",
+          "#613300",
+          "#825100",
+          "#a87431",
+          "#ce9957",
+          "#f6bf7d",
+          "#ffe8c1"
+        ],
+        "cssVariable": "--color-warning-50"
+      },
+      "peligro": {
+        "role": "tertiary",
+        "displayName": "Rojo Rechazo",
+        "canonical": "#a8201a",
+        "tonalRamp": [
+          "#290000",
+          "#4a0202",
+          "#840000",
+          "#a9221b",
+          "#d34c40",
+          "#fe7364",
+          "#ff9a89",
+          "#ffd4c7"
+        ],
+        "cssVariable": "--color-danger-700"
+      },
+      "peligro-tinte": {
+        "role": "tertiary",
+        "displayName": "Tinte Rechazo",
+        "canonical": "#fcebea",
+        "tonalRamp": [
+          "#290000",
+          "#4a0202",
+          "#840000",
+          "#a9221b",
+          "#d34c40",
+          "#fe7364",
+          "#ff9a89",
+          "#ffd4c7"
+        ],
+        "cssVariable": "--color-danger-50"
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Título de página (h1) en Petróleo Profundo; 1.75rem desde 640px."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Título de panel o resumen de estado (h2)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Párrafos y valores de fila; máximo 65ch."
+      },
+      "body-sm": {
+        "displayName": "Body pequeño",
+        "purpose": "Descripciones y datos secundarios."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Etiquetas de fila y nombre de la Suite; botones y estados en 600."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Metadatos del pie de panel."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel",
+        "value": "0 1px 2px rgb(17 51 71 / 0.06), 0 2px 8px rgb(17 51 71 / 0.05)",
+        "purpose": "Única sombra: paneles de contenido en reposo."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quint",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Transiciones de color de 150ms en controles; anuladas bajo prefers-reduced-motion."
+      }
+    ],
+    "focus": [
+      {
+        "name": "focus-ring",
+        "value": "outline: 2px solid #1a76d1; outline-offset: 2px",
+        "purpose": "Foco visible global en todo elemento interactivo."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      }
+    ],
+    "layout": [
+      {
+        "name": "container",
+        "value": "max-width: 64rem; padding-inline: 16px (24px desde 640px)",
+        "purpose": "Columna compartida por cabecera y contenido."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botón secundario (contorno)",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Única variante de botón en uso: acción contenida con ícono y texto, alto mínimo 44px.",
+      "html": "<button type=\"button\" class=\"ds-btn-secondary\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/></svg>Verificar ahora</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--color-line-strong, #b4c2ca); border-radius: var(--radius-control, 0.375rem); background: var(--color-surface, #ffffff); color: var(--color-brand-800, #113347); font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; cursor: pointer; transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1), border-color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-secondary:hover { border-color: var(--color-brand-700, #1b4762); background: var(--color-brand-50, #eef3f6); } .ds-btn-secondary:active { background: var(--color-brand-100, #dce6ec); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--color-action-600, #1a76d1); outline-offset: 2px; } .ds-btn-secondary:disabled { opacity: 0.6; cursor: progress; }"
+    },
+    {
+      "name": "Estado: conforme",
+      "kind": "chip",
+      "refersTo": "status-success",
+      "description": "Servicio o trámite correcto; ícono CircleCheck + texto.",
+      "html": "<span class=\"ds-status ds-status-success\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/></svg>Operativa</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 6px; border-radius: 9999px; padding: 4px 12px 4px 8px; font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; } .ds-status-success { background: var(--color-success-50, #e8f4ed); color: var(--color-success-700, #1b6e40); }"
+    },
+    {
+      "name": "Estado: atención",
+      "kind": "chip",
+      "refersTo": "status-warning",
+      "description": "Degradado o pendiente de acción; ícono TriangleAlert + texto.",
+      "html": "<span class=\"ds-status ds-status-warning\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/></svg>Sin conexión</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 6px; border-radius: 9999px; padding: 4px 12px 4px 8px; font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; } .ds-status-warning { background: var(--color-warning-50, #fdf3dc); color: var(--color-warning-700, #845300); }"
+    },
+    {
+      "name": "Estado: rechazo",
+      "kind": "chip",
+      "refersTo": "status-danger",
+      "description": "Falla o rechazo; ícono CircleX + texto.",
+      "html": "<span class=\"ds-status ds-status-danger\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m15 9-6 6\"/><path d=\"m9 9 6 6\"/></svg>Sin respuesta</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 6px; border-radius: 9999px; padding: 4px 12px 4px 8px; font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; } .ds-status-danger { background: var(--color-danger-50, #fcebea); color: var(--color-danger-700, #a8201a); }"
+    },
+    {
+      "name": "Estado: desconocido",
+      "kind": "chip",
+      "refersTo": "status-unknown",
+      "description": "Sin información para afirmar un estado; ícono CircleDashed + texto.",
+      "html": "<span class=\"ds-status ds-status-unknown\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10.1 2.182a10 10 0 0 1 3.8 0\"/><path d=\"M13.9 21.818a10 10 0 0 1-3.8 0\"/><path d=\"M17.609 3.721a10 10 0 0 1 2.69 2.7\"/><path d=\"M2.182 13.9a10 10 0 0 1 0-3.8\"/><path d=\"M20.279 17.609a10 10 0 0 1-2.7 2.69\"/><path d=\"M21.818 10.1a10 10 0 0 1 0 3.8\"/><path d=\"M3.721 6.391a10 10 0 0 1 2.7-2.69\"/><path d=\"M6.391 20.279a10 10 0 0 1-2.69-2.7\"/></svg>Sin datos</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 6px; border-radius: 9999px; padding: 4px 12px 4px 8px; font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; } .ds-status-unknown { background: var(--color-surface-sunken, #f7f9fa); color: var(--color-ink-muted, #4c5c66); }"
+    },
+    {
+      "name": "Panel con filas etiqueta/valor",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Contenedor blanco con borde fino, sombra ambiental, filas divididas y pie de metadatos hundido.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><h2 class=\"ds-panel-title\">Todos los servicios operativos</h2><p class=\"ds-panel-detail\">La API responde y la base de datos acepta consultas.</p></div><dl class=\"ds-panel-rows\"><div class=\"ds-panel-row\"><dt>Base de datos</dt><dd>Operativa</dd></div><div class=\"ds-panel-row\"><dt>Hora del servidor</dt><dd class=\"ds-num\">25/10/2026 14:32</dd></div></dl><p class=\"ds-panel-foot\">Última verificación: <span class=\"ds-num\">14:32:10</span></p></section>",
+      "css": ".ds-panel { overflow: hidden; border: 1px solid var(--color-line, #d3dce2); border-radius: var(--radius-panel, 0.5rem); background: var(--color-surface, #ffffff); box-shadow: var(--shadow-panel, 0 1px 2px rgb(17 51 71 / 0.06), 0 2px 8px rgb(17 51 71 / 0.05)); color: var(--color-ink, #16232b); font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; } .ds-panel-head { padding: 20px 24px; border-bottom: 1px solid var(--color-line, #d3dce2); } .ds-panel-title { margin: 0; font-size: 1.125rem; line-height: 1.75rem; font-weight: 600; } .ds-panel-detail { margin: 4px 0 0; max-width: 65ch; font-size: 0.875rem; line-height: 1.25rem; color: var(--color-ink-muted, #4c5c66); } .ds-panel-rows { margin: 0; } .ds-panel-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding: 16px 24px; } .ds-panel-row + .ds-panel-row { border-top: 1px solid var(--color-line, #d3dce2); } .ds-panel-row dt { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; color: var(--color-ink-muted, #4c5c66); } .ds-panel-row dd { margin: 0; } .ds-num { font-variant-numeric: tabular-nums; } .ds-panel-foot { margin: 0; padding: 12px 24px; border-top: 1px solid var(--color-line, #d3dce2); background: var(--color-surface-sunken, #f7f9fa); font-size: 0.75rem; line-height: 1rem; color: var(--color-ink-muted, #4c5c66); }"
+    },
+    {
+      "name": "Cabecera institucional",
+      "kind": "nav",
+      "refersTo": "app-header",
+      "description": "Barra de 72px con el logo oficial enlazado al inicio y el nombre de la Suite a la derecha.",
+      "html": "<header class=\"ds-header\"><div class=\"ds-header-inner\"><a href=\"#\" class=\"ds-header-logo\"><span class=\"ds-header-mark\">Caja Notarial de San Juan</span></a><p class=\"ds-header-app\">Suite Notarial</p></div></header>",
+      "css": ".ds-header { border-bottom: 1px solid var(--color-line, #d3dce2); background: var(--color-surface, #ffffff); font-family: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif; } .ds-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 72px; max-width: 64rem; margin: 0 auto; padding: 0 24px; } .ds-header-logo { display: flex; align-items: center; border-radius: var(--radius-control, 0.375rem); text-decoration: none; } .ds-header-logo:focus-visible { outline: 2px solid var(--color-action-600, #1a76d1); outline-offset: 2px; } .ds-header-mark { font-weight: 600; font-size: 1rem; color: #21323b; } .ds-header-app { margin: 0; font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; color: var(--color-ink-muted, #4c5c66); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El Protocolo a la Vista",
+    "overview": "La Suite es el libro oficial de la Caja abierto sobre el escritorio: papel claro, tinta oscura, sello petróleo. Cada pantalla se lee como un registro ordenado de hechos verificables (un estado, una hora, un importe) y nunca como una vitrina. La luz de oficina de día manda: tema claro, lienzo gris frío apenas teñido de petróleo, superficies blancas que alojan la información y una sola voz de marca, el azul petróleo del isologo (#113347), reservada para títulos, acciones y la cabecera institucional.\n\nLa densidad es de oficina, no de tablero: filas generosas (16px vertical), etiquetas a la izquierda y valores a la derecha, ancho de lectura acotado a 65ch. La profundidad es mínima y ambiental; el orden lo dan las líneas finas y el cambio de superficie, no las sombras. El estado se declara siempre con ícono y palabra, porque el color solo no es un dato que la Caja pueda respaldar.\n\nLa identidad parte de activos oficiales: el logo de la Caja (isotipo petróleo con plumín de estilográfica, logotipo pizarra #21323B) y el azul de acción del sitio institucional (#1A76D1). Todo valor de marca vive en tokens de `@theme`, de modo que un ajuste de identidad se resuelve en `frontend/src/index.css` sin rediseñar componentes.",
+    "keyCharacteristics": [
+      "Tema claro único (`color-scheme: light`), pensado para escritorio y celular con luz diurna.",
+      "Una sola familia, Public Sans Variable, autoalojada; jerarquía por peso y tamaño, no por cambio de familia.",
+      "Neutros fríos teñidos hacia el petróleo; ningún gris puro.",
+      "Superficies blancas con borde fino y sombra ambiental casi imperceptible.",
+      "Estado = ícono lucide (trazo 2.25) + texto, sobre tinte del mismo tono.",
+      "Piso WCAG 2.2 AA en cada par de color usado."
+    ],
+    "rules": [
+      {
+        "name": "La Regla del Sello",
+        "body": "El petróleo pertenece a lo que la Caja afirma (títulos, acciones, marca). Nunca decora fondos amplios ni rellena superficies de lectura.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla del Azul Navegable",
+        "body": "El azul de acción marca solo foco y enlaces. Si algo es azul, se puede seguir o tiene el foco.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla de la Pareja de Estado",
+        "body": "Cada tono de estado existe como par texto-700 sobre tinte-50; no se usan por separado ni se inventan tonos nuevos sin su par verificado AA.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla de las Cifras Alineadas",
+        "body": "Toda hora, fecha, importe o cantidad se compone con cifras tabulares (`tabular-nums`) en el elemento que las contiene, para que los valores no bailen al refrescarse.",
+        "section": "typography"
+      },
+      {
+        "name": "La Regla del Peso Justo",
+        "body": "El techo de peso es 600. La jerarquía no recurre a 700+, mayúsculas sostenidas ni tracking abierto.",
+        "section": "typography"
+      },
+      {
+        "name": "La Regla del Canto Suave",
+        "body": "Una sola sombra, ambiental y teñida de petróleo. No hay sombras de hover, de elevación por capas ni sombras duras desplazadas.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** declarar todo estado con ícono lucide (trazo 2.25) y texto; el color acompaña, nunca porta el significado solo.",
+      "**Do** usar los pares de estado completos (texto-700 sobre tinte-50) y verificar AA (4.5:1) ante cualquier tono nuevo.",
+      "**Do** componer horas, fechas e importes con cifras tabulares.",
+      "**Do** mantener la columna de 64rem compartida entre cabecera y contenido, con márgenes de 16px y 24px.",
+      "**Do** cambiar identidad solo vía tokens de `@theme` en `frontend/src/index.css`.",
+      "**Do** dar a cada control un alto mínimo de 44px y conservar el anillo de foco global de Azul de Acción."
+    ],
+    "donts": [
+      "**Don't** usar el Azul de Acción para rellenos, títulos o decoración; es foco y enlace.",
+      "**Don't** sumar sombras más allá del Panel ambiental ni elevar en hover.",
+      "**Don't** usar Tinta Tenue sobre tintes de estado o sobre el lienzo; solo sobre superficie blanca o hundida.",
+      "**Don't** superar el peso 600 ni introducir una segunda familia tipográfica.",
+      "**Don't** usar grises puros: todo neutro nuevo se tiñe hacia el petróleo.",
+      "**Don't** redibujar, recolorear o reemplazar el logo oficial; se usa el archivo provisto tal cual."
+    ]
+  }
+}
