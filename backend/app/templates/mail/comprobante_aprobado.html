@@ -1,0 +1,6 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p style="margin:0 0 16px;">Hola, {{ full_name }}.</p>
+<p style="margin:0 0 16px;">Tesorería confirmó el pago de la boleta N° {{ numero }} (período {{ periodo }}, total {{ total }}). La boleta figura como pagada.</p>
+{% with label="Ver la declaración jurada" %}{% include "_button.html" %}{% endwith %}
+{% endblock %}

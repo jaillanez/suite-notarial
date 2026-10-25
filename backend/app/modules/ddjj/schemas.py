@@ -10,6 +10,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_
 
 from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ, TipoProtocolo
 from app.modules.padron.catalog import Cargo
+from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.parametros.schemas import Money
 
 PERIODO_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -118,6 +119,16 @@ class LiquidacionOut(BaseModel):
     usa_valores_de_ejemplo: bool
 
 
+class ComprobanteResumen(BaseModel):
+    """Último comprobante adjuntado a la boleta (el detalle está en /api/v1/pagos)."""
+
+    id: uuid.UUID
+    estado: EstadoComprobante
+    importe_declarado: Money
+    motivo_rechazo: str | None
+    created_at: datetime
+
+
 class BoletaOut(BaseModel):
     id: uuid.UUID
     numero: int
@@ -143,6 +154,7 @@ class BoletaOut(BaseModel):
     emitida_por: str | None
     anulada_en: datetime | None
     motivo_anulacion: str | None
+    comprobante: ComprobanteResumen | None = None
 
 
 class DeclaracionOut(BaseModel):

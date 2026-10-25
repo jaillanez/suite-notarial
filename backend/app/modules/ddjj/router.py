@@ -18,6 +18,7 @@ from app.modules.ddjj.schemas import (
     AporteActoOut,
     BajaActo,
     BoletaOut,
+    ComprobanteResumen,
     DeclaracionDetalle,
     DeclaracionIn,
     DeclaracionOut,
@@ -41,6 +42,9 @@ from app.modules.iam.deps import (
 )
 from app.modules.padron.catalog import Cargo
 from app.modules.padron.models import Adscripcion, RegistroNotarial
+from app.modules.pagos import service as pagos_service
+from app.modules.pagos.catalog import EstadoComprobante
+from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
 
 router = APIRouter(prefix="/ddjj", tags=["ddjj"])
@@ -125,6 +129,18 @@ async def _actor(
     return (await parametros.user_emails(session, {user_id})).get(user_id)
 
 
+def _comprobante_resumen(c: Comprobante | None) -> ComprobanteResumen | None:
+    if c is None:
+        return None
+    return ComprobanteResumen(
+        id=c.id,
+        estado=EstadoComprobante(c.estado),
+        importe_declarado=c.importe_declarado,
+        motivo_rechazo=c.motivo_rechazo,
+        created_at=c.created_at,
+    )
+
+
 async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> BoletaOut:
     registro = await session.get(RegistroNotarial, b.registro_id)
     ddjj = await session.get(DeclaracionJurada, b.ddjj_id)
@@ -154,6 +170,9 @@ async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> Bo
         emitida_por=await _actor(session, principal, b.emitida_por_user_id),
         anulada_en=b.anulada_en,
         motivo_anulacion=b.motivo_anulacion,
+        comprobante=_comprobante_resumen(
+            (await pagos_service.ultimos_por_boleta(session, [b.id])).get(b.id)
+        ),
     )
 
 

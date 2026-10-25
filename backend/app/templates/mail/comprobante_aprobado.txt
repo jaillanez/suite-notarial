@@ -1,0 +1,9 @@
+Hola, {{ full_name }}.
+
+Tesorería confirmó el pago de la boleta N° {{ numero }} (período {{ periodo }}, total {{ total }}). La boleta figura como pagada.
+
+Podés verla en la declaración jurada:
+{{ link }}
+
+—
+Caja Notarial de San Juan · Mensaje automático, no lo respondas.

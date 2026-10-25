@@ -1,0 +1,11 @@
+Hola, {{ full_name }}.
+
+Tesorería revisó el comprobante que adjuntaste para la boleta N° {{ numero }} (período {{ periodo }}, total {{ total }}) y no pudo confirmar el pago.
+
+Motivo: {{ motivo }}
+
+La boleta sigue pendiente. Revisá el motivo y adjuntá un comprobante nuevo desde la declaración jurada:
+{{ link }}
+
+—
+Caja Notarial de San Juan · Mensaje automático, no lo respondas.
