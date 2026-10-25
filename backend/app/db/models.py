@@ -24,6 +24,7 @@ from app.modules.padron.models import (
     Persona,
     RegistroNotarial,
 )
+from app.modules.pagos.models import Comprobante, Conciliacion
 from app.modules.parametros.models import Concepto, Vigencia
 
 __all__ = [
@@ -33,7 +34,9 @@ __all__ = [
     "Base",
     "Boleta",
     "Circunscripcion",
+    "Comprobante",
     "Concepto",
+    "Conciliacion",
     "DeclaracionJurada",
     "Escribano",
     "HistorialEstado",
