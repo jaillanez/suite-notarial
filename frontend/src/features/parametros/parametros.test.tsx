@@ -30,7 +30,8 @@ const VIGENCIA: apiModule.Vigencia = {
   monto_fijo: null,
   monto_minimo: '1000.00',
   monto_maximo: null,
-  tasa_mensual: null,
+  tasa: null,
+  periodo_tasa: null,
   dias_gracia: null,
   regla_redondeo: 'HALF_UP',
   es_ejemplo: true,
@@ -61,10 +62,10 @@ describe('parámetros', () => {
     vi.mocked(apiModule.fetchConceptos).mockResolvedValue([CONCEPTO])
   })
 
-  it('marca los valores de ejemplo y las propuestas pendientes', async () => {
+  it('marca los valores a confirmar y las propuestas pendientes', async () => {
     renderWithProviders(<ParametrosPage />, { path: '/parametros', user: ADMIN })
 
-    expect(await screen.findByText('Hay valores de ejemplo, no oficiales')).toBeInTheDocument()
+    expect(await screen.findByText('Hay valores a confirmar')).toBeInTheDocument()
     expect(screen.getByText('1 propuesta pendiente de aprobación')).toBeInTheDocument()
     expect(screen.getByText('1,5 %')).toBeInTheDocument()
   })

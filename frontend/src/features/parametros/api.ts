@@ -1,6 +1,7 @@
 import { api } from '../../lib/api'
 
-export type TipoConcepto = 'PORCENTUAL_ACTO' | 'FIJO_MENSUAL' | 'TASA_MORA'
+export type TipoConcepto = 'PORCENTUAL_ACTO' | 'FIJO_ACTO' | 'FIJO_MENSUAL' | 'TASA_MORA'
+export type PeriodoTasa = 'MENSUAL' | 'ANUAL'
 export type EstadoVigencia = 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA'
 export type ReglaRedondeo = 'HALF_UP' | 'FLOOR' | 'CEILING'
 
@@ -16,7 +17,8 @@ export interface Vigencia {
   monto_fijo: string | null
   monto_minimo: string | null
   monto_maximo: string | null
-  tasa_mensual: string | null
+  tasa: string | null
+  periodo_tasa: PeriodoTasa | null
   dias_gracia: number | null
   regla_redondeo: ReglaRedondeo
   es_ejemplo: boolean
@@ -48,7 +50,8 @@ export interface VigenciaInput {
   monto_fijo?: string | null
   monto_minimo?: string | null
   monto_maximo?: string | null
-  tasa_mensual?: string | null
+  tasa?: string | null
+  periodo_tasa?: PeriodoTasa | null
   dias_gracia?: number | null
   regla_redondeo: ReglaRedondeo
   resolucion_respaldo: string

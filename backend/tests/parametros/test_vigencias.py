@@ -135,8 +135,15 @@ async def test_values_must_match_type(proponente: AsyncClient) -> None:
 
     missing = await proponer(proponente, pct["id"], fecha_desde="2026-01-01")
     wrong = await proponer(
-        proponente, mora["id"], fecha_desde="2026-01-01", tasa_mensual="3", monto_fijo="10"
+        proponente,
+        mora["id"],
+        fecha_desde="2026-01-01",
+        tasa="3",
+        periodo_tasa="MENSUAL",
+        dias_gracia=0,
+        monto_fijo="10",
     )
+    sin_unidad = await proponer(proponente, mora["id"], fecha_desde="2026-01-01", tasa="3")
     bad_range = await proponer(
         proponente,
         pct["id"],
@@ -151,6 +158,8 @@ async def test_values_must_match_type(proponente: AsyncClient) -> None:
     assert missing.status_code == 422
     assert "faltan porcentaje" in missing.json()["detail"]
     assert wrong.status_code == 422
+    assert sin_unidad.status_code == 422
+    assert "periodo_tasa" in sin_unidad.json()["detail"]
     assert bad_range.status_code == 422
     assert too_precise.status_code == 422
 

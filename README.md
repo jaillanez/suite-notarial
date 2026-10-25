@@ -89,9 +89,10 @@ corré `make db migrate` de nuevo.
 | Auditoría | `auditor@suite-notarial.example` | Obligatorio |
 | Escribano | `escribano@suite-notarial.example` | Opcional |
 
-También siembra tres conceptos de parámetros con **valores de ejemplo** (aporte porcentual
-1,5 %, aporte fijo $ 25.000 y mora 3 % mensual): son inventados, se muestran marcados como
-ejemplo y hay que reemplazarlos por los oficiales de la Caja. Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
+También carga los **parámetros 2026 relevados del sistema en uso** (aporte por escrituras,
+fijos por acto, mínimo mensual, médico asistencial y tasa de mora; ver
+`backend/app/modules/parametros/sistema_actual.py`). La tasa de mora figura «a confirmar»
+porque la pantalla no indica su unidad. Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
 (el primero vinculado a la cuenta `escribano@suite-notarial.example`). Son datos inventados.
 
 Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. En
@@ -195,9 +196,13 @@ Ya aplicadas:
 
 ## Motor paramétrico (Fase 3)
 
-- **Conceptos** de tres tipos: porcentaje sobre escrituras (con mínimo y tope opcionales), monto
-  fijo mensual y tasa de mora (con días de gracia). Cada uno tiene **vigencias** con fecha desde
-  y hasta (o sin fin).
+- **Conceptos** de cuatro tipos: porcentaje sobre escrituras (con mínimo y tope opcionales),
+  monto fijo por acto, monto fijo mensual y tasa de mora (mensual o anual, con días de gracia).
+  Cada uno tiene **vigencias** con fecha desde y hasta (o sin fin).
+- **Relevado del sistema actual:** la fórmula `aporte = base × 0,40 %` acotada por mínimo y tope
+  reproduce al centavo las 351 escrituras del reporte de agosto-septiembre 2026, y la boleta
+  09/2026 se reconstruye con el mínimo mensual (excedente = protocolos − mínimo) más el aporte
+  médico. Las capturas de origen están en `Docs/privado/` (fuera del repositorio).
 - **Nunca se sobreescribe:** una vigencia nueva es una fila nueva. Un trigger impide modificar o
   borrar sus valores; solo se cierra la fecha hasta de una vigencia abierta cuando se aprueba la
   que la reemplaza (el día anterior a su inicio), y queda auditado.
@@ -211,9 +216,9 @@ Ya aplicadas:
   aplicable o un error explícito; las boletas guardarán su id (SNAP).
 - **Cálculo exacto:** montos `Numeric(15,2)`, tasas `Numeric(18,4)` expresadas en %, todo en
   `Decimal` y transmitido como texto (nunca como número de punto flotante).
-- **Pendiente de negocio (`TODO(negocio)`):** los valores reales de cada concepto; si la mora es
-  interés simple o compuesto y sobre qué base de días; si corre desde el vencimiento o desde el
-  fin de la gracia.
+- **Pendiente de negocio (`TODO(negocio)`):** unidad de la tasa de interés («34»: se tomó como
+  anual), interés simple o compuesto y base de días, días de gracia y desde cuándo corre la mora;
+  y la resolución que respalda cada valor (el sistema actual no la muestra).
 
 ## Seguridad de acceso (Fase 1)
 

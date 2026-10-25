@@ -36,7 +36,8 @@ class Concepto(UUIDMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("codigo ~ '^[A-Z][A-Z0-9_]{2,49}$'", name="codigo_formato"),
         CheckConstraint(
-            "tipo IN ('PORCENTUAL_ACTO', 'FIJO_MENSUAL', 'TASA_MORA')", name="tipo_valido"
+            "tipo IN ('PORCENTUAL_ACTO', 'FIJO_ACTO', 'FIJO_MENSUAL', 'TASA_MORA')",
+            name="tipo_valido",
         ),
     )
 
@@ -66,12 +67,14 @@ class Vigencia(UUIDMixin, Base):
         CheckConstraint(
             "monto_maximo IS NULL OR monto_maximo >= COALESCE(monto_minimo, 0)", name="maximo"
         ),
-        CheckConstraint(
-            "tasa_mensual IS NULL OR (tasa_mensual >= 0 AND tasa_mensual <= 100)", name="tasa"
-        ),
+        CheckConstraint("tasa IS NULL OR (tasa >= 0 AND tasa <= 100)", name="tasa"),
         CheckConstraint(
             "dias_gracia IS NULL OR (dias_gracia >= 0 AND dias_gracia <= 90)", name="gracia"
         ),
+        CheckConstraint(
+            "periodo_tasa IS NULL OR periodo_tasa IN ('MENSUAL', 'ANUAL')", name="periodo_tasa"
+        ),
+        CheckConstraint("(tasa IS NULL) = (periodo_tasa IS NULL)", name="tasa_con_periodo"),
         CheckConstraint(
             "(estado = 'VIGENTE') = (aprobado_por_user_id IS NOT NULL)", name="aprobacion"
         ),
@@ -99,7 +102,9 @@ class Vigencia(UUIDMixin, Base):
     monto_fijo: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     monto_minimo: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     monto_maximo: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
-    tasa_mensual: Mapped[Decimal | None] = mapped_column(RATE, nullable=True)
+    # Tasa de mora en %, expresada en la unidad de `periodo_tasa` (mensual o anual).
+    tasa: Mapped[Decimal | None] = mapped_column(RATE, nullable=True)
+    periodo_tasa: Mapped[str | None] = mapped_column(String(10), nullable=True)
     dias_gracia: Mapped[int | None] = mapped_column(Integer, nullable=True)
     regla_redondeo: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="HALF_UP"

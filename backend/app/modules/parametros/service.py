@@ -17,23 +17,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.core.errors import ProblemError
 from app.modules.iam.models import User
-from app.modules.parametros.catalog import EstadoVigencia, ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto
 from app.modules.parametros.models import Concepto, Vigencia
 from app.modules.parametros.motor import VigenciaSnapshot
 from app.modules.parametros.schemas import ConceptoIn, ConceptoUpdate, VigenciaIn
 
 # Campos que cada tipo exige y los que no admite.
+_FIJO_SOLO = (
+    frozenset({"monto_fijo"}),
+    frozenset(
+        {"porcentaje", "monto_minimo", "monto_maximo", "tasa", "periodo_tasa", "dias_gracia"}
+    ),
+)
 CAMPOS_POR_TIPO: dict[TipoConcepto, tuple[frozenset[str], frozenset[str]]] = {
     TipoConcepto.PORCENTUAL_ACTO: (
         frozenset({"porcentaje"}),
-        frozenset({"monto_fijo", "tasa_mensual", "dias_gracia"}),
+        frozenset({"monto_fijo", "tasa", "periodo_tasa", "dias_gracia"}),
     ),
-    TipoConcepto.FIJO_MENSUAL: (
-        frozenset({"monto_fijo"}),
-        frozenset({"porcentaje", "monto_minimo", "monto_maximo", "tasa_mensual", "dias_gracia"}),
-    ),
+    TipoConcepto.FIJO_ACTO: _FIJO_SOLO,
+    TipoConcepto.FIJO_MENSUAL: _FIJO_SOLO,
     TipoConcepto.TASA_MORA: (
-        frozenset({"tasa_mensual", "dias_gracia"}),
+        frozenset({"tasa", "periodo_tasa", "dias_gracia"}),
         frozenset({"porcentaje", "monto_fijo", "monto_minimo", "monto_maximo"}),
     ),
 }
@@ -44,7 +48,8 @@ VALUE_FIELDS = (
     "monto_fijo",
     "monto_minimo",
     "monto_maximo",
-    "tasa_mensual",
+    "tasa",
+    "periodo_tasa",
     "dias_gracia",
     "regla_redondeo",
     "es_ejemplo",
@@ -75,7 +80,8 @@ def snapshot(v: Vigencia) -> VigenciaSnapshot:
         monto_fijo=v.monto_fijo,
         monto_minimo=v.monto_minimo,
         monto_maximo=v.monto_maximo,
-        tasa_mensual=v.tasa_mensual,
+        tasa=v.tasa,
+        periodo_tasa=PeriodoTasa(v.periodo_tasa) if v.periodo_tasa else None,
         dias_gracia=v.dias_gracia,
         regla_redondeo=ReglaRedondeo(v.regla_redondeo),
     )
@@ -306,8 +312,9 @@ async def proponer_vigencia(
         id=uuid.uuid4(),
         concepto_id=concepto.id,
         version=version,
-        **data.model_dump(exclude={"regla_redondeo"}),
+        **data.model_dump(exclude={"regla_redondeo", "periodo_tasa"}),
         regla_redondeo=data.regla_redondeo.value,
+        periodo_tasa=data.periodo_tasa.value if data.periodo_tasa else None,
         es_ejemplo=es_ejemplo,
         estado=EstadoVigencia.PENDIENTE_APROBACION.value,
         created_by_user_id=actor.id,

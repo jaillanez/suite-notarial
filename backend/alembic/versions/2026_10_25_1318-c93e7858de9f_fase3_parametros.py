@@ -21,12 +21,12 @@ BEGIN
     END IF;
     -- Los valores, el concepto y el respaldo de una vigencia nunca cambian.
     IF (NEW.concepto_id, NEW.version, NEW.fecha_desde, NEW.porcentaje, NEW.monto_fijo,
-        NEW.monto_minimo, NEW.monto_maximo, NEW.tasa_mensual, NEW.dias_gracia,
+        NEW.monto_minimo, NEW.monto_maximo, NEW.tasa, NEW.periodo_tasa, NEW.dias_gracia,
         NEW.regla_redondeo, NEW.es_ejemplo, NEW.resolucion_respaldo, NEW.motivo,
         NEW.created_by_user_id, NEW.created_at)
        IS DISTINCT FROM
        (OLD.concepto_id, OLD.version, OLD.fecha_desde, OLD.porcentaje, OLD.monto_fijo,
-        OLD.monto_minimo, OLD.monto_maximo, OLD.tasa_mensual, OLD.dias_gracia,
+        OLD.monto_minimo, OLD.monto_maximo, OLD.tasa, OLD.periodo_tasa, OLD.dias_gracia,
         OLD.regla_redondeo, OLD.es_ejemplo, OLD.resolucion_respaldo, OLD.motivo,
         OLD.created_by_user_id, OLD.created_at) THEN
         RAISE EXCEPTION 'parametros_vigencias: los valores de una vigencia no se modifican'
@@ -89,7 +89,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint("codigo ~ '^[A-Z][A-Z0-9_]{2,49}$'", name=op.f('ck_parametros_conceptos_codigo_formato')),
-    sa.CheckConstraint("tipo IN ('PORCENTUAL_ACTO', 'FIJO_MENSUAL', 'TASA_MORA')", name=op.f('ck_parametros_conceptos_tipo_valido')),
+    sa.CheckConstraint("tipo IN ('PORCENTUAL_ACTO', 'FIJO_ACTO', 'FIJO_MENSUAL', 'TASA_MORA')", name=op.f('ck_parametros_conceptos_tipo_valido')),
     sa.ForeignKeyConstraint(['created_by_user_id'], ['security_users.id'], name=op.f('fk_parametros_conceptos_created_by_user_id_security_users')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_parametros_conceptos')),
     sa.UniqueConstraint('codigo', name=op.f('uq_parametros_conceptos_codigo'))
@@ -103,7 +103,8 @@ def upgrade() -> None:
     sa.Column('monto_fijo', sa.Numeric(precision=15, scale=2), nullable=True),
     sa.Column('monto_minimo', sa.Numeric(precision=15, scale=2), nullable=True),
     sa.Column('monto_maximo', sa.Numeric(precision=15, scale=2), nullable=True),
-    sa.Column('tasa_mensual', sa.Numeric(precision=18, scale=4), nullable=True),
+    sa.Column('tasa', sa.Numeric(precision=18, scale=4), nullable=True),
+    sa.Column('periodo_tasa', sa.String(length=10), nullable=True),
     sa.Column('dias_gracia', sa.Integer(), nullable=True),
     sa.Column('regla_redondeo', sa.String(length=20), server_default='HALF_UP', nullable=False),
     sa.Column('es_ejemplo', sa.Boolean(), server_default='false', nullable=False),
@@ -122,12 +123,14 @@ def upgrade() -> None:
     sa.CheckConstraint("regla_redondeo IN ('HALF_UP', 'FLOOR', 'CEILING')", name=op.f('ck_parametros_vigencias_redondeo')),
     sa.CheckConstraint('aprobado_por_user_id IS NULL OR aprobado_por_user_id <> created_by_user_id', name=op.f('ck_parametros_vigencias_cuatro_ojos')),
     sa.CheckConstraint('dias_gracia IS NULL OR (dias_gracia >= 0 AND dias_gracia <= 90)', name=op.f('ck_parametros_vigencias_gracia')),
+    sa.CheckConstraint("periodo_tasa IS NULL OR periodo_tasa IN ('MENSUAL', 'ANUAL')", name=op.f('ck_parametros_vigencias_periodo_tasa')),
+    sa.CheckConstraint('(tasa IS NULL) = (periodo_tasa IS NULL)', name=op.f('ck_parametros_vigencias_tasa_con_periodo')),
     sa.CheckConstraint('fecha_hasta IS NULL OR fecha_hasta >= fecha_desde', name=op.f('ck_parametros_vigencias_rango_valido')),
     sa.CheckConstraint('monto_fijo IS NULL OR monto_fijo >= 0', name=op.f('ck_parametros_vigencias_fijo')),
     sa.CheckConstraint('monto_maximo IS NULL OR monto_maximo >= COALESCE(monto_minimo, 0)', name=op.f('ck_parametros_vigencias_maximo')),
     sa.CheckConstraint('monto_minimo IS NULL OR monto_minimo >= 0', name=op.f('ck_parametros_vigencias_minimo')),
     sa.CheckConstraint('porcentaje IS NULL OR (porcentaje >= 0 AND porcentaje <= 100)', name=op.f('ck_parametros_vigencias_pct')),
-    sa.CheckConstraint('tasa_mensual IS NULL OR (tasa_mensual >= 0 AND tasa_mensual <= 100)', name=op.f('ck_parametros_vigencias_tasa')),
+    sa.CheckConstraint('tasa IS NULL OR (tasa >= 0 AND tasa <= 100)', name=op.f('ck_parametros_vigencias_tasa')),
     sa.ForeignKeyConstraint(['aprobado_por_user_id'], ['security_users.id'], name=op.f('fk_parametros_vigencias_aprobado_por_user_id_security_users')),
     sa.ForeignKeyConstraint(['concepto_id'], ['parametros_conceptos.id'], name=op.f('fk_parametros_vigencias_concepto_id_parametros_conceptos'), ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['created_by_user_id'], ['security_users.id'], name=op.f('fk_parametros_vigencias_created_by_user_id_security_users')),

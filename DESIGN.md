@@ -279,7 +279,7 @@ Contenidos y seguros: la acción se ofrece, no grita.
 ### Importes y tasas
 - Los importes y porcentajes llegan de la API como texto decimal y se formatean sin pasar por número de punto flotante: `$ 1.234.567,50`, `1,5 %` (sin ceros de más). Siempre con cifras tabulares.
 - Los campos de importe aceptan la forma local (`1.234,56`) y se normalizan antes de enviarse.
-- Un valor que no es oficial (de ejemplo o simulado) lleva el indicador de atención "Ejemplo" junto al valor y un aviso en la página; nunca se presenta igual que uno aprobado.
+- Un valor que no está confirmado como oficial lleva el indicador de atención "A confirmar" junto al valor y un aviso en la página; nunca se presenta igual que uno aprobado.
 
 ### Navigation (cabecera institucional)
 - Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio. Mismo ancho máximo que el contenido.

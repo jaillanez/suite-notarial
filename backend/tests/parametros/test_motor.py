@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 from app.modules.parametros import motor
-from app.modules.parametros.catalog import ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import PeriodoTasa, ReglaRedondeo, TipoConcepto
 from app.modules.parametros.motor import VigenciaSnapshot
 
 
@@ -22,7 +22,8 @@ def snap(tipo: TipoConcepto, **values: object) -> VigenciaSnapshot:
         "monto_fijo": None,
         "monto_minimo": None,
         "monto_maximo": None,
-        "tasa_mensual": None,
+        "tasa": None,
+        "periodo_tasa": None,
         "dias_gracia": None,
         "regla_redondeo": ReglaRedondeo.HALF_UP,
     }
@@ -80,7 +81,12 @@ def test_aporte_fijo() -> None:
 
 
 def test_mora_con_gracia_e_interes_simple() -> None:
-    v = snap(TipoConcepto.TASA_MORA, tasa_mensual=Decimal("3.0000"), dias_gracia=10)
+    v = snap(
+        TipoConcepto.TASA_MORA,
+        tasa=Decimal("3.0000"),
+        periodo_tasa=PeriodoTasa.MENSUAL,
+        dias_gracia=10,
+    )
     vence = date(2026, 3, 10)
 
     assert motor.dias_de_mora(vence, date(2026, 3, 20), v) == 0  # dentro de la gracia
@@ -90,6 +96,15 @@ def test_mora_con_gracia_e_interes_simple() -> None:
     assert motor.interes_mora(Decimal("10000.00"), 0, v) == Decimal("0.00")
     # 1234.56 * 0.03 / 30 * 7 = 8.64192 -> 8.64
     assert motor.interes_mora(Decimal("1234.56"), 7, v) == Decimal("8.64")
+
+
+def test_tasa_anual_y_fijo_por_acto() -> None:
+    anual = snap(TipoConcepto.TASA_MORA, tasa=Decimal("34.0000"), periodo_tasa=PeriodoTasa.ANUAL)
+    acto = snap(TipoConcepto.FIJO_ACTO, monto_fijo=Decimal("9922.00"))
+
+    # 100000 * 34 % / 365 * 30 = 2794.52
+    assert motor.interes_mora(Decimal("100000.00"), 30, anual) == Decimal("2794.52")
+    assert motor.aporte_fijo(acto) == Decimal("9922.00")
 
 
 def test_tipo_incorrecto_y_valores_invalidos() -> None:

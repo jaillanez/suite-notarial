@@ -24,10 +24,18 @@ import {
   rechazarVigencia,
   simular,
   type Concepto,
+  type PeriodoTasa,
   type ReglaRedondeo,
   type Vigencia,
 } from './api'
-import { ESTADO_VIGENCIA, REDONDEO, TIPO, detalleValores, resumenValor } from './labels'
+import {
+  ESTADO_VIGENCIA,
+  PERIODO_TASA,
+  REDONDEO,
+  TIPO,
+  detalleValores,
+  resumenValor,
+} from './labels'
 
 const opt = (value: string): string | null => {
   const v = normalizeDecimalInput(value)
@@ -51,7 +59,8 @@ function ProponerDialog({
     monto_fijo: '',
     monto_minimo: '',
     monto_maximo: '',
-    tasa_mensual: '',
+    tasa: '',
+    periodo_tasa: 'ANUAL' as PeriodoTasa,
     dias_gracia: '',
     regla_redondeo: 'HALF_UP' as ReglaRedondeo,
     resolucion_respaldo: '',
@@ -71,9 +80,10 @@ function ProponerDialog({
           monto_minimo: opt(form.monto_minimo),
           monto_maximo: opt(form.monto_maximo),
         }),
-        ...(t === 'FIJO_MENSUAL' && { monto_fijo: opt(form.monto_fijo) }),
+        ...((t === 'FIJO_MENSUAL' || t === 'FIJO_ACTO') && { monto_fijo: opt(form.monto_fijo) }),
         ...(t === 'TASA_MORA' && {
-          tasa_mensual: opt(form.tasa_mensual),
+          tasa: opt(form.tasa),
+          periodo_tasa: form.periodo_tasa,
           dias_gracia: form.dias_gracia ? Number.parseInt(form.dias_gracia, 10) : null,
         }),
       }),
@@ -83,7 +93,7 @@ function ProponerDialog({
     },
   })
   const problem = save.isError ? toProblem(save.error) : null
-  const bind = (key: Exclude<keyof typeof form, 'regla_redondeo'>) => ({
+  const bind = (key: Exclude<keyof typeof form, 'regla_redondeo' | 'periodo_tasa'>) => ({
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
@@ -164,7 +174,18 @@ function ProponerDialog({
         )}
         {t === 'TASA_MORA' && (
           <>
-            <Field label="Tasa mensual (%)" placeholder="3" {...money} {...bind('tasa_mensual')} />
+            <Field label="Tasa (%)" placeholder="34" {...money} {...bind('tasa')} />
+            <Select
+              label="Unidad de la tasa"
+              value={form.periodo_tasa}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, periodo_tasa: e.target.value as PeriodoTasa }))
+              }}
+              options={(Object.keys(PERIODO_TASA) as PeriodoTasa[]).map((p) => ({
+                value: p,
+                label: `Tasa ${PERIODO_TASA[p]}`,
+              }))}
+            />
             <Field
               label="Días de gracia"
               inputMode="numeric"
@@ -344,8 +365,8 @@ function Simulador({ concepto }: { concepto: Concepto }) {
               Versión {run.data.vigencia.version} ·{' '}
               {concepto.tipo === 'PORCENTUAL_ACTO'
                 ? `${formatPercent(run.data.vigencia.porcentaje)} sobre ${formatMoney(normalizeDecimalInput(base))}, con mínimo y tope`
-                : `${formatPercent(run.data.vigencia.tasa_mensual)} mensual · ${String(run.data.dias_mora ?? 0)} días computables`}
-              {run.data.vigencia.es_ejemplo && ' · valor de ejemplo, no oficial'}
+                : `${formatPercent(run.data.vigencia.tasa)} ${run.data.vigencia.periodo_tasa ? PERIODO_TASA[run.data.vigencia.periodo_tasa] : ''} · ${String(run.data.dias_mora ?? 0)} días computables`}
+              {run.data.vigencia.es_ejemplo && ' · valor a confirmar, no oficial'}
             </p>
           </div>
         )}
@@ -524,7 +545,9 @@ export function ConceptoPage() {
         )}
       </Panel>
 
-      {concepto.tipo !== 'FIJO_MENSUAL' && <Simulador concepto={concepto} />}
+      {(concepto.tipo === 'PORCENTUAL_ACTO' || concepto.tipo === 'TASA_MORA') && (
+        <Simulador concepto={concepto} />
+      )}
 
       <ProponerDialog
         key={String(proponiendo)}

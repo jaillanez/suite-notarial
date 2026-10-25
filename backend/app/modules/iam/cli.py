@@ -143,69 +143,57 @@ async def seed_dev() -> int:
 
 
 async def _seed_parametros_demo(session: AsyncSession) -> None:
-    """Conceptos con valores de EJEMPLO para probar el motor. No son parámetros de la Caja.
+    """Parámetros 2026 relevados del sistema en uso (ver parametros/sistema_actual.py).
 
-    TODO(negocio): reemplazar por las alícuotas, montos y tasas que apruebe la Caja.
+    En desarrollo se cargan ya aprobados para poder calcular; los de significado dudoso quedan
+    marcados como ejemplo. En producción se cargan como propuestas que aprueba la Caja.
     """
-    from datetime import UTC, date, datetime
-    from decimal import Decimal
+    from datetime import UTC, datetime
 
     from app.modules.parametros.models import Concepto, Vigencia
+    from app.modules.parametros.sistema_actual import CONCEPTOS, FUENTE
 
     if await session.scalar(select(Concepto.id).limit(1)):
-        _out("Parámetros de demostración: ya existen, no se modifican.")
+        _out("Parámetros: ya existen, no se modifican.")
         return
     admin = await session.scalar(select(User).where(User.email == DEV_USERS[0][0]))
     aprobador = await session.scalar(select(User).where(User.email == DEV_USERS[2][0]))
     if admin is None or aprobador is None:
         return
-    ejemplos: tuple[tuple[str, str, str, dict[str, object]], ...] = (
-        (
-            "APORTE_ESCRITURA",
-            "Aporte sobre escrituras (ejemplo)",
-            "PORCENTUAL_ACTO",
-            {"porcentaje": Decimal("1.5000"), "monto_minimo": Decimal("1000.00")},
-        ),
-        (
-            "APORTE_MENSUAL",
-            "Aporte fijo mensual (ejemplo)",
-            "FIJO_MENSUAL",
-            {"monto_fijo": Decimal("25000.00")},
-        ),
-        (
-            "TASA_MORA",
-            "Interés por mora (ejemplo)",
-            "TASA_MORA",
-            {"tasa_mensual": Decimal("3.0000"), "dias_gracia": 10},
-        ),
-    )
-    for codigo, nombre, tipo, valores in ejemplos:
+    vigencias = 0
+    for relevado in CONCEPTOS:
         concepto = Concepto(
             id=uuid.uuid4(),
-            codigo=codigo,
-            nombre=nombre,
-            tipo=tipo,
-            descripcion="Concepto de demostración con valores inventados.",
+            codigo=relevado.codigo,
+            nombre=relevado.nombre,
+            tipo=relevado.tipo.value,
+            descripcion=relevado.descripcion,
             created_by_user_id=admin.id,
         )
         session.add(concepto)
-        session.add(
-            Vigencia(
-                concepto_id=concepto.id,
-                version=1,
-                fecha_desde=date(2026, 1, 1),
-                **valores,
-                es_ejemplo=True,
-                estado="VIGENTE",
-                resolucion_respaldo="EJEMPLO (sin resolución)",
-                motivo="Valor de ejemplo para desarrollo. TODO(negocio): cargar el oficial.",
-                created_by_user_id=admin.id,
-                aprobado_por_user_id=aprobador.id,
-                fecha_aprobacion=datetime.now(UTC),
+        for version, tramo in enumerate(relevado.tramos, start=1):
+            session.add(
+                Vigencia(
+                    concepto_id=concepto.id,
+                    version=version,
+                    fecha_desde=tramo.desde,
+                    fecha_hasta=tramo.hasta,
+                    **tramo.valores,
+                    es_ejemplo=tramo.a_confirmar,
+                    estado="VIGENTE",
+                    resolucion_respaldo="Sistema actual (sin resolución)",
+                    motivo=f"{FUENTE}. TODO(negocio): citar la resolución que lo dispuso.",
+                    created_by_user_id=admin.id,
+                    aprobado_por_user_id=aprobador.id,
+                    fecha_aprobacion=datetime.now(UTC),
+                )
             )
-        )
+            vigencias += 1
     await session.commit()
-    _out("Parámetros de demostración: 3 conceptos con valores de EJEMPLO (no oficiales).")
+    _out(
+        f"Parámetros del sistema actual: {len(CONCEPTOS)} conceptos, {vigencias} vigencias "
+        "(la tasa de mora queda marcada a confirmar)."
+    )
 
 
 DEMO_ESCRIBANOS: tuple[tuple[str, str, int, str | None, int | None], ...] = (

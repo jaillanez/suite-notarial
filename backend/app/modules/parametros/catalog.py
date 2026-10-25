@@ -7,10 +7,19 @@ from enum import StrEnum
 class TipoConcepto(StrEnum):
     # Porcentaje sobre la base imponible de cada escritura, con mínimo y tope opcionales.
     PORCENTUAL_ACTO = "PORCENTUAL_ACTO"
-    # Monto fijo por período mensual.
+    # Monto fijo por cada acto (p. ej. actas y poderes, u otros actos sin base imponible).
+    FIJO_ACTO = "FIJO_ACTO"
+    # Monto fijo por período mensual (p. ej. aporte médico, aporte previsional mínimo).
     FIJO_MENSUAL = "FIJO_MENSUAL"
     # Tasa de interés mensual por mora, con días de gracia sobre el vencimiento.
     TASA_MORA = "TASA_MORA"
+
+
+class PeriodoTasa(StrEnum):
+    """Unidad en que se expresa la tasa de mora."""
+
+    MENSUAL = "MENSUAL"
+    ANUAL = "ANUAL"
 
 
 class EstadoVigencia(StrEnum):

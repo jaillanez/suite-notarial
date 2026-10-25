@@ -132,10 +132,10 @@ export function ParametrosPage() {
       />
       <div className="mb-6 space-y-4">
         {ejemplos.length > 0 && (
-          <Alert tone="warning" title="Hay valores de ejemplo, no oficiales">
-            {ejemplos.map((c) => c.codigo).join(', ')} se calculan con valores inventados para
-            desarrollo. Antes de emitir boletas reales hay que cargar los valores aprobados por la
-            Caja.
+          <Alert tone="warning" title="Hay valores a confirmar">
+            {ejemplos.map((c) => c.codigo).join(', ')}: el valor vigente no está confirmado por la
+            Caja (por ejemplo, falta la unidad o la resolución). Confirmalo antes de emitir boletas
+            reales.
           </Alert>
         )}
         {pendientes > 0 && (
@@ -214,9 +214,9 @@ export function ParametrosPage() {
                       label={`${String(c.pendientes)} pendiente${c.pendientes === 1 ? '' : 's'}`}
                     />
                   )}
-                  {c.vigente?.es_ejemplo && <StatusIndicator tone="warning" label="Ejemplo" />}
+                  {c.vigente?.es_ejemplo && <StatusIndicator tone="warning" label="A confirmar" />}
                 </span>
-                <span className="w-full text-left sm:w-44 sm:text-right">
+                <span className="w-full text-left sm:w-56 sm:text-right">
                   {c.vigente ? (
                     <>
                       <span className="block text-lg font-semibold text-ink tabular-nums">

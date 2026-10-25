@@ -10,10 +10,20 @@ from datetime import date
 from decimal import Decimal
 
 from app.common.money import MONEY_QUANT, to_money
-from app.modules.parametros.catalog import ROUNDING_MODES, ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import (
+    ROUNDING_MODES,
+    PeriodoTasa,
+    ReglaRedondeo,
+    TipoConcepto,
+)
 
 CIEN = Decimal(100)
-TREINTA = Decimal(30)
+# Días por período de la tasa para el interés diario lineal.
+# TODO(negocio): confirmar con la Caja la base (30/365 o días reales del mes/año).
+DIAS_POR_PERIODO: dict[PeriodoTasa, Decimal] = {
+    PeriodoTasa.MENSUAL: Decimal(30),
+    PeriodoTasa.ANUAL: Decimal(365),
+}
 
 
 class MotorError(ValueError):
@@ -31,7 +41,8 @@ class VigenciaSnapshot:
     monto_fijo: Decimal | None
     monto_minimo: Decimal | None
     monto_maximo: Decimal | None
-    tasa_mensual: Decimal | None
+    tasa: Decimal | None
+    periodo_tasa: PeriodoTasa | None
     dias_gracia: int | None
     regla_redondeo: ReglaRedondeo
 
@@ -63,7 +74,9 @@ def aporte_porcentual(base_imponible: Decimal, v: VigenciaSnapshot) -> Decimal:
 
 
 def aporte_fijo(v: VigenciaSnapshot) -> Decimal:
-    _require(v, TipoConcepto.FIJO_MENSUAL)
+    """Monto fijo de la vigencia: por acto (FIJO_ACTO) o por período mensual (FIJO_MENSUAL)."""
+    if v.tipo not in (TipoConcepto.FIJO_ACTO, TipoConcepto.FIJO_MENSUAL):
+        raise MotorError(f"La vigencia de {v.concepto_codigo} es {v.tipo}, no un monto fijo.")
     if v.monto_fijo is None:
         raise MotorError("La vigencia fija no tiene monto.")
     return redondear(v.monto_fijo, v.regla_redondeo)
@@ -84,16 +97,17 @@ def dias_de_mora(vencimiento: date, fecha_pago: date, v: VigenciaSnapshot) -> in
 
 
 def interes_mora(monto: Decimal, dias: int, v: VigenciaSnapshot) -> Decimal:
-    """Interés simple lineal: `monto * (tasa mensual / 100 / 30) * días` (Módulo 4 §3).
+    """Interés simple lineal: `monto * tasa / 100 / días del período * días` (Módulo 4 §3).
 
-    TODO(negocio): confirmar con la Caja interés simple vs. compuesto y base de 30 días.
+    Tasa mensual: base 30 días; tasa anual: base 365 días.
+    TODO(negocio): confirmar con la Caja interés simple vs. compuesto y la base de días.
     """
     _require(v, TipoConcepto.TASA_MORA)
-    if v.tasa_mensual is None:
-        raise MotorError("La vigencia de mora no tiene tasa.")
+    if v.tasa is None or v.periodo_tasa is None:
+        raise MotorError("La vigencia de mora no tiene tasa o su unidad.")
     if dias < 0:
         raise MotorError("Los días de mora no pueden ser negativos.")
-    if dias == 0 or v.tasa_mensual == 0:
+    if dias == 0 or v.tasa == 0:
         return Decimal("0.00")
-    interes = to_money(monto) * v.tasa_mensual / CIEN / TREINTA * Decimal(dias)
+    interes = to_money(monto) * v.tasa / CIEN / DIAS_POR_PERIODO[v.periodo_tasa] * Decimal(dias)
     return redondear(interes, v.regla_redondeo)

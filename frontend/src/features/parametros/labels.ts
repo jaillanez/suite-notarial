@@ -1,16 +1,17 @@
 import type { Tone } from '../../components/StatusIndicator'
 import { formatMoney, formatPercent } from '../../lib/decimal'
-import type { EstadoVigencia, ReglaRedondeo, TipoConcepto, Vigencia } from './api'
+import type { EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto, Vigencia } from './api'
 
 export const TIPO: Record<TipoConcepto, { label: string; ayuda: string }> = {
   PORCENTUAL_ACTO: {
     label: 'Porcentaje sobre escrituras',
     ayuda: 'Porcentaje sobre la base imponible de cada acto, con mínimo y tope opcionales.',
   },
+  FIJO_ACTO: { label: 'Monto fijo por acto', ayuda: 'Importe fijo por cada acto.' },
   FIJO_MENSUAL: { label: 'Monto fijo mensual', ayuda: 'Importe fijo por período mensual.' },
   TASA_MORA: {
     label: 'Tasa de mora',
-    ayuda: 'Interés mensual por pago fuera de término, con días de gracia.',
+    ayuda: 'Interés por pago fuera de término (tasa mensual o anual), con días de gracia.',
   },
 }
 
@@ -19,6 +20,8 @@ export const ESTADO_VIGENCIA: Record<EstadoVigencia, { label: string; tone: Tone
   VIGENTE: { label: 'Aprobada', tone: 'success' },
   RECHAZADA: { label: 'Rechazada', tone: 'danger' },
 }
+
+export const PERIODO_TASA: Record<PeriodoTasa, string> = { MENSUAL: 'mensual', ANUAL: 'anual' }
 
 export const REDONDEO: Record<ReglaRedondeo, string> = {
   HALF_UP: 'Al más cercano (0,5 hacia arriba)',
@@ -29,8 +32,9 @@ export const REDONDEO: Record<ReglaRedondeo, string> = {
 /** Valor principal de una vigencia, en una línea legible. */
 export function resumenValor(tipo: TipoConcepto, v: Vigencia): string {
   if (tipo === 'PORCENTUAL_ACTO') return formatPercent(v.porcentaje)
+  if (tipo === 'FIJO_ACTO') return `${formatMoney(v.monto_fijo)} por acto`
   if (tipo === 'FIJO_MENSUAL') return formatMoney(v.monto_fijo)
-  return `${formatPercent(v.tasa_mensual)} mensual`
+  return `${formatPercent(v.tasa)} ${v.periodo_tasa ? PERIODO_TASA[v.periodo_tasa] : ''}`.trim()
 }
 
 /** Valores secundarios (mínimo, tope, gracia) como pares etiqueta/valor. */
@@ -43,14 +47,15 @@ export function detalleValores(tipo: TipoConcepto, v: Vigencia): [string, string
       ['Redondeo', REDONDEO[v.regla_redondeo]],
     ]
   }
-  if (tipo === 'FIJO_MENSUAL') {
+  if (tipo === 'FIJO_ACTO' || tipo === 'FIJO_MENSUAL') {
     return [
       ['Monto', formatMoney(v.monto_fijo)],
       ['Redondeo', REDONDEO[v.regla_redondeo]],
     ]
   }
   return [
-    ['Tasa mensual', formatPercent(v.tasa_mensual)],
+    ['Tasa', formatPercent(v.tasa)],
+    ['Unidad', v.periodo_tasa ? PERIODO_TASA[v.periodo_tasa] : '—'],
     ['Días de gracia', String(v.dias_gracia ?? 0)],
     ['Redondeo', REDONDEO[v.regla_redondeo]],
   ]

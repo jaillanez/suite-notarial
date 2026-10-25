@@ -12,7 +12,7 @@ from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal, RequestContextDep, require_permissions
 from app.modules.parametros import motor, service
-from app.modules.parametros.catalog import EstadoVigencia, ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto
 from app.modules.parametros.models import Concepto, Vigencia
 from app.modules.parametros.schemas import (
     ConceptoIn,
@@ -44,7 +44,8 @@ def vigencia_out(v: Vigencia, emails: dict[uuid.UUID, str]) -> VigenciaOut:
         monto_fijo=v.monto_fijo,
         monto_minimo=v.monto_minimo,
         monto_maximo=v.monto_maximo,
-        tasa_mensual=v.tasa_mensual,
+        tasa=v.tasa,
+        periodo_tasa=PeriodoTasa(v.periodo_tasa) if v.periodo_tasa else None,
         dias_gracia=v.dias_gracia,
         regla_redondeo=ReglaRedondeo(v.regla_redondeo),
         es_ejemplo=v.es_ejemplo,
@@ -178,9 +179,10 @@ async def simular(body: SimulacionIn, _: CanRead, session: SessionDep) -> Simula
                 resultado=resultado,
                 detalle=f"{snap.porcentaje} % sobre {body.base_imponible}, con mínimo y tope.",
             )
-        if snap.tipo == TipoConcepto.FIJO_MENSUAL:
+        if snap.tipo in (TipoConcepto.FIJO_ACTO, TipoConcepto.FIJO_MENSUAL):
+            por = "por acto" if snap.tipo == TipoConcepto.FIJO_ACTO else "mensual"
             return SimulacionOut(
-                vigencia=out, resultado=motor.aporte_fijo(snap), detalle="Monto fijo mensual."
+                vigencia=out, resultado=motor.aporte_fijo(snap), detalle=f"Monto fijo {por}."
             )
         if body.monto is None or body.vencimiento is None or body.fecha_pago is None:
             raise motor.MotorError("Indicá monto, vencimiento y fecha de pago.")
@@ -189,7 +191,8 @@ async def simular(body: SimulacionIn, _: CanRead, session: SessionDep) -> Simula
             vigencia=out,
             resultado=motor.interes_mora(body.monto, dias, snap),
             dias_mora=dias,
-            detalle=f"{snap.tasa_mensual} % mensual, {dias} días computables.",
+            detalle=f"{snap.tasa} % {snap.periodo_tasa.lower() if snap.periodo_tasa else ''}, "
+            f"{dias} días computables.",
         )
     except motor.MotorError as exc:
         raise ProblemError(422, str(exc)) from exc
