@@ -1,7 +1,7 @@
 """fase0_base
 
 Revision ID: 3fb6a96d0533
-Revises: 
+Revises:
 Create Date: 2026-10-25 10:18:59.870779
 
 """
