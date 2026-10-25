@@ -15,6 +15,7 @@ from app.modules.health.router import router as health_router
 from app.modules.iam.router_auth import router as auth_router
 from app.modules.iam.router_users import router as users_router
 from app.modules.padron.router import router as padron_router
+from app.modules.parametros.router import router as parametros_router
 
 
 @asynccontextmanager
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(padron_router, prefix="/api/v1")
+    app.include_router(parametros_router, prefix="/api/v1")
     return app
 
 

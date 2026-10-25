@@ -137,7 +137,75 @@ async def seed_dev() -> int:
     _out(f"Usuarios de desarrollo creados: {created} (contraseña: DEV_SEED_PASSWORD).")
     async with get_sessionmaker()() as session:
         await _seed_padron_demo(session)
+    async with get_sessionmaker()() as session:
+        await _seed_parametros_demo(session)
     return 0
+
+
+async def _seed_parametros_demo(session: AsyncSession) -> None:
+    """Conceptos con valores de EJEMPLO para probar el motor. No son parámetros de la Caja.
+
+    TODO(negocio): reemplazar por las alícuotas, montos y tasas que apruebe la Caja.
+    """
+    from datetime import UTC, date, datetime
+    from decimal import Decimal
+
+    from app.modules.parametros.models import Concepto, Vigencia
+
+    if await session.scalar(select(Concepto.id).limit(1)):
+        _out("Parámetros de demostración: ya existen, no se modifican.")
+        return
+    admin = await session.scalar(select(User).where(User.email == DEV_USERS[0][0]))
+    aprobador = await session.scalar(select(User).where(User.email == DEV_USERS[2][0]))
+    if admin is None or aprobador is None:
+        return
+    ejemplos: tuple[tuple[str, str, str, dict[str, object]], ...] = (
+        (
+            "APORTE_ESCRITURA",
+            "Aporte sobre escrituras (ejemplo)",
+            "PORCENTUAL_ACTO",
+            {"porcentaje": Decimal("1.5000"), "monto_minimo": Decimal("1000.00")},
+        ),
+        (
+            "APORTE_MENSUAL",
+            "Aporte fijo mensual (ejemplo)",
+            "FIJO_MENSUAL",
+            {"monto_fijo": Decimal("25000.00")},
+        ),
+        (
+            "TASA_MORA",
+            "Interés por mora (ejemplo)",
+            "TASA_MORA",
+            {"tasa_mensual": Decimal("3.0000"), "dias_gracia": 10},
+        ),
+    )
+    for codigo, nombre, tipo, valores in ejemplos:
+        concepto = Concepto(
+            id=uuid.uuid4(),
+            codigo=codigo,
+            nombre=nombre,
+            tipo=tipo,
+            descripcion="Concepto de demostración con valores inventados.",
+            created_by_user_id=admin.id,
+        )
+        session.add(concepto)
+        session.add(
+            Vigencia(
+                concepto_id=concepto.id,
+                version=1,
+                fecha_desde=date(2026, 1, 1),
+                **valores,
+                es_ejemplo=True,
+                estado="VIGENTE",
+                resolucion_respaldo="EJEMPLO (sin resolución)",
+                motivo="Valor de ejemplo para desarrollo. TODO(negocio): cargar el oficial.",
+                created_by_user_id=admin.id,
+                aprobado_por_user_id=aprobador.id,
+                fecha_aprobacion=datetime.now(UTC),
+            )
+        )
+    await session.commit()
+    _out("Parámetros de demostración: 3 conceptos con valores de EJEMPLO (no oficiales).")
 
 
 DEMO_ESCRIBANOS: tuple[tuple[str, str, int, str | None, int | None], ...] = (
