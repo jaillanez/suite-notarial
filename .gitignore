@@ -31,3 +31,10 @@ logs/
 .docker-data/
 *.sqlite
 *.db
+
+# Backend
+backend/var/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
