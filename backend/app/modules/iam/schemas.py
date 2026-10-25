@@ -139,7 +139,9 @@ class AuditLogOut(BaseModel):
     event_type: str
     severity: str
     actor_user_id: uuid.UUID | None
+    actor_email: str | None = None
     target_user_id: uuid.UUID | None
+    target_email: str | None = None
     ip_address: str | None
     correlation_id: str | None
     old_value: dict[str, object] | None

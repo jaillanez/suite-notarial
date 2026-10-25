@@ -100,5 +100,6 @@ async def test_auditor_reads_audit_log(client: AsyncClient, db_session: AsyncSes
     )
 
     assert response.status_code == 200
-    events = [item["event_type"] for item in response.json()["items"]]
-    assert "LOGIN_SUCCESS" in events
+    items = response.json()["items"]
+    login_event = next(i for i in items if i["event_type"] == "LOGIN_SUCCESS")
+    assert login_event["actor_email"] == auditor.email

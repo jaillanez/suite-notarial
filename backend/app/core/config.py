@@ -103,6 +103,10 @@ class Settings(BaseSettings):
             and self.SMTP_SECURITY == "none"
         ):
             raise ValueError("SMTP_SECURITY debe ser 'starttls' o 'tls' fuera de desarrollo")
+        if self.SMTP_USER and self.SMTP_SECURITY == "none":
+            raise ValueError(
+                "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"
+            )
         return self
 
     @property

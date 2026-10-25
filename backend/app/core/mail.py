@@ -98,7 +98,8 @@ class SmtpMailer:
             hostname=settings.SMTP_HOST,
             port=settings.SMTP_PORT,
             use_tls=settings.SMTP_SECURITY == "tls",
-            start_tls=settings.SMTP_SECURITY == "starttls",
+            # None (y no False) en "none": aiosmtplib igual sube a TLS si el servidor lo ofrece.
+            start_tls=True if settings.SMTP_SECURITY == "starttls" else None,
             validate_certs=True,
             username=settings.SMTP_USER,
             password=settings.SMTP_PASSWORD.get_secret_value() if settings.SMTP_PASSWORD else None,

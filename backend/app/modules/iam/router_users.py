@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 
 from app.common.audit import AuditSecurityLog
 from app.common.deps import SessionDep, SettingsDep
@@ -14,6 +15,7 @@ from app.modules.iam import users_service
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal, RequestContextDep, require_permissions
 from app.modules.iam.mails import account_created_mail
+from app.modules.iam.models import User
 from app.modules.iam.router_auth import MailerDep
 from app.modules.iam.schemas import (
     AuditLogOut,
@@ -118,13 +120,24 @@ async def list_audit_logs(
             | (AuditSecurityLog.target_user_id == user_id)
         )
     total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
+    actor = aliased(User)
+    target = aliased(User)
     result = await session.execute(
-        stmt.order_by(AuditSecurityLog.event_timestamp.desc(), AuditSecurityLog.id)
+        stmt.add_columns(actor.email, target.email)
+        .outerjoin(actor, actor.id == AuditSecurityLog.actor_user_id)
+        .outerjoin(target, target.id == AuditSecurityLog.target_user_id)
+        .order_by(AuditSecurityLog.event_timestamp.desc(), AuditSecurityLog.id)
         .offset(page.offset)
         .limit(page.page_size)
     )
+    items = []
+    for row, actor_email, target_email in result.all():
+        item = AuditLogOut.model_validate(row)
+        item.actor_email = actor_email
+        item.target_email = target_email
+        items.append(item)
     return Page(
-        items=[AuditLogOut.model_validate(row) for row in result.scalars()],
+        items=items,
         total=total or 0,
         page=page.page,
         page_size=page.page_size,

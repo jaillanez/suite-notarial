@@ -37,3 +37,8 @@ def test_smtp_without_tls_rejected_outside_dev(env: Environment) -> None:
             PUBLIC_WEB_URL="https://suite.cajanotarial-sj.com.ar",
             SMTP_SECURITY="none",
         )
+
+
+def test_smtp_credentials_require_tls() -> None:
+    with pytest.raises(ValueError, match="credenciales SMTP"):
+        Settings(SMTP_SECURITY="none", SMTP_USER="caja", SMTP_PASSWORD="secreto")
