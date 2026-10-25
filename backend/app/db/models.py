@@ -23,12 +23,14 @@ from app.modules.padron.models import (
     Persona,
     RegistroNotarial,
 )
+from app.modules.parametros.models import Concepto, Vigencia
 
 __all__ = [
     "Adscripcion",
     "AuditSecurityLog",
     "Base",
     "Circunscripcion",
+    "Concepto",
     "Escribano",
     "HistorialEstado",
     "PasswordResetToken",
@@ -41,4 +43,5 @@ __all__ = [
     "User",
     "UserRole",
     "UserSession",
+    "Vigencia",
 ]
