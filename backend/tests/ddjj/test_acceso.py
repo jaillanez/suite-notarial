@@ -155,3 +155,81 @@ async def test_lo_presentado_es_inmutable_en_la_base(
     ):
         async with db_session.begin_nested():
             await db_session.execute(text(statement))
+
+
+async def test_quien_dejo_el_registro_solo_ve_los_meses_en_que_tuvo_cargo(
+    notario: AsyncClient,
+    client: AsyncClient,
+    escenario: Escenario,
+    db_session: AsyncSession,
+) -> None:
+    from datetime import date
+
+    from sqlalchemy import update
+
+    from app.modules.padron.models import Adscripcion
+
+    # El adscripto tiene cuenta y dejó el registro a fines de agosto.
+    ex_user = await make_user(db_session)
+    escenario.adscripto.user_id = ex_user.id
+    await db_session.execute(
+        update(Adscripcion)
+        .where(Adscripcion.escribano_id == escenario.adscripto.id)
+        .values(fecha_hasta=date(2026, 8, 31), is_current=False, motivo_cierre="Prueba")
+    )
+    await db_session.commit()
+    agosto = (
+        await notario.post(
+            "/api/v1/ddjj/declaraciones",
+            json={"registro_id": str(escenario.registro.id), "periodo": "2026-08"},
+        )
+    ).json()
+    setiembre_id, boleta_id = await _presentada(notario, escenario)
+    await login(client, ex_user)
+
+    assert (await client.get(f"/api/v1/ddjj/declaraciones/{agosto['id']}")).status_code == 200
+    assert (await client.get(f"/api/v1/ddjj/declaraciones/{setiembre_id}")).status_code == 404
+    assert (await client.get(f"/api/v1/ddjj/boletas/{boleta_id}")).status_code == 404
+    listado = (await client.get("/api/v1/ddjj/declaraciones")).json()
+    assert [d["id"] for d in listado["items"]] == [agosto["id"]]
+    # Ya no tiene cargo vigente: no opera.
+    assert (await client.get(f"/api/v1/ddjj/declaraciones/{agosto['id']}")).json()[
+        "puede_operar"
+    ] is False
+
+
+async def test_el_escribano_no_ve_correos_del_personal(
+    notario: AsyncClient, staff: AsyncClient, escenario: Escenario
+) -> None:
+    ddjj = (
+        await staff.post(
+            "/api/v1/ddjj/declaraciones",
+            json={"registro_id": str(escenario.registro.id), "periodo": "2026-09"},
+        )
+    ).json()
+    boleta = (
+        await staff.post(
+            f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar",
+            json={"fecha_pago": "2026-10-23"},
+        )
+    ).json()
+
+    visto_por_caja = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
+    visto_por_escribano = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
+
+    assert "@" in boleta["emitida_por"]
+    assert "@" in visto_por_caja["presentada_por"]
+    assert visto_por_escribano["presentada_por"] == "Caja Notarial"
+    assert visto_por_escribano["boletas"][0]["emitida_por"] == "Caja Notarial"
+
+
+@pytest.mark.parametrize("periodo", ["0000-01", "1999-12", "2101-01", "2026-13"])
+async def test_periodo_fuera_de_rango(
+    notario: AsyncClient, escenario: Escenario, periodo: str
+) -> None:
+    response = await notario.post(
+        "/api/v1/ddjj/declaraciones",
+        json={"registro_id": str(escenario.registro.id), "periodo": periodo},
+    )
+
+    assert response.status_code == 422

@@ -111,11 +111,24 @@ def acto_out(a: Acto) -> ActoOut:
     )
 
 
-async def boleta_out(session: SessionDep, b: Boleta) -> BoletaOut:
+CAJA = "Caja Notarial"
+
+
+async def _actor(
+    session: SessionDep, principal: Principal, user_id: uuid.UUID | None
+) -> str | None:
+    """Correo de quien operó. A un escribano no se le muestran los correos del personal."""
+    if user_id is None:
+        return None
+    if user_id != principal.user.id and not service.ve_todo(principal):
+        return CAJA
+    return (await parametros.user_emails(session, {user_id})).get(user_id)
+
+
+async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> BoletaOut:
     registro = await session.get(RegistroNotarial, b.registro_id)
     ddjj = await session.get(DeclaracionJurada, b.ddjj_id)
     assert registro is not None and ddjj is not None  # noqa: S101 - FK RESTRICT
-    emails = await parametros.user_emails(session, {b.emitida_por_user_id})
     return BoletaOut(
         id=b.id,
         numero=b.numero,
@@ -138,20 +151,17 @@ async def boleta_out(session: SessionDep, b: Boleta) -> BoletaOut:
         interes_mora=b.interes_mora,
         total_a_pagar=b.total_a_pagar,
         created_at=b.created_at,
-        emitida_por=emails.get(b.emitida_por_user_id),
+        emitida_por=await _actor(session, principal, b.emitida_por_user_id),
         anulada_en=b.anulada_en,
         motivo_anulacion=b.motivo_anulacion,
     )
 
 
-async def declaracion_out(session: SessionDep, d: DeclaracionJurada) -> DeclaracionOut:
+async def declaracion_out(
+    session: SessionDep, principal: Principal, d: DeclaracionJurada
+) -> DeclaracionOut:
     registro = await session.get(RegistroNotarial, d.registro_id)
     assert registro is not None  # noqa: S101 - FK RESTRICT
-    emails = (
-        await parametros.user_emails(session, {d.presentada_por_user_id})
-        if d.presentada_por_user_id
-        else {}
-    )
     cantidad = d.cantidad_actos
     if cantidad is None:
         cantidad = len(await service.list_actos(session, d.id))
@@ -163,7 +173,7 @@ async def declaracion_out(session: SessionDep, d: DeclaracionJurada) -> Declarac
         estado=EstadoDDJJ(d.estado),
         observaciones=d.observaciones,
         fecha_presentacion=d.fecha_presentacion,
-        presentada_por=emails.get(d.presentada_por_user_id) if d.presentada_por_user_id else None,
+        presentada_por=await _actor(session, principal, d.presentada_por_user_id),
         rectifica_a_id=d.rectifica_a_id,
         cantidad_actos=cantidad,
         total_protocolos=d.total_protocolos,
@@ -175,13 +185,14 @@ async def declaracion_out(session: SessionDep, d: DeclaracionJurada) -> Declarac
 async def declaracion_detalle(
     session: SessionDep, principal: Principal, d: DeclaracionJurada
 ) -> DeclaracionDetalle:
-    base = await declaracion_out(session, d)
+    base = await declaracion_out(session, principal, d)
     actos = await service.list_actos(session, d.id)
     cargos = await service.cargos_en_periodo(session, d.registro_id, d.periodo)
+    boletas = await service.list_boletas(session, d.id)
     return DeclaracionDetalle(
         **base.model_dump(),
         actos=[acto_out(a) for a in actos],
-        boletas=[await boleta_out(session, b) for b in await service.list_boletas(session, d.id)],
+        boletas=[await boleta_out(session, principal, b) for b in boletas],
         escribanos=_unicos(cargos),
         puede_operar=await service.puede_operar(session, principal, d.registro_id),
     )
@@ -250,7 +261,7 @@ async def list_declaraciones(
         page,
     )
     return Page(
-        items=[await declaracion_out(session, d) for d in items],
+        items=[await declaracion_out(session, principal, d) for d in items],
         total=total,
         page=page.page,
         page_size=page.page_size,
@@ -344,9 +355,8 @@ async def presentar(
     ctx: RequestContextDep,
 ) -> BoletaOut:
     """Presenta la DDJJ y emite su boleta."""
-    return await boleta_out(
-        session, await service.presentar(session, ctx, principal, ddjj_id, body)
-    )
+    boleta = await service.presentar(session, ctx, principal, ddjj_id, body)
+    return await boleta_out(session, principal, boleta)
 
 
 @router.post("/declaraciones/{ddjj_id}/boletas", response_model=BoletaOut, status_code=201)
@@ -359,7 +369,7 @@ async def emitir_boleta(
 ) -> BoletaOut:
     """Reemite la boleta para otra fecha de pago; la pendiente anterior queda anulada."""
     boleta = await service.emitir_boleta(session, ctx, principal, ddjj_id, body.fecha_pago)
-    return await boleta_out(session, boleta)
+    return await boleta_out(session, principal, boleta)
 
 
 @router.post(
@@ -379,7 +389,8 @@ async def rectificar(
 async def get_boleta(
     boleta_id: uuid.UUID, principal: CanReadBoletas, session: SessionDep
 ) -> BoletaOut:
-    return await boleta_out(session, await service.get_boleta(session, principal, boleta_id))
+    boleta = await service.get_boleta(session, principal, boleta_id)
+    return await boleta_out(session, principal, boleta)
 
 
 @router.get(

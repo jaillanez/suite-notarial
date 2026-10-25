@@ -18,6 +18,8 @@ PERIODO_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 def _periodo(value: str) -> str:
     if not PERIODO_RE.match(value):
         raise ValueError("El período tiene el formato AAAA-MM.")
+    if not 2000 <= int(value[:4]) <= 2100:
+        raise ValueError("El año del período está fuera de rango.")
     return value
 
 

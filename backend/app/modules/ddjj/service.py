@@ -23,9 +23,10 @@ from decimal import Decimal
 from http import HTTPStatus
 from typing import Any
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import ColumnElement, and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import today_local
@@ -136,22 +137,85 @@ async def puede_operar(session: AsyncSession, principal: Principal, registro_id:
     )
 
 
-async def _registros_legibles(session: AsyncSession, principal: Principal) -> set[uuid.UUID] | None:
-    """`None` significa todos los registros."""
-    if _es_staff_lectura(principal) or _es_staff_carga(principal):
+@dataclass(frozen=True)
+class Alcance:
+    """Registro y meses en que el escribano tuvo cargo: solo ve las DDJJ de ese tramo."""
+
+    registro_id: uuid.UUID
+    desde: str
+    hasta: str | None
+
+    def incluye(self, registro_id: uuid.UUID, periodo: str) -> bool:
+        return (
+            registro_id == self.registro_id
+            and periodo >= self.desde
+            and (self.hasta is None or periodo <= self.hasta)
+        )
+
+    def condicion(
+        self,
+        registro_col: InstrumentedAttribute[uuid.UUID],
+        periodo_col: InstrumentedAttribute[str],
+    ) -> ColumnElement[bool]:
+        partes = [registro_col == self.registro_id, periodo_col >= self.desde]
+        if self.hasta is not None:
+            partes.append(periodo_col <= self.hasta)
+        return and_(*partes)
+
+
+def _incluye(alcance: list[Alcance], registro_id: uuid.UUID, periodo: str) -> bool:
+    return any(a.incluye(registro_id, periodo) for a in alcance)
+
+
+async def _alcance_propio(session: AsyncSession, user: User) -> list[Alcance]:
+    escribano = await _escribano_de(session, user)
+    if escribano is None:
+        return []
+    cargos = await session.scalars(
+        select(Adscripcion).where(Adscripcion.escribano_id == escribano.id)
+    )
+    return [
+        Alcance(
+            c.registro_id,
+            periodo_de(c.fecha_desde),
+            periodo_de(c.fecha_hasta) if c.fecha_hasta else None,
+        )
+        for c in cargos.unique()
+    ]
+
+
+async def _alcance_lectura(
+    session: AsyncSession, principal: Principal, *, todo: tuple[Perm, ...], propio: Perm
+) -> list[Alcance] | None:
+    """`None` significa todo; si no, los tramos de cargo propios (o ninguno)."""
+    if any(p.value in principal.permissions for p in todo):
         return None
-    if Perm.DDJJ_READ_OWN.value not in principal.permissions:
-        return set()
-    return await _registros_del_escribano(session, principal.user, solo_vigentes=False)
+    if propio.value not in principal.permissions:
+        return []
+    return await _alcance_propio(session, principal.user)
+
+
+async def _alcance_ddjj(session: AsyncSession, principal: Principal) -> list[Alcance] | None:
+    return await _alcance_lectura(
+        session, principal, todo=(Perm.DDJJ_READ_ALL, Perm.DDJJ_APPROVE), propio=Perm.DDJJ_READ_OWN
+    )
 
 
 async def _exigir_lectura(
-    session: AsyncSession, principal: Principal, registro_id: uuid.UUID
+    session: AsyncSession, principal: Principal, ddjj: DeclaracionJurada
 ) -> None:
-    legibles = await _registros_legibles(session, principal)
-    if legibles is not None and registro_id not in legibles:
+    alcance = await _alcance_ddjj(session, principal)
+    if alcance is not None and not any(a.incluye(ddjj.registro_id, ddjj.periodo) for a in alcance):
         # No se revela si la DDJJ existe en un registro ajeno.
         raise _not_found("La declaración jurada")
+
+
+def ve_todo(principal: Principal) -> bool:
+    """Personal de la Caja: puede ver quién de la Caja operó cada trámite."""
+    return any(
+        p.value in principal.permissions
+        for p in (Perm.DDJJ_READ_ALL, Perm.DDJJ_APPROVE, Perm.BOLETAS_READ_ALL)
+    )
 
 
 async def _exigir_operacion(
@@ -286,9 +350,18 @@ async def list_declaraciones(
     session: AsyncSession, principal: Principal, filtro: FiltroDeclaraciones, page: PageParams
 ) -> tuple[list[DeclaracionJurada], int]:
     stmt = select(DeclaracionJurada)
-    legibles = await _registros_legibles(session, principal)
-    if legibles is not None:
-        stmt = stmt.where(DeclaracionJurada.registro_id.in_(legibles))
+    alcance = await _alcance_ddjj(session, principal)
+    if alcance is not None:
+        if not alcance:
+            return [], 0
+        stmt = stmt.where(
+            or_(
+                *(
+                    a.condicion(DeclaracionJurada.registro_id, DeclaracionJurada.periodo)
+                    for a in alcance
+                )
+            )
+        )
     if filtro.registro_id:
         stmt = stmt.where(DeclaracionJurada.registro_id == filtro.registro_id)
     if filtro.periodo:
@@ -317,7 +390,7 @@ async def get_declaracion(
     item = await session.scalar(stmt)
     if item is None:
         raise _not_found("La declaración jurada")
-    await _exigir_lectura(session, principal, item.registro_id)
+    await _exigir_lectura(session, principal, item)
     return item
 
 
@@ -957,14 +1030,12 @@ async def get_boleta(session: AsyncSession, principal: Principal, boleta_id: uui
     boleta = await session.get(Boleta, boleta_id)
     if boleta is None:
         raise _not_found("La boleta")
-    if Perm.BOLETAS_READ_ALL.value in principal.permissions:
-        return boleta
-    propios = (
-        await _registros_del_escribano(session, principal.user, solo_vigentes=False)
-        if Perm.BOLETAS_READ_OWN.value in principal.permissions
-        else set()
+    alcance = await _alcance_lectura(
+        session, principal, todo=(Perm.BOLETAS_READ_ALL,), propio=Perm.BOLETAS_READ_OWN
     )
-    if boleta.registro_id not in propios:
+    if alcance is not None and not any(
+        a.incluye(boleta.registro_id, boleta.periodo) for a in alcance
+    ):
         raise _not_found("La boleta")
     return boleta
 
