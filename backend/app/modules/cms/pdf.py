@@ -13,7 +13,7 @@ import magic
 from fastapi import UploadFile
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
-from pypdf.generic import DictionaryObject
+from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject, PdfObject
 
 from app.modules.pagos.storage import (
     CHUNK,
@@ -22,8 +22,76 @@ from app.modules.pagos.storage import (
     nombre_original_seguro,
 )
 
-# Marcadores de contenido activo: un documento institucional no los necesita.
+# Marcadores de contenido activo: un documento institucional no los necesita. El escaneo de
+# bytes es un primer filtro; el control de fondo recorre el grafo de objetos ya parseado.
 ACTIVOS = (b"/JavaScript", b"/JS", b"/Launch", b"/EmbeddedFile", b"/OpenAction", b"/AA", b"/XFA")
+CLAVES_PROHIBIDAS = frozenset(
+    {
+        "/JS",
+        "/JavaScript",
+        "/OpenAction",
+        "/AA",
+        "/AcroForm",
+        "/XFA",
+        "/EmbeddedFile",
+        "/EmbeddedFiles",
+        "/RichMedia",
+        "/RichMediaContent",
+    }
+)
+ACCIONES_PROHIBIDAS = frozenset(
+    {
+        "/JavaScript",
+        "/Launch",
+        "/SubmitForm",
+        "/ImportData",
+        "/GoToR",
+        "/GoToE",
+        "/Movie",
+        "/Sound",
+        "/Rendition",
+        "/RichMediaExecute",
+    }
+)
+SUBTIPOS_PROHIBIDOS = frozenset(
+    {"/FileAttachment", "/RichMedia", "/Movie", "/Sound", "/Screen", "/3D"}
+)
+MAX_OBJETOS = 200_000
+
+
+def _activo(raiz: PdfObject) -> str | None:
+    """Recorre el grafo desde el catálogo (resolviendo referencias) buscando contenido activo.
+
+    pypdf ya decodificó los nombres (`/Java#53cript` llega como `/JavaScript`).
+    """
+    pendientes: list[PdfObject] = [raiz]
+    vistos: set[tuple[int, int]] = set()
+    revisados = 0
+    while pendientes:
+        obj: PdfObject | None = pendientes.pop()
+        if isinstance(obj, IndirectObject):
+            clave = (obj.idnum, obj.generation)
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            obj = obj.get_object()
+        revisados += 1
+        if revisados > MAX_OBJETOS:
+            return "estructura demasiado compleja"
+        if isinstance(obj, DictionaryObject):
+            for k in obj:
+                if k in CLAVES_PROHIBIDAS:
+                    return str(k)
+            accion = obj.get("/S")
+            if accion in ACCIONES_PROHIBIDAS:
+                return str(accion)
+            if obj.get("/Subtype") in SUBTIPOS_PROHIBIDOS:
+                return str(obj.get("/Subtype"))
+            # Valores sin resolver: las referencias se resuelven al sacarlas de la pila.
+            pendientes.extend(obj.values())
+        elif isinstance(obj, ArrayObject):
+            pendientes.extend(obj)
+    return None
 
 
 def _inspeccionar(contenido: bytes) -> int:
@@ -45,17 +113,11 @@ def _inspeccionar(contenido: bytes) -> int:
                 "El PDF está protegido con contraseña: publicá una versión sin cifrar.",
                 status=422,
             )
-        raiz = reader.trailer["/Root"].get_object()
-        # `[]` resuelve referencias indirectas (`.get` no).
-        nombres = (
-            raiz["/Names"] if isinstance(raiz, DictionaryObject) and "/Names" in raiz else None
-        )
-        if not isinstance(raiz, DictionaryObject) or (
-            any(clave in raiz for clave in ("/OpenAction", "/AA", "/AcroForm"))
-            or (isinstance(nombres, DictionaryObject) and "/JavaScript" in nombres)
-        ):
+        hallazgo = _activo(reader.trailer["/Root"])
+        if hallazgo is not None:
             raise ArchivoInvalidoError(
-                "El PDF tiene acciones o formularios activos. Exportalo como PDF simple.",
+                "El PDF tiene contenido activo (scripts, acciones, formularios o archivos "
+                "embebidos). Exportalo de nuevo como PDF simple.",
                 status=422,
             )
         paginas = len(reader.pages)

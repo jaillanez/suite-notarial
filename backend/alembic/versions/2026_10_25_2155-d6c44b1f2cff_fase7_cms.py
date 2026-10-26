@@ -27,7 +27,9 @@ BEGIN
     END IF;
     IF TG_TABLE_NAME = 'cms_documentos' THEN
         -- La URL canónica es permanente.
-        IF NEW.slug IS DISTINCT FROM OLD.slug THEN
+        IF NEW.slug IS DISTINCT FROM OLD.slug
+           OR (OLD.primera_version_publica IS NOT NULL
+               AND NEW.primera_version_publica IS DISTINCT FROM OLD.primera_version_publica) THEN
             RAISE EXCEPTION 'cms_documentos: el enlace permanente no cambia'
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
@@ -106,6 +108,7 @@ def upgrade() -> None:
     sa.Column('descripcion', sa.Text(), nullable=True),
     sa.Column('estado', sa.String(length=20), server_default='BORRADOR', nullable=False),
     sa.Column('fecha_publicacion', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('primera_version_publica', sa.Integer(), nullable=True),
     sa.Column('created_by_user_id', sa.UUID(), nullable=False),
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -114,6 +117,7 @@ def upgrade() -> None:
     sa.CheckConstraint("slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'", name=op.f('ck_cms_documentos_slug_formato')),
     sa.CheckConstraint("tipo IN ('ESTADO_CONTABLE', 'MEMORIA_ANUAL', 'RESOLUCION', 'OTRO')", name=op.f('ck_cms_documentos_tipo')),
     sa.CheckConstraint('ejercicio BETWEEN 1950 AND 2200', name=op.f('ck_cms_documentos_ejercicio')),
+    sa.CheckConstraint('(fecha_publicacion IS NULL) = (primera_version_publica IS NULL)', name=op.f('ck_cms_documentos_publicacion_coherente')),
     sa.ForeignKeyConstraint(['created_by_user_id'], ['security_users.id'], name=op.f('fk_cms_documentos_created_by_user_id_security_users')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_cms_documentos')),
     sa.UniqueConstraint('slug', name=op.f('uq_cms_documentos_slug'))

@@ -83,6 +83,10 @@ class Documento(UUIDMixin, TimestampMixin, Base):
             "tipo IN ('ESTADO_CONTABLE', 'MEMORIA_ANUAL', 'RESOLUCION', 'OTRO')", name="tipo"
         ),
         CheckConstraint("ejercicio BETWEEN 1950 AND 2200", name="ejercicio"),
+        CheckConstraint(
+            "(fecha_publicacion IS NULL) = (primera_version_publica IS NULL)",
+            name="publicacion_coherente",
+        ),
     )
 
     slug: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
@@ -96,6 +100,9 @@ class Documento(UUIDMixin, TimestampMixin, Base):
     fecha_publicacion: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Versión vigente al publicarse por primera vez: las anteriores (borradores) nunca fueron
+    # públicas y no se exponen en el sitio.
+    primera_version_publica: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
     )

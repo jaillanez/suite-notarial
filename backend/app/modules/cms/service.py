@@ -131,6 +131,8 @@ async def actualizar_autoridad(
             details={"autoridad_id": str(item.id)},
         )
     await session.commit()
+    # `updated_at` lo calcula la base: se relee antes de serializar.
+    await session.refresh(item)
     return item
 
 
@@ -225,6 +227,8 @@ async def actualizar_novedad(
     except IntegrityError as exc:
         await session.rollback()
         raise _conflict("Ya hay una novedad con ese enlace.") from exc
+    # `updated_at` lo calcula la base: se relee antes de serializar.
+    await session.refresh(item)
     return item
 
 
@@ -252,6 +256,8 @@ async def estado_novedad(
         details={"novedad_id": str(item.id), "slug": item.slug},
     )
     await session.commit()
+    # `updated_at` lo calcula la base: se relee antes de serializar.
+    await session.refresh(item)
     return item
 
 
@@ -298,6 +304,17 @@ async def versiones(session: AsyncSession, documento_id: uuid.UUID) -> list[Docu
         .order_by(DocumentoVersion.version.desc())
     )
     return list(result.all())
+
+
+async def versiones_publicas(session: AsyncSession, documento: Documento) -> list[DocumentoVersion]:
+    """Versiones que el público puede ver: desde la vigente al publicarse por primera vez.
+
+    Los reemplazos hechos mientras el documento era borrador nunca fueron públicos.
+    """
+    if documento.primera_version_publica is None:
+        return []
+    todas = await versiones(session, documento.id)
+    return [v for v in todas if v.version >= documento.primera_version_publica]
 
 
 async def _agregar_version(
@@ -424,6 +441,8 @@ async def nueva_version(
     )
     item.updated_at = datetime.now(UTC)
     await _commit_con_archivo(session, settings, relativa)
+    # `updated_at` lo calcula la base: se relee antes de serializar.
+    await session.refresh(item)
     return item
 
 
@@ -450,6 +469,8 @@ async def actualizar_documento(
             details={"documento_id": str(item.id), "slug": item.slug},
         )
     await session.commit()
+    # `updated_at` lo calcula la base: se relee antes de serializar.
+    await session.refresh(item)
     return item
 
 
@@ -463,9 +484,11 @@ async def estado_documento(
     item = await get_documento(session, documento_id, lock=True)
     anterior = item.estado
     _transicion(anterior, nuevo)
+    vigente = (await versiones(session, item.id))[0].version
     item.estado = nuevo.value
     if nuevo is EstadoPublicacion.PUBLICADO and item.fecha_publicacion is None:
         item.fecha_publicacion = datetime.now(UTC)
+        item.primera_version_publica = vigente
     record_audit(
         session,
         ctx,
@@ -477,6 +500,8 @@ async def estado_documento(
         details={"documento_id": str(item.id), "slug": item.slug},
     )
     await session.commit()
+    # `updated_at` lo calcula la base: se relee antes de serializar.
+    await session.refresh(item)
     return item
 
 

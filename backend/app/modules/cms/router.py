@@ -29,6 +29,7 @@ from app.modules.cms.schemas import (
     NovedadResumen,
     SitioPublico,
     VersionOut,
+    VersionPublica,
 )
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal, RequestContextDep, require_permissions
@@ -135,9 +136,9 @@ async def documento_out(
 async def documento_publico(
     session: SessionDep, settings: Settings, d: Documento
 ) -> DocumentoPublico:
-    vs = await service.versiones(session, d.id)
-    vigente = vs[0]
     assert d.fecha_publicacion is not None  # noqa: S101 - se fija al publicar
+    vs = await service.versiones_publicas(session, d)
+    vigente = vs[0]
     tipo = TipoDocumento(d.tipo)
     return DocumentoPublico(
         slug=d.slug,
@@ -153,8 +154,18 @@ async def documento_publico(
         sha256=vigente.sha256,
         version=vigente.version,
         actualizado=vigente.created_at,
-        # Sin quién lo subió: en el sitio público no se exponen usuarios internos.
-        versiones_anteriores=[version_out(settings, d, v, {}) for v in vs[1:]],
+        versiones_anteriores=[
+            VersionPublica(
+                version=v.version,
+                sha256=v.sha256,
+                tamano_bytes=v.tamano_bytes,
+                paginas=v.paginas,
+                motivo=v.motivo,
+                created_at=v.created_at,
+                url=documento_url(settings, d.slug, v.version),
+            )
+            for v in vs[1:]
+        ],
     )
 
 
@@ -373,7 +384,7 @@ async def _servir_pdf(
     version: int | None,
 ) -> Response:
     d = await service.documento_publicado(session, slug)
-    vs = await service.versiones(session, d.id)
+    vs = await service.versiones_publicas(session, d)
     elegida = vs[0] if version is None else next((v for v in vs if v.version == version), None)
     if elegida is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "Esa versión del documento no existe.")

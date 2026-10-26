@@ -124,7 +124,9 @@ async def test_documento_borrador_publicado_y_versionado(
     publico = sitio["documentos"][0]
     assert publico["version"] == 2 and publico["paginas"] == 4
     assert [v["version"] for v in publico["versiones_anteriores"]] == [1]
-    assert publico["versiones_anteriores"][0]["subido_por"] is None
+    # Sin metadatos internos en el sitio público.
+    assert "subido_por" not in publico["versiones_anteriores"][0]
+    assert "nombre_original" not in publico["versiones_anteriores"][0]
     assert {"CMS_DOCUMENTO_CREADO", "CMS_DOCUMENTO_ESTADO", "CMS_DOCUMENTO_VERSION"} <= (
         await _eventos(db_session)
     )
@@ -206,7 +208,11 @@ async def test_novedades(
     url = f"/api/v1/publico/novedades/{n['slug']}"
     assert (await client.get(url)).status_code == 404
 
-    await editor.post(f"/api/v1/cms/novedades/{n['id']}/estado", json={"estado": "PUBLICADO"})
+    publicar = await editor.post(
+        f"/api/v1/cms/novedades/{n['id']}/estado", json={"estado": "PUBLICADO"}
+    )
+    assert publicar.status_code == 200, publicar.text
+    assert publicar.json()["estado"] == "PUBLICADO"
     publica = await client.get(url)
     lista = (await client.get("/api/v1/publico/novedades")).json()
     cambiar_slug = await editor.put(
@@ -220,7 +226,10 @@ async def test_novedades(
     assert [i["slug"] for i in lista["items"]] == [n["slug"]]
     assert "contenido" not in lista["items"][0]
     assert cambiar_slug.status_code == 409
-    await editor.post(f"/api/v1/cms/novedades/{n['id']}/estado", json={"estado": "ARCHIVADO"})
+    archivar = await editor.post(
+        f"/api/v1/cms/novedades/{n['id']}/estado", json={"estado": "ARCHIVADO"}
+    )
+    assert archivar.status_code == 200
     assert (await client.get(url)).status_code == 404
     assert {"CMS_NOVEDAD_CREADA", "CMS_NOVEDAD_ESTADO"} <= await _eventos(db_session)
 
@@ -236,7 +245,7 @@ async def test_autoridades(editor: AsyncClient, client: AsyncClient) -> None:
         "/api/v1/cms/autoridades",
         json={"cargo": "Tesorero", "nombre": "Escribana Sintética", "orden": 2},
     )
-    await editor.put(
+    baja = await editor.put(
         f"/api/v1/cms/autoridades/{presidente['id']}",
         json={
             "cargo": "Presidente",
@@ -246,6 +255,7 @@ async def test_autoridades(editor: AsyncClient, client: AsyncClient) -> None:
         },
     )
 
+    assert baja.status_code == 200 and baja.json()["is_active"] is False
     sitio = (await client.get("/api/v1/publico/sitio")).json()
     assert [a["cargo"] for a in sitio["autoridades"]] == ["Tesorero"]
 
@@ -269,6 +279,7 @@ async def test_permisos(client: AsyncClient, db_session: AsyncSession) -> None:
         "DELETE FROM cms_documentos",
         "TRUNCATE cms_autoridades CASCADE",
         "UPDATE cms_documentos SET fecha_publicacion = now() - interval '1 day'",
+        "UPDATE cms_documentos SET primera_version_publica = 99",
     ],
 )
 async def test_inmutable_en_la_base(
@@ -276,8 +287,66 @@ async def test_inmutable_en_la_base(
 ) -> None:
     doc = (await subir(editor, pdf())).json()
     await editor.post(f"/api/v1/cms/documentos/{doc['id']}/estado", json={"estado": "PUBLICADO"})
-    rechazo = r"permission denied|no permitido|no cambia|no se modifica|no vuelve a borrador"
+    rechazo = (
+        r"permission denied|no permitido|no cambia|no se modifica|no vuelve a borrador"
+        r"|publicacion_coherente"
+    )
 
     with pytest.raises(DBAPIError, match=rechazo):
         async with db_session.begin_nested():
             await db_session.execute(text(statement))
+
+
+def _pdf_con(raiz_extra: dict[str, Any]) -> bytes:
+    """PDF con entradas agregadas al catálogo (para fabricar casos maliciosos)."""
+    from pypdf.generic import NameObject
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=595, height=842)
+    for clave, valor in raiz_extra.items():
+        writer._root_object[NameObject(clave)] = valor
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+async def test_contenido_activo_escondido(editor: AsyncClient) -> None:
+    from pypdf.generic import DictionaryObject, NameObject, TextStringObject
+
+    # Acción de lanzamiento: el escaneo de bytes no la nombra igual que el grafo.
+    lanzar = DictionaryObject(
+        {
+            NameObject("/S"): NameObject("/Launch"),
+            NameObject("/F"): TextStringObject("calc.exe"),
+        }
+    )
+    con_launch = _pdf_con({"/OpenAction": lanzar})
+    # Nombre con escape hexadecimal en el catálogo: el escaneo de bytes no lo ve, pero pypdf lo
+    # normaliza a /JavaScript al parsear y el recorrido del grafo lo encuentra.
+    nombres = DictionaryObject({NameObject("/JavaScript"): DictionaryObject()})
+    escondido = _pdf_con({"/Names": nombres}).replace(b"/JavaScript", b"/Java#53cript")
+    assert b"/JavaScript" not in escondido
+
+    assert (await subir(editor, con_launch)).status_code == 422
+    assert (await subir(editor, escondido, titulo="Memoria")).status_code == 422
+
+
+async def test_versiones_de_borrador_no_son_publicas(
+    editor: AsyncClient, client: AsyncClient
+) -> None:
+    doc = (await subir(editor, pdf(1))).json()
+    await editor.post(
+        f"/api/v1/cms/documentos/{doc['id']}/versiones",
+        data={"motivo": "Corrección antes de publicar"},
+        files={"archivo": ("v2.pdf", pdf(2), "application/pdf")},
+    )
+    await editor.post(f"/api/v1/cms/documentos/{doc['id']}/estado", json={"estado": "PUBLICADO"})
+
+    sitio = (await client.get("/api/v1/publico/sitio")).json()
+    borrador = await client.get("/api/v1/publico/documentos/estados-contables-2025/v1.pdf")
+    vigente = await client.get("/api/v1/publico/documentos/estados-contables-2025/v2.pdf")
+
+    assert sitio["documentos"][0]["version"] == 2
+    assert sitio["documentos"][0]["versiones_anteriores"] == []
+    assert borrador.status_code == 404
+    assert vigente.status_code == 200

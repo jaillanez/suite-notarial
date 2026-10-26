@@ -137,6 +137,19 @@ class DocumentoOut(BaseModel):
     versiones: list[VersionOut]
 
 
+class VersionPublica(BaseModel):
+    """Versión anterior visible en el sitio: sin nombres de archivo ni usuarios internos."""
+
+    version: int
+    sha256: str
+    tamano_bytes: int
+    paginas: int
+    # Público a propósito: el editor lo carga sabiendo que figura en el historial.
+    motivo: str | None
+    created_at: datetime
+    url: str
+
+
 class DocumentoPublico(BaseModel):
     slug: str
     tipo: TipoDocumento
@@ -151,7 +164,7 @@ class DocumentoPublico(BaseModel):
     sha256: str
     version: int
     actualizado: datetime
-    versiones_anteriores: list[VersionOut]
+    versiones_anteriores: list[VersionPublica]
 
 
 class SitioPublico(BaseModel):
