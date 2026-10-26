@@ -36,6 +36,7 @@ const NAV: NavItem[] = [
     permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
   },
   { to: '/cms', label: 'Sitio', permission: 'cms:publish' },
+  { to: '/migracion', label: 'Migración', permission: 'migracion:read' },
   { to: '/usuarios', label: 'Usuarios', permission: 'users:read' },
   { to: '/auditoria', label: 'Auditoría', permission: 'audit:read' },
   { to: '/estado', label: 'Estado del sistema' },
