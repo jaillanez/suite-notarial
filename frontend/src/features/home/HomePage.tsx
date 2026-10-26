@@ -50,6 +50,12 @@ const SECTIONS: Section[] = [
     permission: ['reports:financial', 'audit:read', 'escribanos:read'],
   },
   {
+    to: '/cms',
+    title: 'Sitio institucional',
+    description: 'Novedades, autoridades y documentos oficiales del sitio público.',
+    permission: 'cms:publish',
+  },
+  {
     to: '/usuarios',
     title: 'Usuarios',
     description: 'Altas, suspensiones y roles de las cuentas de la Suite.',

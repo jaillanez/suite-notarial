@@ -14,6 +14,14 @@ import { ComprobantePage } from './features/pagos/ComprobantePage'
 import { ConciliacionPage } from './features/pagos/ConciliacionPage'
 import { ReportePage } from './features/reportes/ReportePage'
 import { ReportesPage } from './features/reportes/ReportesPage'
+import { AutoridadesAdmin } from './features/cms/AutoridadesAdmin'
+import { CmsLayout } from './features/cms/CmsLayout'
+import { DocumentosAdmin } from './features/cms/DocumentosAdmin'
+import { NovedadesAdmin } from './features/cms/NovedadesAdmin'
+import { NovedadPublicaPage } from './features/sitio/NovedadPublicaPage'
+import { NovedadesPublicasPage } from './features/sitio/NovedadesPublicasPage'
+import { SitioPage } from './features/sitio/SitioPage'
+import { SitioShell } from './features/sitio/SitioShell'
 import { SystemStatusPage } from './features/health/SystemStatusPage'
 import { HomePage } from './features/home/HomePage'
 import { EscribanoNuevoPage } from './features/padron/EscribanoNuevoPage'
@@ -46,6 +54,15 @@ const router = createBrowserRouter([
       // Verificación pública de boletas (QR impreso): no requiere sesión.
       { path: '/verificar', element: <VerificarBoletaPage /> },
       { path: '/verificar/:codigo', element: <VerificarBoletaPage /> },
+    ],
+  },
+  {
+    // Sitio institucional público: sin sesión.
+    element: <SitioShell />,
+    children: [
+      { path: '/sitio', element: <SitioPage /> },
+      { path: '/sitio/novedades', element: <NovedadesPublicasPage /> },
+      { path: '/sitio/novedades/:slug', element: <NovedadPublicaPage /> },
     ],
   },
   {
@@ -106,6 +123,21 @@ const router = createBrowserRouter([
             children: [
               { path: '/reportes', element: <ReportesPage /> },
               { path: '/reportes/:codigo', element: <ReportePage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission="cms:publish" />,
+            children: [
+              {
+                path: '/cms',
+                element: <CmsLayout />,
+                children: [
+                  { index: true, element: <Navigate to="/cms/novedades" replace /> },
+                  { path: 'novedades', element: <NovedadesAdmin /> },
+                  { path: 'documentos', element: <DocumentosAdmin /> },
+                  { path: 'autoridades', element: <AutoridadesAdmin /> },
+                ],
+              },
             ],
           },
           {
