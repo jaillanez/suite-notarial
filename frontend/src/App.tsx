@@ -10,6 +10,8 @@ import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { DeclaracionesPage } from './features/ddjj/DeclaracionesPage'
 import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
 import { MinutaPage } from './features/ia/MinutaPage'
+import { CorridaPage } from './features/migracion/CorridaPage'
+import { CorridasPage } from './features/migracion/CorridasPage'
 import { VerificarBoletaPage } from './features/ddjj/VerificarBoletaPage'
 import { ComprobantePage } from './features/pagos/ComprobantePage'
 import { ConciliacionPage } from './features/pagos/ConciliacionPage'
@@ -149,6 +151,13 @@ const router = createBrowserRouter([
             children: [
               { path: '/prestamos/nueva', element: <SolicitudPage /> },
               { path: '/prestamos/lineas', element: <LineasPage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission="migracion:read" />,
+            children: [
+              { path: '/migracion', element: <CorridasPage /> },
+              { path: '/migracion/:id', element: <CorridaPage /> },
             ],
           },
           {

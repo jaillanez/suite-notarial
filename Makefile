@@ -69,6 +69,9 @@ reset-dev: ## Recrea el esquema local desde cero y siembra usuarios de demostrac
 e2e: ## Prueba punta a punta de la Fase 1 contra `make dev` y Mailpit (modifica datos locales)
 	$(PY) scripts/e2e_fase1.py --web http://localhost:$(WEB_PORT)
 
+ensayo-corte: ## Ensayo cronometrado de carga definitiva y reversa en suite_notarial_ensayo
+	cd $(BACKEND) && $(NATIVE) .venv/bin/python -m app.modules.migracion.cli ensayo --salida var/ensayo-corte $(if $(registros),--registros $(registros)) $(if $(periodos),--periodos $(periodos))
+
 test: test-backend test-frontend ## Corre todos los tests
 
 test-backend:

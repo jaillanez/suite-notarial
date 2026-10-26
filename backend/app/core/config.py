@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     IA_OCR_TIMEOUT_S: Annotated[int, Field(gt=0, le=300)] = 30
     IA_OCR_CONCURRENCIA: Annotated[int, Field(gt=0, le=16)] = 2
 
+    # Migración (Fase 10): simulacros cuadrados exigidos antes de la carga definitiva
+    # (módulo 11: tres simulacros completos).
+    MIGRACION_SIMULACROS_MINIMOS: Annotated[int, Field(ge=1, le=20)] = 3
+
     LOG_LEVEL: str = "INFO"
 
     # Datos de la Caja y de la cuenta recaudadora que se imprimen en la boleta. Los valores

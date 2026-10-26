@@ -1,0 +1,42 @@
+{
+  "es_ejemplo": true,
+  "_nota": "TODO(negocio): valores de EJEMPLO para simulacros con datos sintéticos. La tabla real la aprueba la Caja tras auditar el sistema anterior (D-03).",
+  "estado_escribano": {
+    "A": "ACTIVO",
+    "ACTIVO": "ACTIVO",
+    "S": "SUSPENDIDO",
+    "SUSPENDIDO": "SUSPENDIDO",
+    "C": "CESANTE",
+    "BAJA": "CESANTE",
+    "J": "JUBILADO",
+    "JUBILADO": "JUBILADO",
+    "F": "FALLECIDO",
+    "FALLECIDO": "FALLECIDO"
+  },
+  "estado_registro": {
+    "A": "ACTIVO",
+    "ACTIVO": "ACTIVO",
+    "V": "VACANTE",
+    "VACANTE": "VACANTE",
+    "C": "CERRADO",
+    "CERRADO": "CERRADO"
+  },
+  "cargo": {
+    "T": "TITULAR",
+    "TITULAR": "TITULAR",
+    "A": "ADSCRIPTO",
+    "ADSCRIPTO": "ADSCRIPTO",
+    "AC": "SUPLENTE_INTERINO",
+    "A CARGO": "SUPLENTE_INTERINO",
+    "INTERINO": "SUPLENTE_INTERINO"
+  },
+  "estado_boleta": {
+    "I": "IMPAGA",
+    "IMPAGA": "IMPAGA",
+    "PENDIENTE": "IMPAGA",
+    "P": "PAGADA",
+    "PAGADA": "PAGADA",
+    "N": "ANULADA",
+    "ANULADA": "ANULADA"
+  }
+}

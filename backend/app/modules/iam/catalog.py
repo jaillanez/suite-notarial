@@ -36,6 +36,9 @@ class Perm(StrEnum):
     PRESTAMOS_MANAGE = "prestamos:manage"
     PRESTAMOS_APPROVE = "prestamos:approve"
     PRESTAMOS_COBRAR = "prestamos:cobrar"
+    MIGRACION_READ = "migracion:read"
+    MIGRACION_CONFORMAR = "migracion:conformar"
+    MIGRACION_EJECUTAR = "migracion:ejecutar"
 
 
 PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
@@ -65,6 +68,9 @@ PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
     Perm.PRESTAMOS_MANAGE: "Administrar líneas de crédito y cargar solicitudes de préstamo",
     Perm.PRESTAMOS_APPROVE: "Otorgar o rechazar solicitudes de préstamo cargadas por otra persona",
     Perm.PRESTAMOS_COBRAR: "Registrar el pago de cuotas de préstamos",
+    Perm.MIGRACION_READ: "Consultar corridas de migración, cuadratura y observaciones",
+    Perm.MIGRACION_CONFORMAR: "Firmar la conformidad de un simulacro de migración",
+    Perm.MIGRACION_EJECUTAR: "Ejecutar simulacros y la carga definitiva de la migración",
 }
 
 
@@ -113,6 +119,8 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.CMS_PUBLISH,
                 Perm.PRESTAMOS_READ_ALL,
                 Perm.PRESTAMOS_MANAGE,
+                Perm.MIGRACION_READ,
+                Perm.MIGRACION_CONFORMAR,
             }
         ),
     ),
@@ -131,6 +139,8 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.PARAMETERS_READ,
                 Perm.REPORTS_FINANCIAL,
                 Perm.PRESTAMOS_COBRAR,
+                Perm.MIGRACION_READ,
+                Perm.MIGRACION_CONFORMAR,
             }
         ),
     ),
@@ -156,6 +166,7 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.PARAMETERS_READ,
                 Perm.REPORTS_FINANCIAL,
                 Perm.AUDIT_READ,
+                Perm.MIGRACION_READ,
             }
         ),
     ),
@@ -192,5 +203,8 @@ SENSITIVE_PERMISSIONS: frozenset[Perm] = frozenset(
         Perm.PRESTAMOS_MANAGE,
         Perm.PRESTAMOS_APPROVE,
         Perm.PRESTAMOS_COBRAR,
+        Perm.MIGRACION_READ,
+        Perm.MIGRACION_CONFORMAR,
+        Perm.MIGRACION_EJECUTAR,
     }
 )

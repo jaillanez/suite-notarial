@@ -10,6 +10,8 @@ set -euo pipefail
 
 DB="${DB_NAME:-suite_notarial}"
 DB_TEST="${DB_TEST_NAME:-suite_notarial_test}"
+# Base descartable para ensayar el corte y la reversa (make ensayo-corte).
+DB_ENSAYO="${DB_ENSAYO_NAME:-suite_notarial_ensayo}"
 OWNER="${DB_OWNER_ROLE:-suite_owner}"
 OWNER_PASS="${DB_OWNER_PASS:-suite_owner_dev}" # solo desarrollo; prod va por secreto
 APP="${DB_ROLE:-suite_app}"
@@ -25,7 +27,7 @@ ensure_role() {
 ensure_role "$OWNER" "$OWNER_PASS"
 ensure_role "$APP" "$APP_PASS"
 
-for name in "$DB" "$DB_TEST"; do
+for name in "$DB" "$DB_TEST" "$DB_ENSAYO"; do
   psql -v ON_ERROR_STOP=1 -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$name'" | grep -q 1 ||
     psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $name OWNER $OWNER;"
 
@@ -52,4 +54,4 @@ ALTER DEFAULT PRIVILEGES FOR ROLE $OWNER IN SCHEMA public
 SQL
 done
 
-echo "OK: bases $DB y $DB_TEST listas (dueño $OWNER, aplicación $APP)."
+echo "OK: bases $DB, $DB_TEST y $DB_ENSAYO listas (dueño $OWNER, aplicación $APP)."
