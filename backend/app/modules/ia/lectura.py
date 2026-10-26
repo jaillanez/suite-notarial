@@ -1,0 +1,220 @@
+"""Lectura local de documentos: texto de PDF, OCR de imágenes (Tesseract) y códigos PDF417.
+
+Todo corre en el servidor de la Caja, sin servicios externos (módulo 10 §1.1, Ley 25.326). Los
+archivos llegan validados por magic bytes (regla MIME) y no se guardan: de la entrada quedan
+solo metadatos y su SHA-256.
+"""
+
+import hashlib
+import io
+import shutil
+import subprocess
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any
+
+import anyio
+import zxingcpp
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
+
+from app.core.config import get_settings
+from app.modules.pagos.storage import ArchivoInvalidoError, ArchivoValidado
+
+# Una foto de celular ronda los 12 MP; el tope evita "bombas" de descompresión.
+MAX_PIXELES = 40_000_000
+MAX_PAGINAS_PDF = 50
+_limitador: anyio.CapacityLimiter | None = None
+
+
+class OcrNoDisponibleError(Exception):
+    pass
+
+
+def _limiter() -> anyio.CapacityLimiter:
+    """Pocas lecturas en paralelo: el OCR es costoso y no debe tumbar el servidor."""
+    global _limitador  # un único limitador por proceso
+    if _limitador is None:
+        _limitador = anyio.CapacityLimiter(get_settings().IA_OCR_CONCURRENCIA)
+    return _limitador
+
+
+@dataclass(frozen=True)
+class Texto:
+    contenido: str
+    metadatos: dict[str, Any]
+
+
+@lru_cache
+def _idiomas_instalados(comando: str) -> frozenset[str]:
+    try:
+        salida = subprocess.run(  # noqa: S603 - comando fijo de configuración, sin shell
+            [comando, "--list-langs"], capture_output=True, timeout=10, check=True
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    lineas = salida.stdout.decode("utf-8", "replace").splitlines()[1:]
+    return frozenset(ln.strip() for ln in lineas if ln.strip())
+
+
+def estado_ocr() -> tuple[bool, str | None]:
+    """(¿hay OCR?, idiomas que se usan). Sin Tesseract siguen funcionando PDF con texto y PDF417."""
+    settings = get_settings()
+    comando = shutil.which(settings.IA_TESSERACT_CMD)
+    if comando is None:
+        return False, None
+    instalados = _idiomas_instalados(comando)
+    pedidos = [i for i in settings.IA_OCR_IDIOMAS.split("+") if i in instalados]
+    if not pedidos:
+        pedidos = ["eng"] if "eng" in instalados else []
+    return bool(pedidos), "+".join(pedidos) or None
+
+
+def _abrir_imagen(contenido: bytes) -> Image.Image:
+    try:
+        imagen = Image.open(io.BytesIO(contenido))
+        ancho, alto = imagen.size
+        if ancho * alto > MAX_PIXELES:
+            raise ArchivoInvalidoError(
+                "La imagen es demasiado grande: reducí su resolución.", status=413
+            )
+        imagen.load()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise ArchivoInvalidoError(
+            "La imagen está dañada o no se puede abrir.", status=422
+        ) from exc
+    # Respeta la orientación de la foto (EXIF) y pasa a escala de grises.
+    return ImageOps.exif_transpose(imagen).convert("L")
+
+
+def _png(imagen: Image.Image) -> bytes:
+    salida = io.BytesIO()
+    imagen.save(salida, "PNG")
+    return salida.getvalue()
+
+
+def _tesseract(imagen: Image.Image, argumentos: list[str]) -> str:
+    settings = get_settings()
+    disponible, idiomas = estado_ocr()
+    comando = shutil.which(settings.IA_TESSERACT_CMD)
+    if not disponible or comando is None or idiomas is None:
+        raise OcrNoDisponibleError
+    try:
+        salida = subprocess.run(  # noqa: S603 - binario local fijo; la imagen va por stdin
+            [comando, "stdin", "stdout", "-l", idiomas, *argumentos],
+            input=_png(imagen),
+            capture_output=True,
+            timeout=settings.IA_OCR_TIMEOUT_S,
+            check=True,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ArchivoInvalidoError(
+            "La lectura del documento tardó demasiado: probá con una imagen más liviana.",
+            status=422,
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise ArchivoInvalidoError("No se pudo leer el texto de la imagen.", status=422) from exc
+    return salida.stdout.decode("utf-8", "replace")
+
+
+def _texto_pdf(contenido: bytes) -> tuple[str, int]:
+    try:
+        reader = PdfReader(io.BytesIO(contenido), strict=False)
+        if reader.is_encrypted:
+            raise ArchivoInvalidoError(
+                "El PDF está protegido con contraseña: subí una versión sin cifrar.", status=422
+            )
+        paginas = len(reader.pages)
+        if paginas > MAX_PAGINAS_PDF:
+            raise ArchivoInvalidoError(
+                f"El PDF tiene más de {MAX_PAGINAS_PDF} páginas: subí solo la minuta.", status=422
+            )
+        texto = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except ArchivoInvalidoError:
+        raise
+    except (PdfReadError, ValueError, KeyError, TypeError, IndexError) as exc:
+        raise ArchivoInvalidoError("El PDF está dañado o no se puede abrir.", status=422) from exc
+    return texto, paginas
+
+
+def _metadatos(archivo: ArchivoValidado, **extra: Any) -> dict[str, Any]:
+    return {
+        "origen": "archivo",
+        "mime_type": archivo.mime_type,
+        "bytes": len(archivo.contenido),
+        "sha256": archivo.sha256,
+        **extra,
+    }
+
+
+def _leer_minuta(archivo: ArchivoValidado) -> Texto:
+    if archivo.mime_type == "application/pdf":
+        texto, paginas = _texto_pdf(archivo.contenido)
+        if len(texto.strip()) < 40:
+            raise ArchivoInvalidoError(
+                "El PDF no tiene texto seleccionable (parece escaneado): subí una foto o "
+                "imagen (PNG o JPG) de la minuta.",
+                status=422,
+            )
+        return Texto(texto, _metadatos(archivo, paginas=paginas, caracteres=len(texto)))
+    imagen = _abrir_imagen(archivo.contenido)
+    texto = _tesseract(imagen, ["--psm", "3"])
+    _, idiomas = estado_ocr()
+    return Texto(texto, _metadatos(archivo, ocr=idiomas, caracteres=len(texto)))
+
+
+async def leer_minuta(archivo: ArchivoValidado) -> Texto:
+    return await anyio.to_thread.run_sync(_leer_minuta, archivo, limiter=_limiter())
+
+
+@dataclass(frozen=True)
+class LecturaDni:
+    codigos: list[str]
+    lineas_mrz: list[str]
+    metadatos: dict[str, Any]
+
+
+def _leer_dni(archivo: ArchivoValidado, con_mrz: bool) -> LecturaDni:
+    if archivo.mime_type == "application/pdf":
+        raise ArchivoInvalidoError(
+            "Subí una foto (PNG o JPG) del frente o del dorso del DNI.", status=415
+        )
+    imagen = _abrir_imagen(archivo.contenido)
+    codigos = [
+        r.text
+        for r in zxingcpp.read_barcodes(
+            imagen, formats=zxingcpp.BarcodeFormats(zxingcpp.BarcodeFormat.PDF417)
+        )
+        if r.valid and r.text
+    ]
+    lineas: list[str] = []
+    if not codigos and con_mrz:
+        try:
+            texto = _tesseract(
+                imagen,
+                [
+                    "--psm",
+                    "6",
+                    "-c",
+                    "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<",
+                ],
+            )
+            lineas = texto.splitlines()
+        except OcrNoDisponibleError:
+            lineas = []
+    metadatos = _metadatos(archivo, codigos_pdf417=len(codigos), lineas_mrz=len(lineas))
+    return LecturaDni(codigos, lineas, metadatos)
+
+
+async def leer_dni(archivo: ArchivoValidado) -> LecturaDni:
+    return await anyio.to_thread.run_sync(_leer_dni, archivo, True, limiter=_limiter())
+
+
+def metadatos_texto(texto: str) -> dict[str, Any]:
+    """Texto pegado: se registra el largo y el hash, no el contenido."""
+    return {
+        "origen": "texto",
+        "caracteres": len(texto),
+        "sha256": hashlib.sha256(texto.encode("utf-8")).hexdigest(),
+    }

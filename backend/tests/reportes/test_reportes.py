@@ -196,6 +196,7 @@ async def test_permisos(
         "PAGOS",
         "RECAUDACION",
         "AUDITORIA",
+        "SUGERENCIAS_IA",
     }
     assert (await notario.get("/api/v1/reportes")).status_code == 403
     assert (await notario.get("/api/v1/reportes/BOLETAS/export")).status_code == 403

@@ -9,7 +9,15 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 # FIN: archivos con lógica monetaria. Se amplía a medida que se agregan módulos financieros.
 MONEY_PATHS = ["common/money.py"]
-MONEY_DIR_HINTS = ("aportes", "boletas", "pagos", "prestamos", "liquidacion", "parametros")
+MONEY_DIR_HINTS = (
+    "aportes",
+    "boletas",
+    "pagos",
+    "prestamos",
+    "liquidacion",
+    "parametros",
+    "ia",
+)
 
 _PRIVATE_URL_RE = re.compile(
     r"https?://(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|0\.0\.0\.0)",

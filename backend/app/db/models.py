@@ -7,6 +7,7 @@ from app.common.audit import AuditSecurityLog
 from app.db.base import Base
 from app.modules.cms.models import Autoridad, Documento, DocumentoVersion, Novedad
 from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
+from app.modules.ia.models import Sugerencia
 from app.modules.iam.models import (
     PasswordResetToken,
     Permission,
@@ -56,6 +57,7 @@ __all__ = [
     "RegistroNotarial",
     "Role",
     "RolePermission",
+    "Sugerencia",
     "User",
     "UserRole",
     "UserSession",

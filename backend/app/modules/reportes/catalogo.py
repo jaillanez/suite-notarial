@@ -4,7 +4,7 @@ orden total (con desempate por id) para que paginar y exportar den exactamente l
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Date, String, and_, cast, func, or_, select
+from sqlalchemy import Date, Integer, String, and_, case, cast, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -12,6 +12,8 @@ from app.common.audit import AuditSecurityLog, Severity
 from app.common.dates import LOCAL_TZ
 from app.modules.ddjj.catalog import EstadoBoleta
 from app.modules.ddjj.models import Boleta
+from app.modules.ia.catalog import EstadoSugerencia, TipoSugerencia
+from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.padron.catalog import DEPARTAMENTOS_SAN_JUAN, Cargo, EstadoMatricula
@@ -375,7 +377,87 @@ AUDITORIA = Reporte(
     ),
 )
 
+# --------------------------------------------------------------------------- IA asistencial
+
+TIPO_SUGERENCIA_TEXTO = {
+    TipoSugerencia.EXTRACCION_MINUTA.value: "Minuta → acto de DDJJ",
+    TipoSugerencia.OCR_DNI.value: "DNI → alta en el padrón",
+}
+ESTADO_SUGERENCIA_TEXTO = {
+    EstadoSugerencia.SUGERIDO_POR_IA.value: "Sugerido por IA (sin ratificar)",
+    EstadoSugerencia.RATIFICADA.value: "Ratificada",
+    EstadoSugerencia.DESCARTADA.value: "Descartada",
+}
+
+
+def _sugerencias_ia(f: Filtros) -> Consulta:
+    solicito = aliased(User)
+    resolvio = aliased(User)
+    stmt = (
+        select(
+            Sugerencia.created_at.label("fecha"),
+            case(TIPO_SUGERENCIA_TEXTO, value=Sugerencia.tipo).label("tipo"),
+            case(ESTADO_SUGERENCIA_TEXTO, value=Sugerencia.estado).label("estado"),
+            (Sugerencia.motor + " " + Sugerencia.motor_version).label("motor"),
+            cast(Sugerencia.confianza, String).label("confianza"),
+            cast(func.jsonb_array_length(Sugerencia.salida["alertas"]), Integer).label("alertas"),
+            case(
+                (Sugerencia.campos_modificados.is_(None), None),
+                (func.jsonb_array_length(Sugerencia.campos_modificados) > 0, "Sí"),
+                else_="No",
+            ).label("corregida"),
+            # ["folio", "naturaleza"] → folio, naturaleza
+            func.translate(cast(Sugerencia.campos_modificados, String), '[]"', "").label(
+                "campos_corregidos"
+            ),
+            solicito.email.label("solicito"),
+            resolvio.email.label("resolvio"),
+            Sugerencia.resuelto_en.label("resuelto_en"),
+            Sugerencia.tiempo_ms.label("tiempo_ms"),
+            Sugerencia.id.label("id"),
+        )
+        .join(solicito, solicito.id == Sugerencia.solicitado_por_user_id)
+        .outerjoin(resolvio, resolvio.id == Sugerencia.resuelto_por_user_id)
+    )
+    if "tipo" in f:
+        stmt = stmt.where(Sugerencia.tipo == f["tipo"])
+    if "estado" in f:
+        stmt = stmt.where(Sugerencia.estado == f["estado"])
+    stmt = _rango_fechas(stmt, Sugerencia.created_at, f)
+    return stmt.order_by(Sugerencia.created_at.desc(), Sugerencia.id)
+
+
+SUGERENCIAS_IA = Reporte(
+    codigo="SUGERENCIAS_IA",
+    construir=_sugerencias_ia,
+    titulo="Sugerencias de IA",
+    descripcion="Qué propuso cada motor asistencial, con qué confianza, quién lo ratificó o "
+    "descartó y qué campos corrigió (Human in Command).",
+    permiso=Perm.AUDIT_READ,
+    sensible=True,
+    columnas=(
+        Columna("fecha", "Fecha", Tipo.FECHA_HORA),
+        Columna("tipo", "Tipo"),
+        Columna("estado", "Estado"),
+        Columna("motor", "Motor"),
+        Columna("confianza", "Confianza"),
+        Columna("alertas", "Alertas", Tipo.ENTERO, total=True),
+        Columna("corregida", "Corregida"),
+        Columna("campos_corregidos", "Campos corregidos"),
+        Columna("solicito", "Pidió y revisó"),
+        Columna("resolvio", "Resolvió", visible=False),
+        Columna("resuelto_en", "Resuelta el", Tipo.FECHA_HORA, visible=False),
+        Columna("tiempo_ms", "Tiempo (ms)", Tipo.ENTERO, visible=False),
+        Columna("id", "Id", visible=False),
+    ),
+    filtros=(
+        *FECHAS,
+        Filtro("tipo", "Tipo", TipoFiltro.OPCIONES, tuple(TIPO_SUGERENCIA_TEXTO.items())),
+        Filtro("estado", "Estado", TipoFiltro.OPCIONES, tuple(ESTADO_SUGERENCIA_TEXTO.items())),
+    ),
+)
+
 
 REPORTES: dict[str, Reporte] = {
-    r.codigo: r for r in (ESCRIBANOS, BOLETAS, PAGOS, RECAUDACION, AUDITORIA)
+    r.codigo: r for r in (ESCRIBANOS, BOLETAS, PAGOS, RECAUDACION, AUDITORIA, SUGERENCIAS_IA)
 }

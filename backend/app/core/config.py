@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # Documentos oficiales del sitio (balances, memorias): suelen ser más pesados.
     CMS_MAX_DOC_MB: Annotated[int, Field(gt=0)] = 25
 
+    # IA asistencial (Fase 9): OCR local con Tesseract, sin servicios externos.
+    IA_TESSERACT_CMD: str = "tesseract"
+    # Idiomas preferidos; se usan los instalados ("spa" viene en `brew install tesseract-lang`).
+    IA_OCR_IDIOMAS: str = "spa+eng"
+    IA_OCR_TIMEOUT_S: Annotated[int, Field(gt=0, le=300)] = 30
+    IA_OCR_CONCURRENCIA: Annotated[int, Field(gt=0, le=16)] = 2
+
     LOG_LEVEL: str = "INFO"
 
     # Datos de la Caja y de la cuenta recaudadora que se imprimen en la boleta. Los valores
