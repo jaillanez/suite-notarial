@@ -27,6 +27,7 @@ from app.modules.padron.models import (
 )
 from app.modules.pagos.models import Comprobante, Conciliacion
 from app.modules.parametros.models import Concepto, Vigencia
+from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
 
 __all__ = [
     "Acto",
@@ -39,15 +40,18 @@ __all__ = [
     "Comprobante",
     "Concepto",
     "Conciliacion",
+    "CuotaPrestamo",
     "DeclaracionJurada",
     "Documento",
     "DocumentoVersion",
     "Escribano",
     "HistorialEstado",
+    "Linea",
     "Novedad",
     "PasswordResetToken",
     "Permission",
     "Persona",
+    "Prestamo",
     "RecoveryCode",
     "RegistroNotarial",
     "Role",

@@ -31,6 +31,11 @@ class Perm(StrEnum):
     REPORTS_FINANCIAL = "reports:financial"
     AUDIT_READ = "audit:read"
     CMS_PUBLISH = "cms:publish"
+    PRESTAMOS_READ_OWN = "prestamos:read_own"
+    PRESTAMOS_READ_ALL = "prestamos:read_all"
+    PRESTAMOS_MANAGE = "prestamos:manage"
+    PRESTAMOS_APPROVE = "prestamos:approve"
+    PRESTAMOS_COBRAR = "prestamos:cobrar"
 
 
 PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
@@ -55,6 +60,11 @@ PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
     Perm.REPORTS_FINANCIAL: "Ver y exportar reportes de recaudación y deuda",
     Perm.AUDIT_READ: "Ver registros de auditoría",
     Perm.CMS_PUBLISH: "Publicar contenidos institucionales",
+    Perm.PRESTAMOS_READ_OWN: "Simular préstamos y consultar los propios",
+    Perm.PRESTAMOS_READ_ALL: "Consultar préstamos de cualquier escribano",
+    Perm.PRESTAMOS_MANAGE: "Administrar líneas de crédito y cargar solicitudes de préstamo",
+    Perm.PRESTAMOS_APPROVE: "Otorgar o rechazar solicitudes de préstamo cargadas por otra persona",
+    Perm.PRESTAMOS_COBRAR: "Registrar el pago de cuotas de préstamos",
 }
 
 
@@ -68,7 +78,13 @@ class RoleDef:
 
 
 _OWN = frozenset(
-    {Perm.DDJJ_READ_OWN, Perm.DDJJ_CREATE_OWN, Perm.BOLETAS_READ_OWN, Perm.COMPROBANTES_UPLOAD}
+    {
+        Perm.DDJJ_READ_OWN,
+        Perm.DDJJ_CREATE_OWN,
+        Perm.BOLETAS_READ_OWN,
+        Perm.COMPROBANTES_UPLOAD,
+        Perm.PRESTAMOS_READ_OWN,
+    }
 )
 
 ROLES: tuple[RoleDef, ...] = (
@@ -95,6 +111,8 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.BOLETAS_READ_ALL,
                 Perm.PARAMETERS_READ,
                 Perm.CMS_PUBLISH,
+                Perm.PRESTAMOS_READ_ALL,
+                Perm.PRESTAMOS_MANAGE,
             }
         ),
     ),
@@ -108,9 +126,11 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.ESCRIBANOS_READ,
                 Perm.DDJJ_READ_ALL,
                 Perm.BOLETAS_READ_ALL,
+                Perm.PRESTAMOS_READ_ALL,
                 Perm.COMPROBANTES_VERIFY,
                 Perm.PARAMETERS_READ,
                 Perm.REPORTS_FINANCIAL,
+                Perm.PRESTAMOS_COBRAR,
             }
         ),
     ),
@@ -132,6 +152,7 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.ESCRIBANOS_READ,
                 Perm.DDJJ_READ_ALL,
                 Perm.BOLETAS_READ_ALL,
+                Perm.PRESTAMOS_READ_ALL,
                 Perm.PARAMETERS_READ,
                 Perm.REPORTS_FINANCIAL,
                 Perm.AUDIT_READ,
@@ -167,5 +188,9 @@ SENSITIVE_PERMISSIONS: frozenset[Perm] = frozenset(
         Perm.REPORTS_FINANCIAL,
         Perm.AUDIT_READ,
         Perm.CMS_PUBLISH,
+        Perm.PRESTAMOS_READ_ALL,
+        Perm.PRESTAMOS_MANAGE,
+        Perm.PRESTAMOS_APPROVE,
+        Perm.PRESTAMOS_COBRAR,
     }
 )
