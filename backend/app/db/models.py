@@ -5,6 +5,7 @@ Cada módulo que defina modelos debe importarse acá para que `--autogenerate` l
 
 from app.common.audit import AuditSecurityLog
 from app.db.base import Base
+from app.modules.cms.models import Autoridad, Documento, DocumentoVersion, Novedad
 from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
 from app.modules.iam.models import (
     PasswordResetToken,
@@ -31,6 +32,7 @@ __all__ = [
     "Acto",
     "Adscripcion",
     "AuditSecurityLog",
+    "Autoridad",
     "Base",
     "Boleta",
     "Circunscripcion",
@@ -38,8 +40,11 @@ __all__ = [
     "Concepto",
     "Conciliacion",
     "DeclaracionJurada",
+    "Documento",
+    "DocumentoVersion",
     "Escribano",
     "HistorialEstado",
+    "Novedad",
     "PasswordResetToken",
     "Permission",
     "Persona",
