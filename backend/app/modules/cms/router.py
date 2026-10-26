@@ -4,7 +4,7 @@ import uuid
 from http import HTTPStatus
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, Path, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path, Request, Response, UploadFile
 
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParams, PageParamsDep
@@ -42,9 +42,12 @@ public_router = APIRouter(prefix="/publico", tags=["sitio público"])
 CanPublish = Annotated[Principal, Depends(require_permissions(Perm.CMS_PUBLISH))]
 SlugPath = Annotated[str, Path(pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", max_length=150)]
 
-# Contenido público: lo pueden guardar navegadores y proxies un rato (no hay datos de sesión).
-CACHE_PUBLICO = "public, max-age=300, stale-while-revalidate=3600"
-CACHE_PDF = "public, max-age=3600, stale-while-revalidate=86400"
+# Contenido público: sin datos de sesión. Los listados se guardan un minuto; el enlace canónico
+# del PDF se revalida siempre (ETag = huella) porque puede pasar a una versión nueva, y las
+# URLs de una versión fija no cambian nunca.
+CACHE_PUBLICO = "public, max-age=60, stale-while-revalidate=300"
+CACHE_PDF_CANONICO = "public, no-cache"
+CACHE_PDF_VERSION = "public, max-age=31536000, immutable"
 
 
 def documento_url(settings: Settings, slug: str, version: int | None = None) -> str:
@@ -154,6 +157,7 @@ async def documento_publico(
         sha256=vigente.sha256,
         version=vigente.version,
         actualizado=vigente.created_at,
+        motivo_actualizacion=vigente.motivo if len(vs) > 1 else None,
         versiones_anteriores=[
             VersionPublica(
                 version=v.version,
@@ -377,6 +381,7 @@ async def novedad(slug: SlugPath, response: Response, session: SessionDep) -> No
 
 
 async def _servir_pdf(
+    request: Request,
     session: SessionDep,
     settings: Settings,
     ctx: RequestContextDep,
@@ -388,6 +393,11 @@ async def _servir_pdf(
     elegida = vs[0] if version is None else next((v for v in vs if v.version == version), None)
     if elegida is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "Esa versión del documento no existe.")
+    etag = f'"{elegida.sha256}"'
+    cache = CACHE_PDF_CANONICO if version is None else CACHE_PDF_VERSION
+    # El cliente ya tiene exactamente este archivo (misma huella): no se reenvía.
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})
     contenido = await service.contenido_verificado(session, settings, ctx, d, elegida)
     nombre = d.slug if version is None else f"{d.slug}-v{elegida.version}"
     return Response(
@@ -395,8 +405,8 @@ async def _servir_pdf(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{nombre}.pdf"',
-            "Cache-Control": CACHE_PDF,
-            "ETag": f'"{elegida.sha256}"',
+            "Cache-Control": cache,
+            "ETag": etag,
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
         },
@@ -408,10 +418,14 @@ PDF_RESPONSES: dict[int | str, dict[str, Any]] = {200: {"content": {"application
 
 @public_router.get("/documentos/{slug}.pdf", response_class=Response, responses=PDF_RESPONSES)
 async def descargar_documento(
-    slug: SlugPath, session: SessionDep, settings: SettingsDep, ctx: RequestContextDep
+    slug: SlugPath,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
 ) -> Response:
     """Enlace permanente: siempre la última versión, verificada contra su huella."""
-    return await _servir_pdf(session, settings, ctx, slug, None)
+    return await _servir_pdf(request, session, settings, ctx, slug, None)
 
 
 @public_router.get(
@@ -419,9 +433,10 @@ async def descargar_documento(
 )
 async def descargar_version(
     slug: SlugPath,
+    request: Request,
     version: Annotated[int, Path(ge=1, le=10_000)],
     session: SessionDep,
     settings: SettingsDep,
     ctx: RequestContextDep,
 ) -> Response:
-    return await _servir_pdf(session, settings, ctx, slug, version)
+    return await _servir_pdf(request, session, settings, ctx, slug, version)

@@ -164,6 +164,8 @@ class DocumentoPublico(BaseModel):
     sha256: str
     version: int
     actualizado: datetime
+    # Por qué se reemplazó el archivo (si la versión vigente no es la primera publicada).
+    motivo_actualizacion: str | None
     versiones_anteriores: list[VersionPublica]
 
 

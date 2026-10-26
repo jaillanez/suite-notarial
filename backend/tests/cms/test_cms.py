@@ -93,8 +93,10 @@ async def test_documento_borrador_publicado_y_versionado(
     assert r1.status_code == 200
     assert r1.content == original
     assert r1.headers["content-type"] == "application/pdf"
-    assert r1.headers["cache-control"].startswith("public")
+    assert r1.headers["cache-control"] == "public, no-cache"
     assert r1.headers["etag"] == f'"{doc["versiones"][0]["sha256"]}"'
+    no_cambio = await client.get(canonica, headers={"If-None-Match": r1.headers["etag"]})
+    assert no_cambio.status_code == 304 and no_cambio.content == b""
 
     # Reemplazar no rompe el enlace: la canónica sirve la nueva y la v1 queda en el histórico.
     nuevo = pdf(4)
@@ -119,6 +121,10 @@ async def test_documento_borrador_publicado_y_versionado(
     assert (await client.get(canonica)).content == nuevo
     v1 = await client.get("/api/v1/publico/documentos/estados-contables-2025/v1.pdf")
     assert v1.content == original
+    assert "immutable" in v1.headers["cache-control"]
+    # Con la misma ETag de antes, la canónica ya no responde 304: cambió de versión.
+    renovada = await client.get(canonica, headers={"If-None-Match": r1.headers["etag"]})
+    assert renovada.status_code == 200 and renovada.content == nuevo
 
     sitio = (await client.get("/api/v1/publico/sitio")).json()
     publico = sitio["documentos"][0]
