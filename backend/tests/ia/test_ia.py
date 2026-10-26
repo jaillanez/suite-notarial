@@ -462,3 +462,48 @@ async def test_cola_llena(
     )
     assert response.status_code == 503
     assert "lecturas en curso" in response.json()["detail"]
+
+
+def _pdf_con_flujo(datos: bytes, filtro: str = "/FlateDecode") -> bytes:
+    """PDF mínimo de una página cuyo contenido es `datos` ya codificado."""
+    objetos = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+        f"<< /Length {len(datos)} /Filter {filtro} >>\nstream\n".encode() + datos + b"\nendstream",
+    ]
+    salida = bytearray(b"%PDF-1.7\n")
+    posiciones = []
+    for n, cuerpo in enumerate(objetos, start=1):
+        posiciones.append(len(salida))
+        salida += f"{n} 0 obj\n".encode() + cuerpo + b"\nendobj\n"
+    xref = len(salida)
+    salida += f"xref\n0 {len(objetos) + 1}\n0000000000 65535 f \n".encode()
+    salida += b"".join(f"{p:010d} 00000 n \n".encode() for p in posiciones)
+    salida += f"trailer\n<< /Size {len(objetos) + 1} /Root 1 0 R >>\n".encode()
+    salida += f"startxref\n{xref}\n%%EOF\n".encode()
+    return bytes(salida)
+
+
+async def test_pdf_bomba_de_descompresion(notario: AsyncClient, borrador: dict[str, Any]) -> None:
+    import zlib
+
+    # ~30 KB comprimidos que se inflan a 30 MB: se rechaza sin inflarlo entero.
+    bomba = _pdf_con_flujo(zlib.compress(b" " * 30_000_000, 9))
+    assert len(bomba) < 100_000
+    response = await notario.post(
+        "/api/v1/ia/minutas",
+        data={"ddjj_id": borrador["id"]},
+        files={"archivo": ("bomba.pdf", bomba, "application/pdf")},
+    )
+    assert response.status_code == 413
+    assert "demasiado pesado" in response.json()["detail"]
+
+    otra_compresion = _pdf_con_flujo(b"no importa", "/LZWDecode")
+    response = await notario.post(
+        "/api/v1/ia/minutas",
+        data={"ddjj_id": borrador["id"]},
+        files={"archivo": ("lzw.pdf", otra_compresion, "application/pdf")},
+    )
+    assert response.status_code == 422
+    assert "compresión" in response.json()["detail"]
