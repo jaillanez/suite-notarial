@@ -6,6 +6,7 @@ import {
   Paperclip,
   Plus,
   ReceiptText,
+  ScanText,
   Send,
   Trash2,
 } from 'lucide-react'
@@ -18,11 +19,10 @@ import { Button } from '../../components/ui/Button'
 import { Dialog } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
 import { Panel } from '../../components/ui/Panel'
-import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
-import { formatMoney, normalizeDecimalInput } from '../../lib/decimal'
+import { formatMoney } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { CARGO, formatDate, todayIso } from '../padron/labels'
 import { AdjuntarComprobanteDialog } from '../pagos/AdjuntarComprobanteDialog'
@@ -37,11 +37,11 @@ import {
   rectificar,
   type Acto,
   type Boleta,
-  type CategoriaActo,
   type DeclaracionDetalle,
   type Liquidacion,
-  type TipoProtocolo,
 } from './api'
+import { actoCompleto, actoInput, actoVacio } from './acto'
+import { ActoCampos } from './ActoCampos'
 import {
   CATEGORIA,
   ESTADO_BOLETA,
@@ -49,7 +49,6 @@ import {
   PROTOCOLO,
   formatCodigo,
   formatPeriodo,
-  rangoPeriodo,
   registroLabel,
 } from './labels'
 
@@ -262,51 +261,15 @@ function ActoDialog({
   onClose: () => void
 }) {
   const invalidate = useInvalidate(ddjj.id)
-  const { desde, hasta } = rangoPeriodo(ddjj.periodo)
-  const hoy = todayIso()
-  const [form, setForm] = useState({
-    escribano_id: ddjj.escribanos[0]?.id ?? '',
-    categoria: 'ESCRITURA_CON_VALOR' as CategoriaActo,
-    tipo_protocolo: 'GENERAL' as TipoProtocolo,
-    numero_escritura: '',
-    folio: '',
-    fecha_acto: desde,
-    naturaleza: '',
-    base_imponible: '',
-  })
-  const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
+  const [form, setForm] = useState(() => actoVacio(ddjj))
   const save = useMutation({
-    mutationFn: () =>
-      agregarActo(ddjj.id, {
-        escribano_id: form.escribano_id,
-        categoria: form.categoria,
-        tipo_protocolo: form.tipo_protocolo,
-        numero_escritura: Number.parseInt(form.numero_escritura, 10),
-        folio: form.folio ? Number.parseInt(form.folio, 10) : null,
-        fecha_acto: form.fecha_acto,
-        naturaleza: form.naturaleza.trim(),
-        base_imponible: conValor ? normalizeDecimalInput(form.base_imponible) : '0',
-      }),
+    mutationFn: () => agregarActo(ddjj.id, actoInput(form)),
     onSuccess: async () => {
       await invalidate()
       onClose()
     },
   })
   const problem = save.isError ? toProblem(save.error) : null
-  const bind = (
-    key: 'numero_escritura' | 'folio' | 'fecha_acto' | 'naturaleza' | 'base_imponible',
-  ) => ({
-    value: form[key],
-    onChange: (e: { target: { value: string } }) => {
-      setForm((f) => ({ ...f, [key]: e.target.value }))
-    },
-    error: problem?.fieldErrors[key],
-  })
-  const completo =
-    form.escribano_id &&
-    /^\d+$/.test(form.numero_escritura) &&
-    form.naturaleza.trim().length >= 3 &&
-    (!conValor || form.base_imponible.trim() !== '')
 
   return (
     <Dialog
@@ -325,7 +288,7 @@ function ActoDialog({
             icon={Plus}
             busy={save.isPending}
             busyLabel="Agregando…"
-            disabled={!completo}
+            disabled={!actoCompleto(form)}
             onClick={() => {
               save.mutate()
             }}
@@ -335,86 +298,16 @@ function ActoDialog({
         </>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        {problem && (
-          <div className="sm:col-span-2">
-            <Alert tone="danger">{problem.detail}</Alert>
-          </div>
-        )}
-        <Select
-          className="sm:col-span-2"
-          label="Escribano"
-          value={form.escribano_id}
-          onChange={(e) => {
-            setForm((f) => ({ ...f, escribano_id: e.target.value }))
+      <div className="grid gap-4">
+        {problem && <Alert tone="danger">{problem.detail}</Alert>}
+        <ActoCampos
+          ddjj={ddjj}
+          form={form}
+          problem={problem}
+          onChange={(cambio) => {
+            setForm((f) => ({ ...f, ...cambio }))
           }}
-          options={ddjj.escribanos.map((e) => ({
-            value: e.id,
-            label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${String(e.matricula_numero)}`,
-          }))}
         />
-        <div className="sm:col-span-2">
-          <Select
-            label="Tipo de acto"
-            value={form.categoria}
-            onChange={(e) => {
-              setForm((f) => ({ ...f, categoria: e.target.value as CategoriaActo }))
-            }}
-            options={(Object.keys(CATEGORIA) as CategoriaActo[]).map((c) => ({
-              value: c,
-              label: CATEGORIA[c].label,
-            }))}
-          />
-          <p className="mt-1.5 text-sm text-ink-muted">{CATEGORIA[form.categoria].ayuda}</p>
-        </div>
-        <Select
-          label="Protocolo"
-          value={form.tipo_protocolo}
-          onChange={(e) => {
-            setForm((f) => ({ ...f, tipo_protocolo: e.target.value as TipoProtocolo }))
-          }}
-          options={(Object.keys(PROTOCOLO) as TipoProtocolo[]).map((p) => ({
-            value: p,
-            label: PROTOCOLO[p],
-          }))}
-        />
-        <Field
-          label="Fecha del acto"
-          type="date"
-          min={desde}
-          max={hasta < hoy ? hasta : hoy}
-          className="[&_input]:tabular-nums"
-          {...bind('fecha_acto')}
-        />
-        <Field
-          label="N° de escritura"
-          inputMode="numeric"
-          className="[&_input]:tabular-nums"
-          {...bind('numero_escritura')}
-        />
-        <Field
-          label="Folio (opcional)"
-          inputMode="numeric"
-          className="[&_input]:tabular-nums"
-          {...bind('folio')}
-        />
-        <Field
-          className="sm:col-span-2"
-          label="Naturaleza del acto"
-          placeholder="Compraventa, hipoteca, poder general…"
-          maxLength={300}
-          {...bind('naturaleza')}
-        />
-        {conValor && (
-          <Field
-            className="sm:col-span-2 [&_input]:tabular-nums"
-            label="Base imponible ($)"
-            inputMode="decimal"
-            placeholder="0,00"
-            hint="Valor del acto sobre el que se calcula el aporte."
-            {...bind('base_imponible')}
-          />
-        )}
       </div>
     </Dialog>
   )
@@ -494,15 +387,26 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
       }
       actions={
         editable ? (
-          <Button
-            icon={Plus}
-            disabled={ddjj.escribanos.length === 0}
-            onClick={() => {
-              setAdding(true)
-            }}
-          >
-            Agregar acto
-          </Button>
+          <div className="flex flex-wrap gap-3">
+            {ddjj.escribanos.length > 0 && (
+              <Link
+                to={`/ddjj/${ddjj.id}/minuta`}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
+              >
+                <ScanText aria-hidden="true" className="size-4" strokeWidth={2.25} />
+                Cargar desde la minuta
+              </Link>
+            )}
+            <Button
+              icon={Plus}
+              disabled={ddjj.escribanos.length === 0}
+              onClick={() => {
+                setAdding(true)
+              }}
+            >
+              Agregar acto
+            </Button>
+          </div>
         ) : undefined
       }
     >
