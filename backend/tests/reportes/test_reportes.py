@@ -195,6 +195,7 @@ async def test_permisos(
         "BOLETAS",
         "PAGOS",
         "RECAUDACION",
+        "BOLETAS_HISTORICAS",
         "AUDITORIA",
         "SUGERENCIAS_IA",
     }

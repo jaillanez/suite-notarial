@@ -16,6 +16,8 @@ from app.modules.ia.catalog import EstadoSugerencia, TipoSugerencia
 from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
+from app.modules.migracion.catalog import EstadoBoletaHistorica
+from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
 from app.modules.padron.catalog import DEPARTAMENTOS_SAN_JUAN, Cargo, EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano, Persona, RegistroNotarial
 from app.modules.pagos.catalog import ResultadoConciliacion
@@ -457,7 +459,84 @@ SUGERENCIAS_IA = Reporte(
     ),
 )
 
+# --------------------------------------------------------------------------- histórico migrado
+
+
+def _boletas_historicas(f: Filtros) -> Consulta:
+    pagado = (
+        select(func.coalesce(func.sum(HistoricoPago.importe), 0))
+        .where(HistoricoPago.boleta_id == HistoricoBoleta.id)
+        .correlate(HistoricoBoleta)
+        .scalar_subquery()
+    )
+    anulada = HistoricoBoleta.estado == EstadoBoletaHistorica.ANULADA.value
+    stmt = select(
+        RegistroNotarial.numero_registro.label("registro"),
+        HistoricoBoleta.periodo.label("periodo"),
+        HistoricoBoleta.numero_boleta.label("numero_boleta"),
+        HistoricoBoleta.fecha_emision.label("fecha_emision"),
+        HistoricoBoleta.fecha_vencimiento.label("fecha_vencimiento"),
+        HistoricoBoleta.estado.label("estado"),
+        HistoricoBoleta.importe.label("importe"),
+        pagado.label("pagado"),
+        case((anulada, 0), else_=HistoricoBoleta.importe - pagado).label("saldo"),
+        HistoricoBoleta.codigo_legado.label("codigo_legado"),
+    ).join(RegistroNotarial, RegistroNotarial.id == HistoricoBoleta.registro_id)
+    if "estado" in f:
+        stmt = stmt.where(HistoricoBoleta.estado == f["estado"])
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    stmt = _rango_periodos(stmt, HistoricoBoleta.periodo, f)
+    return stmt.order_by(
+        RegistroNotarial.numero_registro, HistoricoBoleta.periodo, HistoricoBoleta.id
+    )
+
+
+BOLETAS_HISTORICAS = Reporte(
+    codigo="BOLETAS_HISTORICAS",
+    construir=_boletas_historicas,
+    titulo="Boletas del sistema anterior",
+    descripcion="Histórico migrado, de solo lectura: importe, lo pagado y el saldo de cada "
+    "boleta. Las anuladas no tienen saldo.",
+    permiso=Perm.REPORTS_FINANCIAL,
+    columnas=(
+        Columna("registro", "Registro", Tipo.ENTERO),
+        Columna("periodo", "Período", Tipo.PERIODO),
+        Columna("numero_boleta", "N° de boleta", visible=False),
+        Columna("fecha_emision", "Emisión", Tipo.FECHA, visible=False),
+        Columna("fecha_vencimiento", "Vencimiento", Tipo.FECHA),
+        Columna("estado", "Estado"),
+        Columna("importe", "Importe", Tipo.MONEDA, total=True),
+        Columna("pagado", "Pagado", Tipo.MONEDA, total=True),
+        Columna("saldo", "Saldo", Tipo.MONEDA, total=True),
+        Columna("codigo_legado", "Código en el sistema anterior", visible=False),
+    ),
+    filtros=(
+        *PERIODOS,
+        Filtro(
+            "estado",
+            "Estado",
+            TipoFiltro.OPCIONES,
+            (
+                (EstadoBoletaHistorica.IMPAGA.value, "Impaga"),
+                (EstadoBoletaHistorica.PAGADA.value, "Pagada"),
+                (EstadoBoletaHistorica.ANULADA.value, "Anulada"),
+            ),
+        ),
+        Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+    ),
+)
+
 
 REPORTES: dict[str, Reporte] = {
-    r.codigo: r for r in (ESCRIBANOS, BOLETAS, PAGOS, RECAUDACION, AUDITORIA, SUGERENCIAS_IA)
+    r.codigo: r
+    for r in (
+        ESCRIBANOS,
+        BOLETAS,
+        PAGOS,
+        RECAUDACION,
+        BOLETAS_HISTORICAS,
+        AUDITORIA,
+        SUGERENCIAS_IA,
+    )
 }

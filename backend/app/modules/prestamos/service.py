@@ -29,6 +29,8 @@ from app.modules.ddjj.models import Boleta
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
+from app.modules.migracion.catalog import EstadoBoletaHistorica
+from app.modules.migracion.models import HistoricoBoleta
 from app.modules.padron.catalog import EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano
 from app.modules.prestamos import motor
@@ -227,19 +229,28 @@ async def garantiza_en_mora(session: AsyncSession, escribano_id: uuid.UUID, hoy:
 
 
 async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: date) -> bool:
-    """Boletas impagas y vencidas de los registros donde el escribano tiene cargo vigente."""
+    """Boletas impagas y vencidas de los registros donde el escribano tiene cargo vigente,
+    incluidas las del sistema anterior (histórico migrado)."""
     registros = select(Adscripcion.registro_id).where(
         Adscripcion.escribano_id == escribano_id, Adscripcion.is_current.is_(True)
     )
-    return bool(
-        await session.scalar(
-            select(func.count()).where(
-                Boleta.registro_id.in_(registros),
-                Boleta.estado == EstadoBoleta.PENDIENTE.value,
-                Boleta.fecha_vencimiento < hoy,
-            )
+    actuales = await session.scalar(
+        select(func.count()).where(
+            Boleta.registro_id.in_(registros),
+            Boleta.estado == EstadoBoleta.PENDIENTE.value,
+            Boleta.fecha_vencimiento < hoy,
         )
     )
+    if actuales:
+        return True
+    historicas = await session.scalar(
+        select(func.count()).where(
+            HistoricoBoleta.registro_id.in_(registros),
+            HistoricoBoleta.estado == EstadoBoletaHistorica.IMPAGA.value,
+            HistoricoBoleta.fecha_vencimiento < hoy,
+        )
+    )
+    return bool(historicas)
 
 
 async def inhabilidades_garante(session: AsyncSession, garante: Escribano, hoy: date) -> list[str]:

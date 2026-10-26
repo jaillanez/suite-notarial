@@ -20,6 +20,7 @@ from app.modules.health.router import router as health_router
 from app.modules.ia.router import router as ia_router
 from app.modules.iam.router_auth import router as auth_router
 from app.modules.iam.router_users import router as users_router
+from app.modules.migracion.router import router as migracion_router
 from app.modules.padron.router import router as padron_router
 from app.modules.pagos.router import router as pagos_router
 from app.modules.parametros.router import router as parametros_router
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(cms_router, prefix="/api/v1")
     app.include_router(prestamos_router, prefix="/api/v1")
     app.include_router(ia_router, prefix="/api/v1")
+    app.include_router(migracion_router, prefix="/api/v1")
     app.include_router(sitio_public_router, prefix="/api/v1")
     return app
 
