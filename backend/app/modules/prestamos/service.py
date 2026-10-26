@@ -483,13 +483,32 @@ async def reevaluar(session: AsyncSession, prestamo: Prestamo, hoy: date) -> Eva
     )
 
 
-def _cuatro_ojos(prestamo: Prestamo, actor: User) -> None:
+async def _cuatro_ojos(session: AsyncSession, prestamo: Prestamo, actor: User) -> None:
+    """Resuelve otra persona, que además no es el titular ni el garante del préstamo."""
     if prestamo.creado_por_user_id == actor.id:
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
             "Quien cargó la solicitud no puede resolverla: la resuelve otra persona.",
             type_="urn:suite-notarial:prestamos:cuatro-ojos",
         )
+    propio = await escribano_de(session, actor)
+    if propio is not None and propio.id in (prestamo.escribano_id, prestamo.garante_escribano_id):
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN,
+            "No podés resolver un préstamo en el que sos titular o garante.",
+            type_="urn:suite-notarial:prestamos:cuatro-ojos",
+        )
+
+
+async def _bloquear_escribano(session: AsyncSession, escribano_id: uuid.UUID) -> None:
+    """Serializa los otorgamientos de un mismo escribano hasta el fin de la transacción.
+
+    Sin esto, dos préstamos otorgados a la vez podrían pasar cada uno el tope de afectación
+    sin ver al otro.
+    """
+    await session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtext(f"prestamos:{escribano_id}")))
+    )
 
 
 async def otorgar(
@@ -498,7 +517,8 @@ async def otorgar(
     prestamo = await get_prestamo(session, principal, prestamo_id, lock=True)
     if prestamo.estado != EstadoPrestamo.SOLICITADO.value:
         raise _conflict("La solicitud ya fue resuelta.")
-    _cuatro_ojos(prestamo, principal.user)
+    await _cuatro_ojos(session, prestamo, principal.user)
+    await _bloquear_escribano(session, prestamo.escribano_id)
     hoy = today_local()
     ev = await reevaluar(session, prestamo, hoy)
     _rechazar_si_hay(ev.impedimentos, status=HTTPStatus.CONFLICT)
@@ -557,7 +577,7 @@ async def rechazar(
     prestamo = await get_prestamo(session, principal, prestamo_id, lock=True)
     if prestamo.estado != EstadoPrestamo.SOLICITADO.value:
         raise _conflict("La solicitud ya fue resuelta.")
-    _cuatro_ojos(prestamo, principal.user)
+    await _cuatro_ojos(session, prestamo, principal.user)
     prestamo.estado = EstadoPrestamo.RECHAZADO.value
     prestamo.motivo_rechazo = motivo
     prestamo.resuelto_por_user_id = principal.user.id

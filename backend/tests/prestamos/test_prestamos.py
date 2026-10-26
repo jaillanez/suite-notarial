@@ -299,3 +299,64 @@ async def test_inmutable_en_la_base(
     with pytest.raises(DBAPIError, match=rechazo):
         async with db_session.begin_nested():
             await db_session.execute(text(statement))
+
+
+async def test_escribano_no_sondea_garantes_ajenos(
+    notario: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+    boleta: dict[str, Any],  # noqa: F811 - el registro del titular tiene una boleta pendiente
+) -> None:
+    linea = await crear_linea(requiere_garante=True)
+    reloj(date(2026, 11, 5))  # la boleta ya venció: el adscripto, del mismo registro, debe aportes
+
+    sim = await notario.post(
+        "/api/v1/prestamos/simular",
+        json={
+            "linea_id": linea["id"],
+            "capital": "100000",
+            "cuotas": 12,
+            "ingreso_neto": "60000",
+            "garante_escribano_id": str(escenario.adscripto.id),
+        },
+    )
+
+    assert sim.status_code == 200
+    # Se ignora el garante propuesto: no se revela su situación (deuda, mora).
+    assert all("deuda" not in i and "mora" not in i for i in sim.json()["impedimentos"])
+    assert any("exige un garante" in i for i in sim.json()["impedimentos"])
+
+
+async def test_no_resuelve_quien_es_titular_o_garante(
+    staff: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+    app: Any,
+    db_session: AsyncSession,
+) -> None:
+    import pyotp
+
+    from tests.ddjj.conftest import _client
+    from tests.iam.factories import make_user
+    from tests.iam.test_rbac import login
+
+    # Un usuario con permiso para otorgar que además es el escribano adscripto.
+    secret = pyotp.random_base32()
+    usuario = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret=secret)
+    escenario.adscripto.user_id = usuario.id
+    await db_session.commit()
+    linea = await crear_linea()
+    propio = await staff.post(
+        "/api/v1/prestamos",
+        json=solicitud(escenario, linea, escribano_id=str(escenario.adscripto.id)),
+    )
+    async with await _client(app) as cliente:
+        await login(cliente, usuario, secret)
+        detalle = await cliente.get(f"/api/v1/prestamos/{propio.json()['id']}")
+        otorgar = await cliente.post(f"/api/v1/prestamos/{propio.json()['id']}/otorgar")
+
+    assert detalle.json()["puede_resolver"] is False
+    assert otorgar.status_code == 403
+    assert "titular o garante" in otorgar.json()["detail"]

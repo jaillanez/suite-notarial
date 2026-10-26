@@ -182,6 +182,18 @@ async def prestamo_out(session: SessionDep, principal: Principal, p: Prestamo) -
     )
 
 
+async def _puede_resolver(session: SessionDep, principal: Principal, p: Prestamo) -> bool:
+    """Mismas reglas que el servicio: otra persona, con permiso, que no sea titular ni garante."""
+    if (
+        p.estado != EstadoPrestamo.SOLICITADO.value
+        or Perm.PRESTAMOS_APPROVE.value not in principal.permissions
+        or p.creado_por_user_id == principal.user.id
+    ):
+        return False
+    propio = await service.escribano_de(session, principal.user)
+    return propio is None or propio.id not in (p.escribano_id, p.garante_escribano_id)
+
+
 async def prestamo_detalle(
     session: SessionDep, principal: Principal, p: Prestamo
 ) -> PrestamoDetalle:
@@ -199,11 +211,7 @@ async def prestamo_detalle(
         plan=plan,
         totales=totales(plan),
         impedimentos_actuales=impedimentos,
-        puede_resolver=(
-            p.estado == EstadoPrestamo.SOLICITADO.value
-            and Perm.PRESTAMOS_APPROVE.value in principal.permissions
-            and p.creado_por_user_id != principal.user.id
-        ),
+        puede_resolver=await _puede_resolver(session, principal, p),
     )
 
 
@@ -241,12 +249,15 @@ async def actualizar_linea(
 async def simular(body: SimulacionIn, principal: CanRead, session: SessionDep) -> EvaluacionOut:
     """Plan de cuotas y evaluación. No guarda nada. El escribano simula para sí mismo."""
     linea = await service.get_linea(session, body.linea_id)
+    garante_id = body.garante_escribano_id
     if service.ve_todo(principal) or Perm.PRESTAMOS_MANAGE.value in principal.permissions:
         escribano = (
             await service.get_escribano(session, body.escribano_id) if body.escribano_id else None
         )
     else:
         escribano = await service.escribano_de(session, principal.user)
+        # Un escribano no evalúa a terceros: sondear un garante revelaría sus deudas o su mora.
+        garante_id = None
     ev = await service.evaluar(
         session,
         linea,
@@ -255,7 +266,7 @@ async def simular(body: SimulacionIn, principal: CanRead, session: SessionDep) -
         hoy=today_local(),
         escribano=escribano,
         ingreso_neto=body.ingreso_neto,
-        garante_id=body.garante_escribano_id,
+        garante_id=garante_id,
     )
     return evaluacion_out(ev)
 
