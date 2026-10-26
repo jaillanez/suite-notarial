@@ -141,7 +141,70 @@ async def seed_dev() -> int:
         await _seed_parametros_demo(session)
     async with get_sessionmaker()() as session:
         await _seed_vencimientos(session)
+    async with get_sessionmaker()() as session:
+        await _seed_lineas_prestamo(session)
     return 0
+
+
+async def _seed_lineas_prestamo(session: AsyncSession) -> None:
+    """Líneas de crédito de EJEMPLO para probar en desarrollo.
+
+    TODO(negocio): tasas, plazos, montos y topes los fija el Directorio de la Caja. Estos valores
+    son ilustrativos y quedan marcados como «a confirmar» (es_ejemplo).
+    """
+    from decimal import Decimal
+
+    from app.modules.prestamos.models import Linea
+
+    if await session.scalar(select(Linea.id).limit(1)):
+        _out("Líneas de préstamo: ya existen, no se modifican.")
+        return
+    ejemplos = (
+        ("LINEA_COMUN", "Línea común", "FRANCES", 12, 36, "100000", "5000000", "48", "30", False),
+        (
+            "RECIEN_MATRICULADOS",
+            "Recién matriculados",
+            "FRANCES",
+            12,
+            60,
+            "100000",
+            "3000000",
+            "36",
+            "30",
+            False,
+        ),
+        (
+            "EXTRAORDINARIA",
+            "Asistencial extraordinaria",
+            "ALEMAN",
+            6,
+            24,
+            "50000",
+            "2000000",
+            "24",
+            "25",
+            True,
+        ),
+    )
+    for codigo, nombre, sistema, pmin, pmax, mmin, mmax, tna, afect, garante in ejemplos:
+        session.add(
+            Linea(
+                codigo=codigo,
+                nombre=nombre,
+                descripcion="Valores de ejemplo: a confirmar por el Directorio.",
+                sistema=sistema,
+                plazo_minimo=pmin,
+                plazo_maximo=pmax,
+                monto_minimo=Decimal(mmin),
+                monto_maximo=Decimal(mmax),
+                tna=Decimal(tna),
+                afectacion_maxima=Decimal(afect),
+                requiere_garante=garante,
+                es_ejemplo=True,
+            )
+        )
+    await session.commit()
+    _out(f"Líneas de préstamo de ejemplo: {len(ejemplos)} (a confirmar).")
 
 
 async def _seed_vencimientos(session: AsyncSession) -> None:

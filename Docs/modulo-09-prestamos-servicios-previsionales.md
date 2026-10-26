@@ -5,6 +5,32 @@
 **Estándares de Referencia:** Cajas de Previsión Social (San Juan, CJPPU, CSSPKPBA) | ISSA Guidelines on Benefit Administration | Ley 18.212 | CCyCN  
 **Stack de Referencia:** Python 3.12+ | FastAPI | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 (Decimal) | React + TypeScript
 
+> **Implementación (Fase 8).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Tasas en %** (`48.0000` = 48 % TNA) en `Numeric(18,4)`; tasa del período = TNA / 12.
+>   `TODO(negocio)`: TNA proporcional vs. TEM/TEA y si la cuota suma gastos o seguros (CFT).
+> - **Motor** (`app/modules/prestamos/motor.py`): francés y alemán con `Decimal`, interés sobre
+>   saldos redondeado ROUND_HALF_UP; la última cuota amortiza el saldo exacto (saldo final $ 0,00
+>   y suma de amortizaciones = capital). Vencimientos mensuales con ajuste a fin de mes (no se
+>   recorta el día a 28). Verificado contra valores calculados aparte con aritmética exacta.
+> - **Afectación:** (cuota más alta del plan + próxima cuota de cada préstamo vigente) / ingreso
+>   neto, redondeada hacia arriba a 4 decimales (un control de riesgo no se pasa por redondeo).
+> - **Líneas** con tasa, plazos, montos, tope, sistema y garante; `es_ejemplo` marca valores no
+>   aprobados («a confirmar»). Los préstamos congelan sus condiciones al solicitarse (SNAP).
+> - **Estados:** `SOLICITADO` → `OTORGADO` | `RECHAZADO`; `OTORGADO` → `CANCELADO` al pagar la
+>   última cuota (trigger). Cuotas `PENDIENTE`/`PAGADA`; la vencida se deduce de la fecha.
+> - **Cuatro ojos:** quien carga no resuelve, y quien resuelve no puede ser titular ni garante
+>   (API + CHECK). Al otorgar se reevalúa todo con los datos del día, serializado por escribano.
+> - **Garante:** matrícula activa, sin mora propia, sin garantizar préstamos en mora y sin deuda
+>   de aportes (boletas impagas vencidas de sus registros).
+> - **Cobro** en orden por Tesorería, importe exacto de la cuota. `TODO(negocio)`: interés
+>   punitorio por atraso, pagos parciales y anticipados, débito de haberes para pasivos e
+>   integración con la boleta mensual.
+> - **Permisos nuevos:** `prestamos:read_own` (escribano), `read_all`, `manage` (Caja),
+>   `approve` (Administración), `cobrar` (Tesorería).
+> - **Rutas:** `/api/v1/prestamos/{lineas, simular, (id), (id)/otorgar, (id)/rechazar,
+>   (id)/cuotas/(n)/pago}`.
+
 ---
 
 ### 1. Propósito, Alcance y Reglas de Negocio Financiero-Previsionales

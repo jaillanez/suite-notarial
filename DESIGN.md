@@ -309,6 +309,11 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Documentos agrupados por tipo; el ejercicio encabeza cada fila en cifras grandes y tabulares, con «Descargar PDF» como botón secundario. Huella y versiones anteriores en un desplegable con chevron.
 - Novedades en una columna de 65ch, cuerpo en 1.125rem y párrafos separados; el texto se muestra tal cual se cargó (escapado).
 
+### Cuadro de amortización
+- Tabla de cuotas con cabecera y totales fijos (capital, intereses y total), cifras tabulares y la cuota en 600; en celular, una tarjeta por cuota. En préstamos vigentes, una columna de estado (pagada, pendiente, vencida) y la fila vencida con tinte de rechazo.
+- Las evaluaciones muestran primero el veredicto (cumple / no se puede otorgar con sus motivos), después cuota, tasa, afectación contra el tope (con tinte de rechazo si lo supera) y total a devolver.
+- Los importes que se tipean aceptan puntos de miles ("1.500.000"); las tasas, coma decimal.
+
 ### Verificación pública
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 

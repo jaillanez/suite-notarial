@@ -22,6 +22,11 @@ import { NovedadPublicaPage } from './features/sitio/NovedadPublicaPage'
 import { NovedadesPublicasPage } from './features/sitio/NovedadesPublicasPage'
 import { SitioPage } from './features/sitio/SitioPage'
 import { SitioShell } from './features/sitio/SitioShell'
+import { LineasPage } from './features/prestamos/LineasPage'
+import { PrestamoPage } from './features/prestamos/PrestamoPage'
+import { PrestamosPage } from './features/prestamos/PrestamosPage'
+import { SimuladorPage } from './features/prestamos/SimuladorPage'
+import { SolicitudPage } from './features/prestamos/SolicitudPage'
 import { SystemStatusPage } from './features/health/SystemStatusPage'
 import { HomePage } from './features/home/HomePage'
 import { EscribanoNuevoPage } from './features/padron/EscribanoNuevoPage'
@@ -123,6 +128,25 @@ const router = createBrowserRouter([
             children: [
               { path: '/reportes', element: <ReportesPage /> },
               { path: '/reportes/:codigo', element: <ReportePage /> },
+            ],
+          },
+          {
+            element: (
+              <RequirePermission
+                permission={['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage']}
+              />
+            ),
+            children: [
+              { path: '/prestamos', element: <PrestamosPage /> },
+              { path: '/prestamos/simular', element: <SimuladorPage /> },
+              { path: '/prestamos/:id', element: <PrestamoPage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission="prestamos:manage" />,
+            children: [
+              { path: '/prestamos/nueva', element: <SolicitudPage /> },
+              { path: '/prestamos/lineas', element: <LineasPage /> },
             ],
           },
           {

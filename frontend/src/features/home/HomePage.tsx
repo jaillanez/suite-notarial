@@ -50,6 +50,12 @@ const SECTIONS: Section[] = [
     permission: ['reports:financial', 'audit:read', 'escribanos:read'],
   },
   {
+    to: '/prestamos',
+    title: 'Préstamos',
+    description: 'Simulación, solicitudes, otorgamiento y cobro de cuotas.',
+    permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
+  },
+  {
     to: '/cms',
     title: 'Sitio institucional',
     description: 'Novedades, autoridades y documentos oficiales del sitio público.',
