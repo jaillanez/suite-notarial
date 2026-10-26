@@ -18,8 +18,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 4 | DDJJ, liquidación y boletas con PDF, QR y verificación pública | Completa |
 | 5 | Pagos: comprobantes y mesa de conciliación de Tesorería | Completa |
 | 6 | Reportes con paginación en servidor y exportación XLSX/CSV con paridad de totales | Completa |
-| 7 | Sitio institucional: novedades, autoridades y documentos oficiales con integridad verificada | En revisión |
-| 8–10 | Ver `AGENTS.md` | Pendiente |
+| 7 | Sitio institucional: novedades, autoridades y documentos oficiales con integridad verificada | Completa |
+| 8 | Préstamos: líneas, simulación, otorgamiento con cuatro ojos, garantes y cobro de cuotas | En revisión |
+| 9–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -300,6 +301,20 @@ Ya aplicadas:
   versiones no se modifican (triggers).
 - **Integridad al servir:** cada descarga verifica la huella; un archivo alterado no se entrega
   y queda una alerta CRITICAL en la auditoría. Toda publicación y cambio se audita.
+
+## Préstamos (Fase 8)
+
+- **Cuadros exactos:** sistema francés (cuota constante) y alemán (capital constante) con
+  `Decimal`; la última cuota cierra el saldo en $ 0,00 y las amortizaciones suman el capital.
+- **Tope de afectación:** la cuota más alta más las cuotas de los otros préstamos vigentes no
+  pueden superar el porcentaje del ingreso neto que fija la línea (redondeo hacia arriba).
+- **Garante:** matrícula activa, sin mora propia, sin garantizar préstamos en mora y sin deuda de
+  aportes con la Caja.
+- **Cuatro ojos:** la Caja carga la solicitud y la otorga otra persona (Administración), que no
+  puede ser titular ni garante; al otorgar se reevalúa y se genera el plan inmutable. Tesorería
+  cobra las cuotas en orden y el préstamo se cancela con la última.
+- **Valores de negocio:** las líneas de `make seed-dev` son de ejemplo («a confirmar»); tasas,
+  plazos y topes los fija el Directorio (`TODO(negocio)`, igual que punitorios y pagos parciales).
 
 ## Seguridad de acceso (Fase 1)
 
