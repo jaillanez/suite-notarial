@@ -250,7 +250,13 @@ describe('alta de escribano con lectura del DNI', () => {
     })
     const alta = screen.getByRole('button', { name: 'Dar de alta' })
     expect(alta).toBeDisabled()
-    fireEvent.click(screen.getByLabelText(/Revisé los datos personales contra el DNI/))
+    const revision = screen.getByLabelText(/Revisé los datos personales contra el DNI/)
+    fireEvent.click(revision)
+    expect(alta).toBeEnabled()
+    // Un cambio posterior exige volver a revisar.
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'María José' } })
+    expect(alta).toBeDisabled()
+    fireEvent.click(revision)
     expect(alta).toBeEnabled()
     fireEvent.click(alta)
 
@@ -260,5 +266,6 @@ describe('alta de escribano con lectura del DNI', () => {
     expect(id).toBe('dni1')
     expect(cuerpo?.persona.apellido).toBe('Sintético de la Prueba')
     expect(cuerpo?.persona.cuit).toBe('20-12345678-6')
+    expect(cuerpo?.persona.nombre).toBe('María José')
   })
 })

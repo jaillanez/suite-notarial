@@ -158,6 +158,8 @@ export function EscribanoNuevoPage() {
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
+      // Lo revisado es lo que se confirma: un cambio posterior exige volver a revisar.
+      setRevisado(false)
     },
   })
   const pista = (key: CampoDni) => {

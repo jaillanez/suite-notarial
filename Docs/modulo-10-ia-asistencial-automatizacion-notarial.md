@@ -5,6 +5,27 @@
 **Estándares de Referencia:** Proyecto Atenea (Consejo General del Notariado) | Tesis ONPI "De la celulosa al silicio: Workflows agénticos" | RIA UE 2024/1689 (Human in Command) | Ley 25.326  
 **Stack de Referencia:** Python 3.12+ | FastAPI | Tesseract OCR / PaddleOCR | Spacy / Transformers (NLP) | PyTorch | Celery / Redis | React + TypeScript
 
+> **Implementación (Fase 9).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Motores locales y explicables**, sin modelos de caja negra ni servicios externos: reglas
+>   para minutas (`app/modules/ia/minutas.py`), Tesseract para OCR y zxing para el PDF417 del
+>   DNI. Sin Celery/Redis: la lectura corre en hilos con cupo (`IA_OCR_CONCURRENCIA`) y tiempo
+>   máximo (`IA_OCR_TIMEOUT_S`). `TODO(negocio)`: evaluar un modelo NLP on-premise para
+>   comparecientes e inmuebles; el registro guarda motor y versión de cada sugerencia.
+> - **Alcance:** minuta → acto de una DDJJ en borrador; DNI → alta de escribano. Los datos que la
+>   DDJJ no pide (comparecientes, inmuebles, gravámenes) no se extraen (minimización). La
+>   comparación facial 1:1 no se implementa: `TODO(negocio)`, datos biométricos sensibles.
+> - **`ia_sugerencias`** en lugar de `ia_inferencias_log`: estado `SUGERIDO_POR_IA` →
+>   `RATIFICADA` | `DESCARTADA`; ratifica la misma persona que pidió la lectura (CHECK), con el
+>   registro de destino (acto o escribano) creado en la misma transacción por el servicio de
+>   siempre. Lo propuesto no se modifica y la fila no se borra (trigger + REVOKE).
+> - **Minimización (Ley 25.326):** no se guarda el documento ni su texto; de cada campo quedan la
+>   regla, la confianza y una huella HMAC del valor, y de cada alerta su código. Los valores, las
+>   citas y los mensajes viajan solo en la respuesta del análisis a quien lo pidió.
+> - **Permisos:** los de la carga manual (`ddjj:create_own`/`ddjj:approve` para minutas,
+>   `escribanos:write` para el DNI). Auditoría: `IA_SUGERENCIA_GENERADA`, `_RATIFICADA` (con los
+>   campos corregidos) y `_DESCARTADA`; reporte «Sugerencias de IA» para Auditoría.
+
 ---
 
 ### 1. Propósito, Principio "Human in Command" y Mitigación de Riesgos

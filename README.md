@@ -19,8 +19,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 5 | Pagos: comprobantes y mesa de conciliación de Tesorería | Completa |
 | 6 | Reportes con paginación en servidor y exportación XLSX/CSV con paridad de totales | Completa |
 | 7 | Sitio institucional: novedades, autoridades y documentos oficiales con integridad verificada | Completa |
-| 8 | Préstamos: líneas, simulación, otorgamiento con cuatro ojos, garantes y cobro de cuotas | En revisión |
-| 9–10 | Ver `AGENTS.md` | Pendiente |
+| 8 | Préstamos: líneas, simulación, otorgamiento con cuatro ojos, garantes y cobro de cuotas | Completa |
+| 9 | IA asistencial: actos desde la minuta y alta desde el DNI, siempre ratificados por una persona | En revisión |
+| 10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -51,8 +52,12 @@ Docs/          especificación funcional y técnica
 ## Requisitos (macOS)
 
 ```bash
-brew install postgresql@16 libmagic pango gdk-pixbuf libffi mailpit pre-commit
+brew install postgresql@16 libmagic pango gdk-pixbuf libffi mailpit pre-commit tesseract tesseract-lang
 ```
+
+- `tesseract` lee minutas escaneadas y el dorso del DNI; `tesseract-lang` agrega el español (sin
+  él usa inglés y lee peor las tildes). Sin Tesseract, la IA sigue funcionando con PDF con texto,
+  texto pegado y el código de barras del DNI.
 
 - Python 3.12 o superior y Node 20 LTS o superior.
 - PostgreSQL corriendo localmente; el usuario de macOS debe poder conectarse con `psql -d postgres`.
@@ -157,7 +162,9 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `CAJA_NOMBRE` / `CAJA_CUIT` / `CAJA_DOMICILIO` / `CAJA_CONTACTO` | Datos de la Caja impresos en la boleta |
 | `BANCO_NOMBRE` / `BANCO_CUENTA` / `BANCO_CBU` / `BANCO_ALIAS` | Cuenta recaudadora impresa en la boleta. Solo en el `.env` de cada entorno; sin CBU la boleta dice «Datos bancarios a confirmar» |
 | `CMS_MAX_DOC_MB` | Tamaño máximo de los documentos oficiales que se publican en el sitio (25) |
-| `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB) |
+| `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB). También es el tope de los archivos que lee la IA |
+| `IA_TESSERACT_CMD` / `IA_OCR_IDIOMAS` | Binario de Tesseract y idiomas preferidos (`spa+eng`; se usan los instalados) |
+| `IA_OCR_TIMEOUT_S` / `IA_OCR_CONCURRENCIA` | Tiempo máximo de una lectura (30 s) y lecturas simultáneas (2); con la cola llena se responde 503 |
 | `LOG_LEVEL` | Nivel de logging (JSON a stdout) |
 
 ## Reglas innegociables
@@ -315,6 +322,29 @@ Ya aplicadas:
   cobra las cuotas en orden y el préstamo se cancela con la última.
 - **Valores de negocio:** las líneas de `make seed-dev` son de ejemplo («a confirmar»); tasas,
   plazos y topes los fija el Directorio (`TODO(negocio)`, igual que punitorios y pagos parciales).
+
+## IA asistencial (Fase 9)
+
+- **Human in Command:** la IA solo sugiere. Toda lectura queda `SUGERIDO_POR_IA` y no crea nada;
+  el acto o el escribano existen recién cuando la misma persona que pidió la lectura revisa,
+  corrige si hace falta, tilda la revisión y confirma. La ratificación pasa por los servicios de
+  siempre (`agregar_acto`, `create_escribano`): mismas validaciones, permisos y auditoría, en una
+  sola transacción. La IA no propone aportes, no presenta declaraciones ni mueve saldos.
+- **Minuta → acto de la DDJJ** (`/ddjj/:id/minuta`): PDF con texto, foto (OCR) o texto pegado.
+  Motor de reglas explicable: cada dato trae la regla, la confianza y el fragmento que lo
+  respalda. Alertas: cifras y letras distintas (número y monto), fecha fuera del período o
+  futura, número ya declarado, CUIT inválidos, moneda extranjera, menor sin representación,
+  registro distinto y cargo distinto. El autorizante se busca en el equipo del registro
+  (titular, adscriptos y a cargo) por matrícula, apellido o el cargo con que se presenta.
+- **DNI → alta en el padrón** (Nuevo escribano): código PDF417 del frente o MRZ del dorso con sus
+  cuatro dígitos de control. El CUIL se propone con el algoritmo de AFIP y confianza baja.
+- **Datos:** todo corre en el servidor (Tesseract y zxing locales). El documento no se guarda.
+  La tabla `ia_sugerencias` no se borra ni se modifica (trigger) y guarda solo regla, confianza y
+  una huella HMAC de cada valor, sin datos personales ni texto de la minuta; alcanza para
+  auditar qué propuso el motor y qué corrigió la persona (reporte «Sugerencias de IA»).
+- **Fuera de alcance:** la comparación facial 1:1 son datos biométricos sensibles (Ley 25.326):
+  `TODO(negocio)` decidir si se implementa y con qué resguardos. También queda para la Caja el
+  plazo de conservación de los metadatos de las sugerencias.
 
 ## Seguridad de acceso (Fase 1)
 

@@ -314,6 +314,12 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Las evaluaciones muestran primero el veredicto (cumple / no se puede otorgar con sus motivos), después cuota, tasa, afectación contra el tope (con tinte de rechazo si lo supera) y total a devolver.
 - Los importes que se tipean aceptan puntos de miles ("1.500.000"); las tasas, coma decimal.
 
+### Revisión asistida (IA)
+- Página propia, no diálogo: arriba un aviso informativo («Vos confirmás cada dato»); debajo, dos columnas desde 1024px. A la izquierda, «Lo que leyó la Suite»: alertas (atención primero) y cada dato con su valor, la regla aplicada, la confianza y el fragmento del documento en una cita sobre Superficie con borde Línea. A la derecha, el mismo formulario de la carga manual.
+- Debajo de cada campo, una pista con ícono y texto: «Sugerido por la Suite, confianza alta (95 %).» (destellos), «Corregido. La Suite había sugerido 345.» (lápiz) o «La Suite no lo encontró en el documento: completalo.» (círculo punteado). Con confianza baja, la pista va en Ámbar Atención con «verificalo». Nunca se preselecciona un dato que la Suite no encontró.
+- La acción principal («Confirmar y agregar el acto», «Dar de alta») queda deshabilitada hasta tildar «Revisé los datos…»; cambiar cualquier campo destilda la casilla. «Descartar» es secundario.
+- En un formulario existente (alta de escribano), la lectura es un panel opcional al principio, con la zona de archivo y, leído el documento, sus avisos y «Descartar la lectura».
+
 ### Verificación pública
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 
