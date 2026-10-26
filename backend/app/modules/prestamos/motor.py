@@ -12,9 +12,9 @@
 import calendar
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, localcontext
 
-from app.common.money import MONEY_QUANT, to_money
+from app.common.money import MONEY_QUANT, RATE_QUANT, to_money
 from app.modules.prestamos.catalog import Sistema
 
 CERO = Decimal("0.00")
@@ -116,9 +116,13 @@ def cuota_maxima(cuotas: list[Cuota]) -> Decimal:
 
 
 def afectacion(compromiso_mensual: Decimal, ingreso_neto: Decimal) -> Decimal:
-    """Porcentaje del ingreso neto mensual comprometido (2 decimales, ROUND_HALF_UP)."""
+    """Porcentaje del ingreso neto mensual comprometido, redondeado hacia arriba a 4 decimales.
+
+    Es un control de riesgo: el redondeo nunca puede hacer pasar un compromiso que supera el
+    tope (30,00004 % no queda en 30 %).
+    """
     if ingreso_neto <= 0:
         raise MotorPrestamoError("El ingreso neto tiene que ser mayor que cero.")
-    return (compromiso_mensual * CIEN / ingreso_neto).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+    if compromiso_mensual < 0:
+        raise MotorPrestamoError("El compromiso mensual no puede ser negativo.")
+    return (compromiso_mensual * CIEN / ingreso_neto).quantize(RATE_QUANT, rounding=ROUND_CEILING)

@@ -97,7 +97,12 @@ def test_vencimientos_mensuales_con_fin_de_mes() -> None:
 
 
 def test_afectacion_y_errores() -> None:
-    assert afectacion(D("8884.88"), D("30000")) == D("29.62")
+    assert afectacion(D("8884.88"), D("30000")) == D("29.6163")
+    # Borde del tope: 30,00004 % se redondea hacia arriba y no pasa un tope de 30 %.
+    assert afectacion(D("30000.04"), D("100000")) == D("30.0001")
+    assert afectacion(D("30000.00"), D("100000")) == D("30.0000")
+    with pytest.raises(MotorPrestamoError):
+        afectacion(D("-1"), D("100"))
     with pytest.raises(MotorPrestamoError):
         plan(Sistema.FRANCES, D("0"), D("10"), 12, INICIO)
     with pytest.raises(MotorPrestamoError):
