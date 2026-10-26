@@ -316,10 +316,14 @@ export function PrestamoPage() {
               <Dato label="Plazo">{p.cuotas} cuotas</Dato>
               <Dato label="Tasa nominal anual">{formatPercent(p.tna)}</Dato>
               <Dato label="Sistema">{SISTEMA[p.sistema].label}</Dato>
-              <Dato label="Ingreso neto">{formatMoney(p.ingreso_neto)}</Dato>
-              <Dato label="Afectación">
-                {formatPercent(p.afectacion)} de {formatPercent(p.afectacion_maxima)}
-              </Dato>
+              {p.ingreso_neto !== null && (
+                <Dato label="Ingreso neto">{formatMoney(p.ingreso_neto)}</Dato>
+              )}
+              {p.afectacion !== null && (
+                <Dato label="Afectación">
+                  {formatPercent(p.afectacion)} de {formatPercent(p.afectacion_maxima)}
+                </Dato>
+              )}
               <Dato label="Garante">
                 {p.garante
                   ? `${p.garante.apellido_nombre} · Mat. ${String(p.garante.matricula_numero)}`

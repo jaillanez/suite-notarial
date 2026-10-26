@@ -135,6 +135,14 @@ def evaluacion_out(ev: service.Evaluacion) -> EvaluacionOut:
     )
 
 
+async def _solo_garante(session: SessionDep, principal: Principal, p: Prestamo) -> bool:
+    """Quien mira es el garante (y no el titular ni personal con acceso a todo)."""
+    if service.ve_todo(principal):
+        return False
+    propio = await service.escribano_de(session, principal.user)
+    return propio is not None and propio.id != p.escribano_id
+
+
 async def prestamo_out(session: SessionDep, principal: Principal, p: Prestamo) -> PrestamoOut:
     escribano = await service.get_escribano(session, p.escribano_id)
     garante = (
@@ -148,6 +156,9 @@ async def prestamo_out(session: SessionDep, principal: Principal, p: Prestamo) -
     ids = {p.creado_por_user_id} | ({p.resuelto_por_user_id} if p.resuelto_por_user_id else set())
     emails = await parametros.user_emails(session, ids) if service.ve_todo(principal) else {}
     pendientes = [c for c in cuotas if c.estado == EstadoCuota.PENDIENTE.value]
+    # El garante responde por la deuda (ve plan, saldo y atrasos) pero no la situación económica
+    # del titular ni las notas internas de la evaluación.
+    reservado = await _solo_garante(session, principal, p)
     return PrestamoOut(
         id=p.id,
         numero=p.numero,
@@ -161,12 +172,12 @@ async def prestamo_out(session: SessionDep, principal: Principal, p: Prestamo) -
         tasa_es_ejemplo=p.tasa_es_ejemplo,
         capital=p.capital,
         cuotas=p.cuotas,
-        ingreso_neto=p.ingreso_neto,
-        otras_cuotas=p.otras_cuotas,
+        ingreso_neto=None if reservado else p.ingreso_neto,
+        otras_cuotas=None if reservado else p.otras_cuotas,
         cuota_maxima=p.cuota_maxima,
-        afectacion=p.afectacion,
+        afectacion=None if reservado else p.afectacion,
         afectacion_maxima=p.afectacion_maxima,
-        observaciones=p.observaciones,
+        observaciones=None if reservado else p.observaciones,
         motivo_rechazo=p.motivo_rechazo,
         fecha_otorgamiento=p.fecha_otorgamiento,
         # A un escribano no se le muestran los correos del personal.
@@ -210,7 +221,7 @@ async def prestamo_detalle(
         **base.model_dump(),
         plan=plan,
         totales=totales(plan),
-        impedimentos_actuales=impedimentos,
+        impedimentos_actuales=[] if await _solo_garante(session, principal, p) else impedimentos,
         puede_resolver=await _puede_resolver(session, principal, p),
     )
 

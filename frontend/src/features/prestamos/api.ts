@@ -79,10 +79,11 @@ export interface Prestamo {
   tasa_es_ejemplo: boolean
   capital: string
   cuotas: number
-  ingreso_neto: string
-  otras_cuotas: string
+  /** null cuando quien mira es solo el garante: no ve la situación del titular. */
+  ingreso_neto: string | null
+  otras_cuotas: string | null
   cuota_maxima: string
-  afectacion: string
+  afectacion: string | null
   afectacion_maxima: string
   observaciones: string | null
   motivo_rechazo: string | null

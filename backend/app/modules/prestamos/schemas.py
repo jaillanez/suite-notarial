@@ -129,10 +129,11 @@ class PrestamoOut(BaseModel):
     tasa_es_ejemplo: bool
     capital: Money
     cuotas: int
-    ingreso_neto: Money
-    otras_cuotas: Money
+    # Datos de la evaluación del titular: no se envían a quien es solo garante.
+    ingreso_neto: Money | None
+    otras_cuotas: Money | None
     cuota_maxima: Money
-    afectacion: Rate
+    afectacion: Rate | None
     afectacion_maxima: Rate
     observaciones: str | None
     motivo_rechazo: str | None

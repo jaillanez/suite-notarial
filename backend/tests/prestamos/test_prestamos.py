@@ -360,3 +360,45 @@ async def test_no_resuelve_quien_es_titular_o_garante(
     assert detalle.json()["puede_resolver"] is False
     assert otorgar.status_code == 403
     assert "titular o garante" in otorgar.json()["detail"]
+
+
+async def test_garante_no_ve_la_situacion_del_titular(
+    notario: AsyncClient,
+    staff: AsyncClient,
+    admin: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+) -> None:
+    linea = await crear_linea(requiere_garante=True)
+    # Préstamo del adscripto con el titular (usuario `notario`) como garante.
+    creado = await staff.post(
+        "/api/v1/prestamos",
+        json=solicitud(
+            escenario,
+            linea,
+            escribano_id=str(escenario.adscripto.id),
+            garante_escribano_id=str(escenario.titular.id),
+            observaciones="Nota interna de la evaluación",
+        ),
+    )
+    assert creado.status_code == 201, creado.text
+    pid = creado.json()["id"]
+
+    visto = await notario.get(f"/api/v1/prestamos/{pid}")
+    assert visto.status_code == 200, visto.text
+    g = visto.json()
+    # Responde por la deuda: ve condiciones, plan y estado.
+    assert g["capital"] == "100000.00"
+    assert len(g["plan"]) == 12
+    assert g["cuota_maxima"] == "8884.88"
+    # Pero no la situación económica del titular ni las notas internas.
+    for campo in ("ingreso_neto", "otras_cuotas", "afectacion", "observaciones"):
+        assert g[campo] is None, campo
+    assert g["impedimentos_actuales"] == []
+    assert g["puede_resolver"] is False
+
+    completo = (await staff.get(f"/api/v1/prestamos/{pid}")).json()
+    assert completo["ingreso_neto"] == "60000.00"
+    assert completo["afectacion"] is not None
+    assert completo["observaciones"] == "Nota interna de la evaluación"
