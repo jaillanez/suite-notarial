@@ -320,6 +320,13 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - La acción principal («Confirmar y agregar el acto», «Dar de alta») queda deshabilitada hasta tildar «Revisé los datos…»; cambiar cualquier campo destilda la casilla. «Descartar» es secundario.
 - En un formulario existente (alta de escribano), la lectura es un panel opcional al principio, con la zona de archivo y, leído el documento, sus avisos y «Descartar la lectura».
 
+### Migración (cuadratura y conformidad)
+- Lista de corridas como lista navegable: modo y fecha a la izquierda; «Cuadra» o «No cuadra» y el estado a la derecha, como indicadores; debajo, bloqueantes, advertencias y qué área firmó.
+- La ficha abre con el veredicto como aviso con título («Cuadra al centavo», o «No cuadra» con la lista de causas en palabras), seguido de la tabla de cuadratura (control, leídas, cargadas y rechazadas; importes aparte) con la fila que no cuadra en Tinte Rechazo. En celular, una tarjeta por archivo.
+- Observaciones con filtros de severidad y archivo, paginadas en el servidor; cada una con su indicador (bloqueante en rechazo, advertencia en atención), el mensaje y, debajo, archivo, línea y código del origen. Arriba, el conteo por código como píldoras neutras.
+- La tabla de homologación se muestra en desplegables por tabla (código del origen en monoespaciada → valor de la Suite): es parte de lo que se firma.
+- La conformidad es un panel con una fila por área (pendiente o «Firmó …» con fecha). El formulario aparece solo para quien puede firmar: casilla «Revisé la cuadratura y las observaciones…» y botón primario «Firmar conformidad de …». Lo que falta para la carga definitiva se lista con el ícono de pendiente; nunca con un tilde.
+
 ### Verificación pública
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 

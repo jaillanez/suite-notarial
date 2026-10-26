@@ -20,8 +20,8 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 6 | Reportes con paginación en servidor y exportación XLSX/CSV con paridad de totales | Completa |
 | 7 | Sitio institucional: novedades, autoridades y documentos oficiales con integridad verificada | Completa |
 | 8 | Préstamos: líneas, simulación, otorgamiento con cuatro ojos, garantes y cobro de cuotas | Completa |
-| 9 | IA asistencial: actos desde la minuta y alta desde el DNI, siempre ratificados por una persona | En revisión |
-| 10 | Ver `AGENTS.md` | Pendiente |
+| 9 | IA asistencial: actos desde la minuta y alta desde el DNI, siempre ratificados por una persona | Completa |
+| 10 | Migración: formato de intercambio, simulacros con cuadratura al centavo, conformidad, carga definitiva y reversa ensayada | En revisión |
 
 ## Stack
 
@@ -134,6 +134,7 @@ proxea `/api` al backend, así que el navegador ve un único origen y las cookie
 | `make seed-dev` / `make reset-dev` | Usuarios de demostración / recrear el esquema local desde cero |
 | `make create-admin email=... cuit=... name="..."` | Alta del primer administrador |
 | `make e2e` | Flujo punta a punta de la Fase 1 contra `make dev` y Mailpit |
+| `make ensayo-corte` | Ensayo cronometrado de carga definitiva y reversa en `suite_notarial_ensayo` (`registros=` y `periodos=` para el volumen) |
 | `make test` | pytest + Vitest |
 | `make lint` | ruff, mypy, ESLint, Prettier, tsc |
 | `make fmt` | Formatea backend y frontend |
@@ -165,6 +166,7 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB). También es el tope de los archivos que lee la IA |
 | `IA_TESSERACT_CMD` / `IA_OCR_IDIOMAS` | Binario de Tesseract y idiomas preferidos (`spa+eng`; se usan los instalados) |
 | `IA_OCR_TIMEOUT_S` / `IA_OCR_CONCURRENCIA` | Tiempo máximo de una lectura (30 s) y lecturas simultáneas (2); con la cola llena se responde 503 |
+| `MIGRACION_SIMULACROS_MINIMOS` | Simulacros cuadrados exigidos antes de la carga definitiva (3) |
 | `LOG_LEVEL` | Nivel de logging (JSON a stdout) |
 
 ## Reglas innegociables
@@ -345,6 +347,14 @@ Ya aplicadas:
 - **Fuera de alcance:** la comparación facial 1:1 son datos biométricos sensibles (Ley 25.326):
   `TODO(negocio)` decidir si se implementa y con qué resguardos. También queda para la Caja el
   plazo de conservación de los metadatos de las sugerencias.
+
+## Migración y puesta en marcha (Fase 10)
+
+- **Lote de extracción** en un [formato de intercambio](Docs/formato-intercambio-migracion.md) propio (el sistema anterior todavía no fue auditado: D-03), con `control.csv` de totales del origen y una tabla de homologación de códigos.
+- **Corridas** por consola (`python -m app.modules.migracion.cli`): validación con observaciones por fila (sin datos personales), carga en una sola transacción y **cuadratura al centavo**: control = leído = cargado + rechazado, y el mismo saldo por registro en origen y destino. Nada se redondea ni se compensa.
+- **Simulacros** que se revierten y dejan informe. La **carga definitiva** exige 3 simulacros cuadrados del mismo lote y la misma homologación, la conformidad de Tesorería y de Caja (personas distintas, en *Migración*) y una tabla que no sea la de ejemplo. Además tiene que cuadrar por sí misma y rechazar lo mismo que lo firmado. Una sola por base.
+- **Padrón** a las tablas operativas; **boletas y pagos** a un histórico de solo lectura (no se inventan vigencias ni conciliaciones). La deuda histórica impaga cuenta para garantes; reporte «Boletas del sistema anterior».
+- **Reversa ensayada:** `make ensayo-corte` corre todo el circuito sobre `suite_notarial_ensayo` y cronometra respaldo, carga y reversa contra el objetivo de 30 minutos (también corre en los tests). Procedimiento completo en el [manual de corte y reversa](Docs/corte-y-reversa.md).
 
 ## Seguridad de acceso (Fase 1)
 

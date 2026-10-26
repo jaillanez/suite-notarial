@@ -5,6 +5,16 @@
 **Requerimientos del Pliego:** Decisión `D-03`, `OPS-01`, `OPS-02`, `OPS-03`, `SEC-06`, Criterios de Aceptación  
 **Stack de Referencia:** Python 3.12+ | Alembic | PostgreSQL 16+ | Docker | Pandas / Polars (ETL)
 
+> **Implementación (Fase 10).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Sin Docker ni Pandas:** el ETL es un módulo de la Suite (`app/modules/migracion`) con `Decimal` y `csv` de la biblioteca estándar; se opera por consola (`python -m app.modules.migracion.cli`).
+> - **D-03:** como el sistema anterior no fue auditado, la Suite fija un [formato de intercambio](formato-intercambio-migracion.md) (CSV + `control.csv` con los totales del origen) y una tabla de homologación de códigos; la extracción se escribe después para producirlo. No se lee ninguna base del sistema anterior directamente.
+> - **Destino:** el padrón va a las tablas operativas; boletas y pagos a `historico_boletas` / `historico_pagos`, de solo lectura (no a `boletas_pago` como dice la matriz: no tienen vigencia paramétrica ni conciliación y serían asientos ficticios). `TODO(negocio)`: DDJJ históricas con detalle de actos.
+> - **Cuadratura** al centavo con tres fuentes (control del origen, leído, cargado consultado a la base) y saldo por registro; nada se redondea ni se compensa. Las observaciones no llevan datos personales.
+> - **Simulacros** (3, configurable) que se revierten, **conformidad** de Tesorería y de Caja en la Suite sobre un simulacro del mismo lote y la misma homologación, y **carga definitiva** única que tiene que cuadrar por sí misma y rechazar lo mismo que lo firmado.
+> - **Reversa:** respaldo `pg_dump` y restauración en una transacción con el rol dueño (sin superusuario); `make ensayo-corte` la ensaya y cronometra contra los 30 minutos. El [manual de corte y reversa](corte-y-reversa.md) cubre la vuelta al sistema anterior (DNS, proxy y reingreso de lo operado).
+> - **Permisos nuevos:** `migracion:read` (Admin, Caja, Tesorería, Auditoría), `migracion:conformar` (Caja, Tesorería) y `migracion:ejecutar` (Admin).
+
 ---
 
 ### 1. Propósito, Alcance y Principios de la Decisión D-03
