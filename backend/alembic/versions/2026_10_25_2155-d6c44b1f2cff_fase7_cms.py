@@ -32,8 +32,18 @@ BEGIN
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
     END IF;
+    IF TG_TABLE_NAME IN ('cms_novedades', 'cms_documentos') THEN
+        -- Lo que se publicó una vez no vuelve a borrador (ni pierde su fecha de publicación).
+        IF (OLD.estado <> 'BORRADOR' AND NEW.estado = 'BORRADOR')
+           OR (OLD.fecha_publicacion IS NOT NULL
+               AND NEW.fecha_publicacion IS DISTINCT FROM OLD.fecha_publicacion) THEN
+            RAISE EXCEPTION '%: lo publicado no vuelve a borrador', TG_TABLE_NAME
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+    END IF;
     IF TG_TABLE_NAME = 'cms_novedades' THEN
-        IF OLD.estado <> 'BORRADOR' AND NEW.slug IS DISTINCT FROM OLD.slug THEN
+        IF NEW.slug IS DISTINCT FROM OLD.slug
+           AND (OLD.estado <> 'BORRADOR' OR OLD.fecha_publicacion IS NOT NULL) THEN
             RAISE EXCEPTION 'cms_novedades: el enlace de una novedad publicada no cambia'
                 USING ERRCODE = 'insufficient_privilege';
         END IF;

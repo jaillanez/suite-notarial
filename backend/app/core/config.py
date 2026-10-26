@@ -64,6 +64,8 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: Path = Path("var/uploads")
     MAX_UPLOAD_MB: Annotated[int, Field(gt=0)] = 10
+    # Documentos oficiales del sitio (balances, memorias): suelen ser más pesados.
+    CMS_MAX_DOC_MB: Annotated[int, Field(gt=0)] = 25
 
     LOG_LEVEL: str = "INFO"
 
