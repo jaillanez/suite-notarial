@@ -402,3 +402,30 @@ async def test_garante_no_ve_la_situacion_del_titular(
     assert completo["ingreso_neto"] == "60000.00"
     assert completo["afectacion"] is not None
     assert completo["observaciones"] == "Nota interna de la evaluación"
+
+
+async def test_titular_no_ve_la_situacion_del_garante(
+    notario: AsyncClient,
+    staff: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+    db_session: AsyncSession,
+) -> None:
+    linea = await crear_linea(requiere_garante=True)
+    creado = await staff.post(
+        "/api/v1/prestamos",
+        json=solicitud(escenario, linea, garante_escribano_id=str(escenario.adscripto.id)),
+    )
+    assert creado.status_code == 201, creado.text
+    # Después de cargada la solicitud, el garante deja de estar habilitado.
+    escenario.adscripto.estado_matricula = "SUSPENDIDO"
+    await db_session.flush()
+
+    pid = creado.json()["id"]
+    personal = (await staff.get(f"/api/v1/prestamos/{pid}")).json()["impedimentos_actuales"]
+    titular = (await notario.get(f"/api/v1/prestamos/{pid}")).json()["impedimentos_actuales"]
+    assert "El garante no tiene la matrícula activa." in personal
+    assert titular == [
+        "El garante propuesto no reúne las condiciones exigidas: consultá con la Caja."
+    ]

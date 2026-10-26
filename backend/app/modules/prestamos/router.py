@@ -214,14 +214,19 @@ async def prestamo_detalle(
     if p.estado == EstadoPrestamo.SOLICITADO.value:
         ev = await service.reevaluar(session, p, hoy)
         plan = [cuota_out(c, hoy) for c in ev.plan]
-        impedimentos = ev.impedimentos
+        # Solo el personal ve la situación del garante; el titular, un aviso genérico, y el
+        # garante, nada de la evaluación del titular.
+        if service.ve_todo(principal):
+            impedimentos = ev.impedimentos
+        elif not await _solo_garante(session, principal, p):
+            impedimentos = ev.impedimentos_para_titular()
     else:
         plan = [cuota_out(c, hoy) for c in await service.plan_guardado(session, p.id)]
     return PrestamoDetalle(
         **base.model_dump(),
         plan=plan,
         totales=totales(plan),
-        impedimentos_actuales=[] if await _solo_garante(session, principal, p) else impedimentos,
+        impedimentos_actuales=impedimentos,
         puede_resolver=await _puede_resolver(session, principal, p),
     )
 

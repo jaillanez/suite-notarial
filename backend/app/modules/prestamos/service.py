@@ -258,6 +258,9 @@ async def inhabilidades_garante(session: AsyncSession, garante: Escribano, hoy: 
 # --------------------------------------------------------------------------- evaluación
 
 
+GARANTE_NO_HABIL = "El garante propuesto no reúne las condiciones exigidas: consultá con la Caja."
+
+
 @dataclass
 class Evaluacion:
     sistema: Sistema
@@ -272,6 +275,13 @@ class Evaluacion:
     afectacion_maxima: Decimal
     requiere_garante: bool
     impedimentos: list[str] = field(default_factory=list)
+    # Subconjunto de `impedimentos` que describe la situación del garante (un tercero).
+    impedimentos_garante: list[str] = field(default_factory=list)
+
+    def impedimentos_para_titular(self) -> list[str]:
+        """Lo que puede ver el titular: los motivos del garante sin revelar su situación."""
+        propios = [i for i in self.impedimentos if i not in self.impedimentos_garante]
+        return propios + ([GARANTE_NO_HABIL] if self.impedimentos_garante else [])
 
 
 async def evaluar(
@@ -290,6 +300,7 @@ async def evaluar(
     """Plan y reglas de otorgamiento. `condiciones` fija sistema y tasa ya pactados (SNAP)."""
     sistema, tna, ejemplo = condiciones or (Sistema(linea.sistema), linea.tna, linea.es_ejemplo)
     impedimentos: list[str] = []
+    del_garante: list[str] = []
     if not linea.is_active and condiciones is None:
         impedimentos.append("La línea de crédito no está habilitada.")
     if not linea.monto_minimo <= capital <= linea.monto_maximo:
@@ -325,9 +336,10 @@ async def evaluar(
         if escribano is not None and garante_id == escribano.id:
             impedimentos.append("El solicitante no puede ser su propio garante.")
         else:
-            impedimentos += await inhabilidades_garante(
+            del_garante = await inhabilidades_garante(
                 session, await get_escribano(session, garante_id), hoy
             )
+            impedimentos += del_garante
     elif linea.requiere_garante:
         impedimentos.append("La línea exige un garante solidario matriculado.")
     return Evaluacion(
@@ -343,6 +355,7 @@ async def evaluar(
         afectacion_maxima=linea.afectacion_maxima,
         requiere_garante=linea.requiere_garante,
         impedimentos=impedimentos,
+        impedimentos_garante=del_garante,
     )
 
 
