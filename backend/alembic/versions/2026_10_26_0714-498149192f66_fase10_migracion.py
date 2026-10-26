@@ -69,6 +69,8 @@ BEGIN
             OR NEW.version_formato IS DISTINCT FROM OLD.version_formato
             OR NEW.homologacion IS DISTINCT FROM OLD.homologacion
             OR NEW.homologacion_ejemplo IS DISTINCT FROM OLD.homologacion_ejemplo
+            OR NEW.huella_homologacion IS DISTINCT FROM OLD.huella_homologacion
+            OR NEW.homologacion_tablas IS DISTINCT FROM OLD.homologacion_tablas
             OR NEW.operador_user_id IS DISTINCT FROM OLD.operador_user_id
             OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
             RAISE EXCEPTION 'migracion_corridas: la identidad de la corrida no se modifica'
@@ -118,6 +120,8 @@ def upgrade() -> None:
     sa.Column('version_formato', sa.String(length=10), nullable=False),
     sa.Column('homologacion', sa.String(length=200), nullable=False),
     sa.Column('homologacion_ejemplo', sa.Boolean(), nullable=False),
+    sa.Column('huella_homologacion', sa.String(length=64), nullable=False),
+    sa.Column('homologacion_tablas', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('operador_user_id', sa.UUID(), nullable=False),
     sa.Column('finalizada_en', sa.DateTime(timezone=True), nullable=True),
     sa.Column('cuadra', sa.Boolean(), nullable=True),

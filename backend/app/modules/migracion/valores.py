@@ -32,8 +32,8 @@ def fecha(valor: str) -> date:
             try:
                 return date(int(coincide.group(a)), int(coincide.group(m)), int(coincide.group(d)))
             except ValueError as exc:
-                raise ValorInvalidoError(f"fecha inexistente «{valor}»") from exc
-    raise ValorInvalidoError(f"fecha con formato desconocido «{valor}»")
+                raise ValorInvalidoError("fecha inexistente") from exc
+    raise ValorInvalidoError("fecha con formato desconocido")
 
 
 _PERIODOS = (
@@ -52,7 +52,7 @@ def periodo(valor: str) -> str:
             anio, mes = int(coincide.group(a)), int(coincide.group(m))
             if 1 <= mes <= 12 and 1900 <= anio <= 2100:
                 return f"{anio:04d}-{mes:02d}"
-    raise ValorInvalidoError(f"período con formato desconocido «{valor}»")
+    raise ValorInvalidoError("período con formato desconocido")
 
 
 _MILES_CON_PUNTO = re.compile(r"\d{1,3}(\.\d{3})+")
@@ -82,14 +82,14 @@ def importe(valor: str) -> Decimal:
     else:
         texto = texto.replace(",", ".")
     if not re.fullmatch(r"\d+(\.\d+)?", texto):
-        raise ValorInvalidoError(f"importe ilegible «{valor}»")
+        raise ValorInvalidoError("importe ilegible")
     try:
         numero = Decimal(texto)
     except InvalidOperation as exc:
-        raise ValorInvalidoError(f"importe ilegible «{valor}»") from exc
+        raise ValorInvalidoError("importe ilegible") from exc
     if numero != numero.quantize(CENTAVO):
         raise ValorInvalidoError(
-            f"importe con más de dos decimales «{valor}» (posible valor de punto flotante en el "
+            "importe con más de dos decimales (posible valor de punto flotante en el "
             "origen): no se redondea"
         )
     return (-numero if negativo else numero).quantize(CENTAVO)
@@ -98,7 +98,7 @@ def importe(valor: str) -> Decimal:
 def entero(valor: str) -> int:
     texto = valor.strip()
     if not re.fullmatch(r"\d{1,9}", texto):
-        raise ValorInvalidoError(f"número entero inválido «{valor}»")
+        raise ValorInvalidoError("número entero inválido")
     return int(texto)
 
 

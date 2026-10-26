@@ -75,6 +75,8 @@ const CORRIDA: api.CorridaDetalle = {
   conformidades: [],
   error: null,
   pendiente_para_definitiva: ['Hacen falta 3 simulacros que cuadren (hay 0).'],
+  huella_homologacion: 'fedcba9876543210',
+  homologacion_tablas: { cargo: { T: 'TITULAR', AC: 'SUPLENTE_INTERINO' } },
   informe: INFORME,
 }
 
@@ -122,6 +124,7 @@ describe('migración', () => {
       await screen.findByText('Boletas: 1 importe ilegible (no se redondean)'),
     ).toBeInTheDocument()
     expect(screen.getByText('Homologación de ejemplo')).toBeInTheDocument()
+    expect(screen.getByText('Cargo en el registro')).toBeInTheDocument()
     expect(screen.getAllByText('$ 1.000.123,79').length).toBeGreaterThan(0)
     expect(await screen.findByText(/importe con más de dos decimales/)).toBeInTheDocument()
     // Un simulacro que no cuadró no se firma.

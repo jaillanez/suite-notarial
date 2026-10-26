@@ -73,12 +73,14 @@ async def corrida_out(session: SessionDep, corrida: Corrida) -> CorridaOut:
 async def corrida_detalle(session: SessionDep, corrida: Corrida) -> CorridaDetalle:
     base = await corrida_out(session, corrida)
     pendiente = await service.habilitacion_definitiva(
-        session, corrida.huella_lote, corrida.homologacion_ejemplo
+        session, corrida.huella_lote, corrida.huella_homologacion, corrida.homologacion_ejemplo
     )
     return CorridaDetalle(
         **base.model_dump(),
         informe=corrida.informe,
         error=corrida.error,
+        huella_homologacion=corrida.huella_homologacion,
+        homologacion_tablas=corrida.homologacion_tablas,
         pendiente_para_definitiva=pendiente,
     )
 

@@ -133,3 +133,20 @@ def test_homologacion_invalida(tmp_path: Path) -> None:
     with pytest.raises(homologacion.HomologacionInvalidaError, match="no es un valor"):
         homologacion.cargar(ruta)
     assert homologacion.cargar().es_ejemplo is True
+
+
+def test_la_tabla_de_ejemplo_no_deja_de_serlo_por_una_marca(tmp_path: Path) -> None:
+    import json
+
+    datos = json.loads(homologacion.EJEMPLO.read_text(encoding="utf-8"))
+    datos["es_ejemplo"] = False
+    copia = tmp_path / "copia.json"
+    copia.write_text(json.dumps(datos, indent=4), encoding="utf-8")
+    assert homologacion.cargar(copia).es_ejemplo is True
+
+    datos["estado_escribano"]["NUEVO"] = "ACTIVO"
+    propia = tmp_path / "propia.json"
+    propia.write_text(json.dumps(datos), encoding="utf-8")
+    tabla = homologacion.cargar(propia)
+    assert tabla.es_ejemplo is False
+    assert tabla.huella != homologacion.cargar().huella

@@ -330,5 +330,125 @@ async def test_corrida_fallida_queda_registrada(
     corrida = await db_session.scalar(select(Corrida).order_by(Corrida.created_at.desc()))
     assert corrida is not None
     assert corrida.estado == EstadoCorrida.FALLIDA.value
-    assert corrida.error is not None and "corte de luz" in corrida.error
+    # Solo el tipo de error: el mensaje puede traer valores de la fila (datos personales).
+    assert corrida.error == "RuntimeError"
     assert await _contar(db_session, HistoricoBoleta) == 0
+
+
+async def _habilitar(
+    maker: Maker,
+    directorio: Path,
+    operador: User,
+    homologacion: Path,
+    tesoreria: Firmante,
+    caja: Firmante,
+) -> None:
+    """Un simulacro cuadrado del lote con su conformidad de ambas áreas (mínimo fijado en 1)."""
+    r = await _simulacro(maker, directorio, operador, homologacion)
+    assert r.cuadra
+    url = f"/api/v1/migracion/corridas/{r.corrida_id}/conformidad"
+    assert (await tesoreria.client.post(url, json={"area": "TESORERIA"})).status_code == 200
+    assert (await caja.client.post(url, json={"area": "CAJA"})).status_code == 200
+
+
+async def test_definitiva_que_no_cuadra_no_carga_nada(
+    maker: Maker,
+    lote: Callable[..., Path],
+    operador: User,
+    homologacion_aprobada: Path,
+    simulacros_minimos: Callable[[int], None],
+    tesoreria: Firmante,
+    caja: Firmante,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.modules.migracion import cuadratura
+
+    simulacros_minimos(1)
+    directorio = lote()
+    await _habilitar(maker, directorio, operador, homologacion_aprobada, tesoreria, caja)
+
+    original = cuadratura.calcular
+
+    async def no_cuadra(*args: Any) -> dict[str, Any]:
+        informe = await original(*args)
+        return {**informe, "cuadra": False}
+
+    monkeypatch.setattr(cuadratura, "calcular", no_cuadra)
+    with pytest.raises(service.MigracionError, match="no cuadró"):
+        await service.correr(
+            directorio,
+            ModoCorrida.DEFINITIVA,
+            operador.email,
+            homologacion_ruta=homologacion_aprobada,
+            maker=maker,
+        )
+    assert await _contar(db_session, HistoricoBoleta) == 0
+    fallida = await db_session.scalar(
+        select(Corrida).where(Corrida.modo == ModoCorrida.DEFINITIVA.value)
+    )
+    assert fallida is not None and fallida.estado == EstadoCorrida.FALLIDA.value
+    assert fallida.informe is not None
+
+
+async def test_definitiva_que_rechaza_otra_cosa_que_lo_firmado(
+    maker: Maker,
+    lote: Callable[..., Path],
+    operador: User,
+    homologacion_aprobada: Path,
+    simulacros_minimos: Callable[[int], None],
+    tesoreria: Firmante,
+    caja: Firmante,
+    db_session: AsyncSession,
+) -> None:
+    """Si la Suite cambió después del simulacro firmado, la definitiva no se confirma."""
+    import uuid
+
+    from app.modules.migracion import formato
+    from app.modules.migracion.catalog import Entidad
+
+    simulacros_minimos(1)
+    directorio = lote()
+    await _habilitar(maker, directorio, operador, homologacion_aprobada, tesoreria, caja)
+    # Alguien da de alta a mano a una persona con un CUIT del lote.
+    cuit = formato.leer_lote(directorio).filas[Entidad.ESCRIBANOS][0].datos["cuit"]
+    db_session.add(
+        Persona(id=uuid.uuid4(), cuit=cuit, numero_documento="1", apellido="Manual", nombre="Alta")
+    )
+    await db_session.flush()
+
+    with pytest.raises(service.MigracionError, match="distintas de las del simulacro firmado"):
+        await service.correr(
+            directorio,
+            ModoCorrida.DEFINITIVA,
+            operador.email,
+            homologacion_ruta=homologacion_aprobada,
+            maker=maker,
+        )
+    assert await _contar(db_session, HistoricoBoleta) == 0
+
+
+async def test_conformidades_de_otra_homologacion_no_cuentan(
+    maker: Maker,
+    lote: Callable[..., Path],
+    operador: User,
+    homologacion_aprobada: Path,
+    simulacros_minimos: Callable[[int], None],
+    tesoreria: Firmante,
+    caja: Firmante,
+) -> None:
+    simulacros_minimos(1)
+    directorio = lote()
+    # Se firmó un simulacro con la tabla de ejemplo, no con la que se quiere cargar.
+    r = await _simulacro(maker, directorio, operador)
+    url = f"/api/v1/migracion/corridas/{r.corrida_id}/conformidad"
+    await tesoreria.client.post(url, json={"area": "TESORERIA"})
+    await caja.client.post(url, json={"area": "CAJA"})
+    with pytest.raises(service.MigracionError, match="esta homologación"):
+        await service.correr(
+            directorio,
+            ModoCorrida.DEFINITIVA,
+            operador.email,
+            homologacion_ruta=homologacion_aprobada,
+            maker=maker,
+        )

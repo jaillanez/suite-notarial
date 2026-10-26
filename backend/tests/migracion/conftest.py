@@ -47,9 +47,11 @@ def lote(tmp_path: Path) -> Callable[..., Path]:
 
 @pytest.fixture
 def homologacion_aprobada(tmp_path: Path) -> Path:
-    """La de ejemplo, marcada como aprobada (solo para estos tests)."""
+    """Una tabla distinta de la de ejemplo (la de ejemplo más un código), sin marca de ejemplo:
+    la aprueban las conformidades sobre un simulacro que la usó."""
     datos = json.loads(EJEMPLO.read_text(encoding="utf-8"))
     datos["es_ejemplo"] = False
+    datos["estado_escribano"]["APROBADO"] = "ACTIVO"
     ruta = tmp_path / "homologacion.json"
     ruta.write_text(json.dumps(datos), encoding="utf-8")
     return ruta

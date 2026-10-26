@@ -137,9 +137,11 @@ async def ensayar(
         trabajo = Path(tempfile.mkdtemp(prefix="ensayo-corte-"))
         lote = trabajo / "lote"
         resumen = sintetico.generar(lote, registros=registros, periodos=periodos)
-        # Homologación de ENSAYO: la de ejemplo con la marca quitada, solo en esta base.
+        # Homologación de ENSAYO: la de ejemplo más un código propio (otro contenido, otra
+        # huella); quitarle la marca a la de ejemplo no alcanza para que deje de serlo.
         datos = json.loads(EJEMPLO.read_text(encoding="utf-8"))
         datos["es_ejemplo"] = False
+        datos["estado_escribano"]["ENSAYO"] = "ACTIVO"
         homologacion = trabajo / "homologacion_ensayo.json"
         homologacion.write_text(json.dumps(datos), encoding="utf-8")
         informe.paso("lote sintético", 0, **resumen.__dict__)

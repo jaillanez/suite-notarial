@@ -69,6 +69,9 @@ export interface Informe {
 export interface CorridaDetalle extends Corrida {
   informe: Informe | null
   error: string | null
+  /** Tabla de homologación que cubren las conformidades: código del origen → valor en la Suite. */
+  huella_homologacion: string
+  homologacion_tablas: Record<string, Record<string, string>>
   pendiente_para_definitiva: string[]
 }
 

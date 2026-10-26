@@ -62,6 +62,10 @@ class Corrida(UUIDMixin, TimestampMixin, Base):
     version_formato: Mapped[str] = mapped_column(String(10), nullable=False)
     homologacion: Mapped[str] = mapped_column(String(200), nullable=False)
     homologacion_ejemplo: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # La tabla de homologación usada (huella y contenido: códigos, sin datos personales). La
+    # conformidad de un simulacro cubre lote y tabla; la definitiva exige ambos iguales.
+    huella_homologacion: Mapped[str] = mapped_column(String(64), nullable=False)
+    homologacion_tablas: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     operador_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id", ondelete="RESTRICT"), nullable=False
     )

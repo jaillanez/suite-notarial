@@ -33,6 +33,7 @@ import {
   ESTADO_BOLETA_HISTORICA,
   MODO,
   ROL_DEL_AREA,
+  TABLA_HOMOLOGACION,
   huellaCorta,
 } from './labels'
 
@@ -503,6 +504,37 @@ function Conformidad({ c }: { c: CorridaDetalle }) {
   )
 }
 
+function Homologacion({ c }: { c: CorridaDetalle }) {
+  const tablas = Object.entries(c.homologacion_tablas)
+  return (
+    <Panel
+      title="Tabla de homologación"
+      description={`Cómo se tradujeron los códigos del sistema anterior (${c.homologacion}, huella ${huellaCorta(c.huella_homologacion)}). La conformidad cubre este lote y esta tabla.`}
+    >
+      <div className="divide-y divide-line">
+        {tablas.map(([tabla, valores]) => (
+          <details key={tabla} className="group px-5 py-3 sm:px-6">
+            <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-medium text-ink">
+              {TABLA_HOMOLOGACION[tabla] ?? tabla}
+              <span className="text-sm font-normal text-ink-muted tabular-nums">
+                {Object.keys(valores).length} códigos
+              </span>
+            </summary>
+            <dl className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+              {Object.entries(valores).map(([origen, destino]) => (
+                <div key={origen} className="contents">
+                  <dt className="font-mono text-ink-muted [overflow-wrap:anywhere]">{origen}</dt>
+                  <dd className="text-ink">{destino}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
 function Definitiva({ c }: { c: CorridaDetalle }) {
   if (c.modo === 'DEFINITIVA') return null
   const pendiente = c.pendiente_para_definitiva
@@ -575,6 +607,7 @@ export function CorridaPage() {
             {c.informe && <Cuadratura c={c} />}
             <Saldos c={c} />
             <Observaciones c={c} />
+            <Homologacion c={c} />
             <Conformidad c={c} />
             <Definitiva c={c} />
             <p className="text-xs text-ink-muted [overflow-wrap:anywhere]">

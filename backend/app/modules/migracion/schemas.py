@@ -35,6 +35,9 @@ class CorridaDetalle(CorridaOut):
     # Cuadratura: totales y conteos por entidad, saldos y observaciones por código.
     informe: dict[str, Any] | None
     error: str | None
+    # Tabla de homologación que cubren las conformidades (códigos del origen → Suite).
+    huella_homologacion: str
+    homologacion_tablas: dict[str, dict[str, str]]
     # Lo que falta para hacer la carga definitiva de este mismo lote (vacío: habilitada).
     pendiente_para_definitiva: list[str]
 

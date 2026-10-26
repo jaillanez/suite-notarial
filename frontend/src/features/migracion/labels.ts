@@ -38,3 +38,10 @@ export const ESTADO_BOLETA_HISTORICA: Record<string, string> = {
 export function huellaCorta(huella: string): string {
   return huella.slice(0, 12)
 }
+
+export const TABLA_HOMOLOGACION: Record<string, string> = {
+  estado_escribano: 'Estado de matrícula',
+  estado_registro: 'Estado del registro',
+  cargo: 'Cargo en el registro',
+  estado_boleta: 'Estado de la boleta',
+}

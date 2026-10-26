@@ -9,6 +9,7 @@
   cuadratura y observaciones, y registra las conformidades.
 """
 
+import logging
 import time
 import uuid
 from collections.abc import Sequence
@@ -39,6 +40,8 @@ from app.modules.migracion.models import Conformidad, Corrida, ObservacionMigrac
 from app.modules.migracion.validacion import Existentes, Staging, validar
 from app.modules.padron.models import Escribano, Persona, RegistroNotarial
 
+log = logging.getLogger(__name__)
+
 CONSOLA = RequestContext(
     ip_address=None, user_agent="cli", correlation_id=None, path="cli:migracion"
 )
@@ -56,6 +59,20 @@ class Resultado:
     bloqueantes: int
     advertencias: int
     informe: dict[str, Any]
+
+
+def _error_saneado(exc: BaseException) -> str:
+    """Tipo de error y restricción violada, sin valores de la fila (pueden ser datos personales).
+    El detalle completo queda solo en el log del servidor."""
+    log.exception("Corrida de migración fallida")
+    original = getattr(exc, "orig", None)
+    restriccion = getattr(getattr(original, "__cause__", None), "constraint_name", None)
+    partes = [type(exc).__name__]
+    if original is not None:
+        partes.append(type(original).__name__)
+    if restriccion:
+        partes.append(f"restricción {restriccion}")
+    return " · ".join(partes)
 
 
 def _ahora() -> datetime:
@@ -81,10 +98,33 @@ async def _existentes(session: AsyncSession) -> Existentes:
     )
 
 
+async def _ultimo_simulacro(
+    session: AsyncSession, huella: str, huella_homologacion: str
+) -> Corrida | None:
+    return await session.scalar(
+        select(Corrida)
+        .where(
+            Corrida.modo == ModoCorrida.SIMULACRO.value,
+            Corrida.huella_lote == huella,
+            Corrida.huella_homologacion == huella_homologacion,
+        )
+        # created_at es la hora de la transacción: el cierre desempata corridas simultáneas.
+        .order_by(Corrida.created_at.desc(), Corrida.finalizada_en.desc().nulls_first())
+        .limit(1)
+    )
+
+
 async def habilitacion_definitiva(
-    session: AsyncSession, huella: str, homologacion_ejemplo: bool
+    session: AsyncSession, huella: str, huella_homologacion: str, homologacion_ejemplo: bool
 ) -> list[str]:
-    """Motivos que impiden la carga definitiva de este lote (vacío: habilitada)."""
+    """Motivos que impiden la carga definitiva de este lote con esta homologación (vacío:
+    habilitada). Simulacros y conformidades cuentan solo si usaron el mismo lote y la misma
+    tabla de homologación."""
+    mismo = (
+        Corrida.modo == ModoCorrida.SIMULACRO.value,
+        Corrida.huella_lote == huella,
+        Corrida.huella_homologacion == huella_homologacion,
+    )
     motivos = []
     if homologacion_ejemplo:
         motivos.append(
@@ -93,22 +133,17 @@ async def habilitacion_definitiva(
     minimos = get_settings().MIGRACION_SIMULACROS_MINIMOS
     cuadrados = await session.scalar(
         select(func.count()).where(
-            Corrida.modo == ModoCorrida.SIMULACRO.value,
-            Corrida.estado == EstadoCorrida.SIMULADA.value,
-            Corrida.cuadra.is_(True),
+            *mismo, Corrida.estado == EstadoCorrida.SIMULADA.value, Corrida.cuadra.is_(True)
         )
     )
     if (cuadrados or 0) < minimos:
-        motivos.append(f"Hacen falta {minimos} simulacros que cuadren (hay {cuadrados or 0}).")
-    ultimo = await session.scalar(
-        select(Corrida)
-        .where(Corrida.modo == ModoCorrida.SIMULACRO.value, Corrida.huella_lote == huella)
-        # created_at es la hora de la transacción: el cierre desempata corridas simultáneas.
-        .order_by(Corrida.created_at.desc(), Corrida.finalizada_en.desc().nulls_first())
-        .limit(1)
-    )
+        motivos.append(
+            f"Hacen falta {minimos} simulacros que cuadren con este lote y esta homologación "
+            f"(hay {cuadrados or 0})."
+        )
+    ultimo = await _ultimo_simulacro(session, huella, huella_homologacion)
     if ultimo is None:
-        motivos.append("No hay un simulacro de este mismo lote.")
+        motivos.append("No hay un simulacro de este mismo lote con esta homologación.")
     else:
         if not (ultimo.estado == EstadoCorrida.SIMULADA.value and ultimo.cuadra):
             motivos.append("El último simulacro de este lote no cuadró.")
@@ -160,8 +195,10 @@ async def _finalizar(
     st: Staging,
     informe: dict[str, Any],
     duracion_ms: int,
+    error: str | None = None,
 ) -> None:
     corrida.estado = estado.value
+    corrida.error = error
     corrida.finalizada_en = _ahora()
     corrida.cuadra = bool(informe["cuadra"])
     corrida.bloqueantes = int(informe["bloqueantes"])
@@ -202,10 +239,15 @@ async def correr(
 
     async with maker() as session:
         operador = await _operador(session, operador_email)
+        bloqueantes_firmados: int | None = None
         if modo is ModoCorrida.DEFINITIVA:
-            motivos = await habilitacion_definitiva(session, lote.huella, hom.es_ejemplo)
+            motivos = await habilitacion_definitiva(
+                session, lote.huella, hom.huella, hom.es_ejemplo
+            )
             if motivos:
                 raise MigracionError("Carga definitiva no habilitada:\n- " + "\n- ".join(motivos))
+            firmado = await _ultimo_simulacro(session, lote.huella, hom.huella)
+            bloqueantes_firmados = firmado.bloqueantes if firmado else None
         corrida = Corrida(
             id=uuid.uuid4(),
             modo=modo.value,
@@ -214,6 +256,8 @@ async def correr(
             version_formato=formato.VERSION_FORMATO,
             homologacion=hom.origen,
             homologacion_ejemplo=hom.es_ejemplo,
+            huella_homologacion=hom.huella,
+            homologacion_tablas=hom.tablas,
             operador_user_id=operador.id,
         )
         session.add(corrida)
@@ -222,7 +266,12 @@ async def correr(
             CONSOLA,
             AuditEvent.MIGRACION_INICIADA,
             actor_user_id=operador.id,
-            details={"corrida_id": str(corrida.id), "modo": modo.value, "huella": lote.huella},
+            details={
+                "corrida_id": str(corrida.id),
+                "modo": modo.value,
+                "huella_lote": lote.huella,
+                "huella_homologacion": hom.huella,
+            },
         )
         await session.commit()
         corrida_id, operador_id = corrida.id, operador.id
@@ -234,24 +283,46 @@ async def correr(
             cargado = await carga.cargar(session, st, corrida_id, operador_id)
             informe = await cuadratura.calcular(session, lote, st, cargado, corrida_id)
             duracion = (time.perf_counter_ns() - inicio) // 1_000_000
-            if modo is ModoCorrida.DEFINITIVA:
+            # La definitiva tiene que cuadrar por sí misma y rechazar exactamente lo que se
+            # firmó en el simulacro (si cambió la Suite en el medio, hay que volver a ensayar).
+            igual_a_lo_firmado = informe["bloqueantes"] == bloqueantes_firmados
+            definitiva_ok = (
+                modo is ModoCorrida.DEFINITIVA and bool(informe["cuadra"]) and igual_a_lo_firmado
+            )
+            if definitiva_ok:
                 # Carga, informe y observaciones se confirman juntos.
                 corrida = await session.get_one(Corrida, corrida_id)
                 await _finalizar(session, corrida, EstadoCorrida.CARGADA, st, informe, duracion)
                 await session.commit()
             else:
+                # Simulacro, o definitiva que no cuadró por sí misma: no queda nada cargado.
                 await session.rollback()
-        if modo is ModoCorrida.SIMULACRO:
+        if not definitiva_ok:
+            estado = (
+                EstadoCorrida.SIMULADA if modo is ModoCorrida.SIMULACRO else EstadoCorrida.FALLIDA
+            )
             async with maker() as session:
                 corrida = await session.get_one(Corrida, corrida_id)
-                await _finalizar(session, corrida, EstadoCorrida.SIMULADA, st, informe, duracion)
+                error = None
+                if estado is EstadoCorrida.FALLIDA:
+                    error = (
+                        "La carga definitiva no cuadró: se revirtió sin cargar nada."
+                        if not informe["cuadra"]
+                        else "La carga definitiva rechazó filas distintas de las del simulacro "
+                        "firmado: se revirtió sin cargar nada. Repetí el simulacro."
+                    )
+                await _finalizar(session, corrida, estado, st, informe, duracion, error)
                 await session.commit()
+            if error is not None:
+                raise MigracionError(f"{error} Revisá el informe de la corrida.")
+    except MigracionError:
+        raise
     except Exception as exc:
         async with maker() as session:
             corrida = await session.get_one(Corrida, corrida_id)
             corrida.estado = EstadoCorrida.FALLIDA.value
             corrida.finalizada_en = _ahora()
-            corrida.error = f"{type(exc).__name__}: {exc}"[:2000]
+            corrida.error = _error_saneado(exc)
             record_audit(
                 session,
                 CONSOLA,
