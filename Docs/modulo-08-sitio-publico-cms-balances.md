@@ -23,8 +23,8 @@
 > - **Integridad al servir (WEB-02):** cada descarga verifica el SHA-256 contra lo registrado; si
 >   no coincide responde 503 y audita `CMS_DOCUMENTO_ALTERADO` (CRITICAL). La administración
 >   muestra el control por versión.
-> - **Caché:** listados públicos 60 s; enlace canónico `no-cache` con `ETag` = huella (304 si no
->   cambió, así un reemplazo se ve al instante); versión fija `immutable` por un año.
+> - **Caché:** listados públicos 60 s; todos los PDF `no-cache` con `ETag` = huella (304 si no
+>   cambió): un reemplazo se ve al instante y un documento archivado deja de servirse.
 > - **URLs** desde `PUBLIC_WEB_URL` (`/api/v1/publico/documentos/{slug}.pdf`).
 > - **Rutas:** `/api/v1/cms/{autoridades, novedades, documentos, documentos/{id}/versiones,
 >   .../estado}` (permiso `cms:publish`) y públicas `/api/v1/publico/{sitio, novedades,

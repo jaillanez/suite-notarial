@@ -42,12 +42,11 @@ public_router = APIRouter(prefix="/publico", tags=["sitio público"])
 CanPublish = Annotated[Principal, Depends(require_permissions(Perm.CMS_PUBLISH))]
 SlugPath = Annotated[str, Path(pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", max_length=150)]
 
-# Contenido público: sin datos de sesión. Los listados se guardan un minuto; el enlace canónico
-# del PDF se revalida siempre (ETag = huella) porque puede pasar a una versión nueva, y las
-# URLs de una versión fija no cambian nunca.
+# Contenido público: sin datos de sesión. Los listados se guardan un minuto. Los PDF se revalidan
+# siempre (ETag = huella, 304 si no cambió): el canónico puede pasar a una versión nueva y
+# cualquier documento puede archivarse, así que ninguna caché debe seguir sirviéndolo.
 CACHE_PUBLICO = "public, max-age=60, stale-while-revalidate=300"
-CACHE_PDF_CANONICO = "public, no-cache"
-CACHE_PDF_VERSION = "public, max-age=31536000, immutable"
+CACHE_PDF = "public, no-cache"
 
 
 def documento_url(settings: Settings, slug: str, version: int | None = None) -> str:
@@ -394,7 +393,7 @@ async def _servir_pdf(
     if elegida is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "Esa versión del documento no existe.")
     etag = f'"{elegida.sha256}"'
-    cache = CACHE_PDF_CANONICO if version is None else CACHE_PDF_VERSION
+    cache = CACHE_PDF
     # El cliente ya tiene exactamente este archivo (misma huella): no se reenvía.
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})

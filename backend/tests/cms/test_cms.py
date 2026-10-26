@@ -121,7 +121,7 @@ async def test_documento_borrador_publicado_y_versionado(
     assert (await client.get(canonica)).content == nuevo
     v1 = await client.get("/api/v1/publico/documentos/estados-contables-2025/v1.pdf")
     assert v1.content == original
-    assert "immutable" in v1.headers["cache-control"]
+    assert v1.headers["cache-control"] == "public, no-cache"
     # Con la misma ETag de antes, la canónica ya no responde 304: cambió de versión.
     renovada = await client.get(canonica, headers={"If-None-Match": r1.headers["etag"]})
     assert renovada.status_code == 200 and renovada.content == nuevo
@@ -142,6 +142,12 @@ async def test_documento_borrador_publicado_y_versionado(
     )
     assert archivado.status_code == 200
     assert (await client.get(canonica)).status_code == 404
+    # Archivado también deja de servirse por versión, aunque se presente la ETag de antes.
+    retirada = await client.get(
+        "/api/v1/publico/documentos/estados-contables-2025/v1.pdf",
+        headers={"If-None-Match": r1.headers["etag"]},
+    )
+    assert retirada.status_code == 404
     volver_a_borrador = await editor.post(
         f"/api/v1/cms/documentos/{doc['id']}/estado", json={"estado": "BORRADOR"}
     )
