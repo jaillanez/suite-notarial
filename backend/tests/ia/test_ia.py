@@ -436,7 +436,10 @@ async def test_pdf_con_demasiado_texto(notario: AsyncClient, borrador: dict[str,
     from weasyprint import HTML
 
     parrafo = "Texto de relleno sin datos. " * 400
-    pdf = HTML(string="".join(f"<p>{parrafo}</p>" for _ in range(20))).write_pdf()
+    # Hoja grande y letra chica: pocas páginas con cualquier fuente (el tope que se prueba es el
+    # de caracteres, no el de páginas).
+    estilo = "<style>@page{size:A3;margin:5mm} p{font-size:4pt;line-height:1}</style>"
+    pdf = HTML(string=estilo + "".join(f"<p>{parrafo}</p>" for _ in range(20))).write_pdf()
     assert pdf is not None
     response = await notario.post(
         "/api/v1/ia/minutas",
