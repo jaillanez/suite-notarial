@@ -526,3 +526,32 @@ async def test_pdf_bomba_de_descompresion(notario: AsyncClient, borrador: dict[s
         files={"archivo": ("lzw.pdf", otra_compresion, "application/pdf")},
     )
     assert response.status_code == 422
+    assert "compresión" in response.json()["detail"]
+
+
+def test_inflado_falla_cerrado() -> None:
+    """Sin /Length directo y sin poder medir hasta el final: se cobra el máximo por stream."""
+    import zlib
+
+    from app.modules.ia.lectura import MAX_INFLADO_PDF, _controlar_inflado
+    from app.modules.pagos.storage import ArchivoInvalidoError
+
+    # Un "endstream" falso dentro de los datos comprimidos corta la medición: no alcanza para
+    # esconder el stream, porque cuenta como el tope de pypdf (4 MB). Cinco superan los 16 MB.
+    comprimido = zlib.compress(b"A" * 1000)
+    trampa = comprimido[:10] + b"endstream" + comprimido[10:]
+    stream = (
+        b"5 0 obj\n<< /Length 9 0 R /Filter /FlateDecode >>\nstream\n" + trampa + b"\nendstream\n"
+    )
+    _controlar_inflado(b"%PDF-1.7\n" + stream * 4)
+    with pytest.raises(ArchivoInvalidoError, match="demasiado pesado"):
+        _controlar_inflado(b"%PDF-1.7\n" + stream * 5)
+    # "stream" seguido de espacios y CR también se reconoce, como en pypdf.
+    bomba = zlib.compress(b" " * (MAX_INFLADO_PDF + 10))
+    raro = b"<< /Length %d /Filter /FlateDecode >>stream \r" % len(bomba) + bomba + b"endstream"
+    with pytest.raises(ArchivoInvalidoError, match="demasiado pesado"):
+        _controlar_inflado(b"%PDF-1.7\n" + raro)
+    # Cadenas de filtros: se rechazan.
+    cadena = b"<< /Length 3 /Filter [/ASCIIHexDecode /FlateDecode] >>\nstream\nabc\nendstream"
+    with pytest.raises(ArchivoInvalidoError, match="compresión"):
+        _controlar_inflado(b"%PDF-1.7\n" + cadena)

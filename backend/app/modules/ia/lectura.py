@@ -149,25 +149,72 @@ def _demasiado_complejo() -> ArchivoInvalidoError:
     )
 
 
-_INICIO_STREAM = re.compile(rb"(?<!end)stream\r?\n")
+# Misma sintaxis que acepta pypdf: "stream", espacios opcionales y fin de línea.
+_INICIO_STREAM = re.compile(rb"(?<!end)stream[ \t]*(?:\r\n|\r|\n)")
+_FILTRO = re.compile(rb"/([A-Za-z0-9]+Decode)\b")
+_LARGO_DIRECTO = re.compile(rb"/Length\s+(\d{1,10})(?!\s+\d+\s+R)")
+# Imágenes: extraer texto no las decodifica; cuentan lo que pesan.
+_FILTROS_IMAGEN = frozenset({b"DCTDecode", b"JPXDecode"})
+_VENTANA_DICCIONARIO = 4096
+
+
+def _diccionario(contenido: memoryview, inicio: int) -> bytes:
+    """Bytes del diccionario del stream: desde el último "obj" hasta la palabra "stream"."""
+    desde = max(0, inicio - _VENTANA_DICCIONARIO)
+    ventana = bytes(contenido[desde:inicio])
+    corte = ventana.rfind(b"obj")
+    return ventana[corte:] if corte >= 0 else ventana
+
+
+def _costo_stream(
+    contenido: bytes, vista: memoryview, inicio: int, fin_cabecera: int, presupuesto: int
+) -> tuple[int, int]:
+    """(lo que el stream puede ocupar al decodificarse, bytes examinados). Falla cerrado ante lo
+    que no puede medir."""
+    diccionario = _diccionario(vista, inicio)
+    filtros = _FILTRO.findall(diccionario)
+    largo = _LARGO_DIRECTO.search(diccionario)
+    if largo is not None:
+        fin = min(len(contenido), fin_cabecera + int(largo.group(1)))
+    else:
+        # /Length indirecto: hasta "endstream" (puede quedar corto; se cobra el tope abajo).
+        fin = contenido.find(b"endstream", fin_cabecera)
+        fin = len(contenido) if fin < 0 else fin
+    datos = vista[fin_cabecera:fin]
+    if not filtros or all(f in _FILTROS_IMAGEN for f in filtros):
+        return len(datos), len(datos)
+    if filtros != [b"FlateDecode"]:
+        # Una minuta de texto no necesita otras compresiones ni cadenas de filtros (los
+        # predictores de /DecodeParms no amplifican: el tamaño inflado ya los cubre).
+        raise ArchivoInvalidoError(
+            "El PDF usa una compresión que no se admite: exportalo de nuevo como PDF simple.",
+            status=422,
+        )
+    descompresor = zlib.decompressobj()
+    try:
+        tamano = len(descompresor.decompress(datos, presupuesto + 1))
+    except zlib.error as exc:
+        raise ArchivoInvalidoError("El PDF está dañado o no se puede abrir.", status=422) from exc
+    if not descompresor.eof and tamano <= presupuesto:
+        # No se pudo medir hasta el final: se cobra el máximo que pypdf permite por stream.
+        return max(tamano, _POR_STREAM), len(datos)
+    return tamano, len(datos)
 
 
 def _controlar_inflado(contenido: bytes) -> None:
-    """Antes de que pypdf abra el archivo: mide cada `stream … endstream` (contenidos, fuentes,
-    streams de objetos y de xref) inflando como mucho lo que queda del presupuesto total."""
+    """Antes de que pypdf abra el archivo: cobra cada `stream` (contenidos, fuentes, streams de
+    objetos y de xref) contra un presupuesto total; lo que no puede medir lo cobra al máximo."""
+    vista = memoryview(contenido)
     restante = MAX_INFLADO_PDF
+    # Los streams no se solapan en un PDF válido: examinar más que dos veces el archivo es abuso.
+    examinable = 2 * len(contenido)
     for cantidad, inicio in enumerate(_INICIO_STREAM.finditer(contenido), start=1):
         if cantidad > MAX_STREAMS_PDF:
             raise _demasiado_complejo()
-        fin = contenido.find(b"endstream", inicio.end())
-        datos = contenido[inicio.end() : fin if fin >= 0 else len(contenido)]
-        try:
-            tamano = len(zlib.decompressobj().decompress(datos, restante + 1))
-        except zlib.error:
-            # No es zlib (imagen JPEG, datos sin comprimir): ocupa lo que pesa.
-            tamano = len(datos)
-        restante -= tamano
-        if restante < 0:
+        costo, examinado = _costo_stream(contenido, vista, inicio.start(), inicio.end(), restante)
+        restante -= costo
+        examinable -= examinado
+        if restante < 0 or examinable < 0:
             raise _demasiado_complejo()
 
 
