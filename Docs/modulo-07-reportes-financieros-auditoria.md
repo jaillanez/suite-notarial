@@ -5,6 +5,25 @@
 **Requerimientos del Pliego:** `REP-01`, `REP-02`, `REP-03`, `REP-04`, `SEC-01`, `SEC-03`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | openpyxl (XLSX) | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | Pydantic v2 | React + TypeScript (TanStack Table)
 
+> **Implementación (Fase 6).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Motor único** (`app/modules/reportes/framework.py`): cada reporte declara columnas, filtros
+>   y una función que arma la consulta. Grilla paginada, totales (sumas sobre todas las filas
+>   filtradas) y exportación salen de esa misma consulta, filtros y orden: la paridad es por
+>   construcción y está probada (pantalla == XLSX == CSV, fila a fila y en totales).
+> - **Reportes:** `ESCRIBANOS` (padrón, `escribanos:read`), `BOLETAS`, `PAGOS` (conciliaciones) y
+>   `RECAUDACION` (boletas pagadas por período) con `reports:financial`, y `AUDITORIA` con
+>   `audit:read`. `REP_DEUDA_MORA` y `REP_HISTORICO` quedan para cuando la Caja defina cómo se
+>   calcula la deuda con interés (`TODO(negocio)`) y se migre el histórico (Fase 10).
+> - **Sin float:** importes como `Decimal` en XLSX (numérico exacto, formato `#,##0.00`) y como
+>   texto con coma decimal en CSV (`;`, UTF-8 con BOM). Fechas en hora de San Juan.
+> - **Inyección de fórmulas:** textos que empiezan con `= + - @` se guardan como texto en XLSX y
+>   con `'` adelante en CSV.
+> - **Auditoría:** cada exportación registra `REPORTE_EXPORTADO` con reporte, formato, filtros,
+>   filas, totales y roles (WARNING si el reporte es sensible); los rechazos por permiso también.
+>   Tope de 50.000 filas por exportación.
+> - **Rutas:** `/api/v1/reportes`, `/api/v1/reportes/{codigo}` y `/api/v1/reportes/{codigo}/export?formato=xlsx|csv`.
+
 ---
 
 ### 1. Propósito, Alcance y Mitigación de Defectos Críticos

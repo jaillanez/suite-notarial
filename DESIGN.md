@@ -297,6 +297,12 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Las acciones van debajo, una por panel: confirmar (primario, con diálogo de confirmación que repite los importes) y rechazar (peligro, motivo obligatorio). Los motivos frecuentes son botones fantasma con borde que completan el campo; el elegido queda marcado.
 - Los importes que verifica Tesorería nunca se precargan con lo declarado.
 
+### Reportes
+- Filtros en grilla de hasta cuatro columnas arriba de la tabla; se aplican al cambiar y ofrecen «Quitar filtros».
+- «Columnas (n de m)» despliega casillas para elegir las columnas visibles; la exportación siempre incluye todas. La elección se recuerda en el navegador.
+- Tabla dentro de un área con alto máximo: cabecera fija arriba y fila de totales fija abajo (Superficie Hundida, 600, con «Total · n filas»). Si se eligen muchas columnas, el desplazamiento horizontal queda acotado al panel.
+- Exportar a Excel y CSV como botones secundarios en la cabecera del panel; el pie recuerda que cada exportación queda auditada y si el reporte tiene datos sensibles.
+
 ### Verificación pública
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 

@@ -70,3 +70,14 @@ export function registroLabel(r: { numero_registro: number; nombre_fantasia: str
     ? `Registro N° ${String(r.numero_registro)} · ${r.nombre_fantasia}`
     : `Registro N° ${String(r.numero_registro)}`
 }
+
+/** Los últimos `n` períodos, del más reciente (el mes en curso) al más antiguo. */
+export function ultimosPeriodos(hoy: string, n = 24): string[] {
+  const out: string[] = []
+  let p = periodoActual(hoy)
+  for (let i = 0; i < n; i++) {
+    out.push(p)
+    p = periodoAnterior(p)
+  }
+  return out
+}

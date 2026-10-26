@@ -20,19 +20,17 @@ import {
   fetchRegistrosOperables,
   type EstadoDDJJ,
 } from './api'
-import { ESTADO_DDJJ, formatPeriodo, periodoActual, periodoAnterior, registroLabel } from './labels'
+import {
+  ESTADO_DDJJ,
+  formatPeriodo,
+  registroLabel,
+  ultimosPeriodos as ultimosPeriodosDesde,
+} from './labels'
 
 const PAGE_SIZE = 20
 
-/** Los últimos 24 períodos, del más reciente al más antiguo (incluye el mes en curso). */
 function ultimosPeriodos(): string[] {
-  const out: string[] = []
-  let p = periodoActual(todayIso())
-  for (let i = 0; i < 24; i++) {
-    out.push(p)
-    p = periodoAnterior(p)
-  }
-  return out
+  return ultimosPeriodosDesde(todayIso())
 }
 
 function puedeCargarDDJJ(can: (permission: string) => boolean): boolean {
