@@ -55,7 +55,7 @@ def upload_root(settings: Settings) -> Path:
     return (root if root.is_absolute() else BACKEND_DIR / root).resolve()
 
 
-def _nombre_original(nombre: str | None) -> str:
+def nombre_original_seguro(nombre: str | None) -> str:
     # Solo se conserva para mostrarlo: sin rutas ni caracteres de control.
     base = Path(nombre or "comprobante").name
     limpio = "".join(ch for ch in base if ch.isprintable()).strip()
@@ -85,7 +85,7 @@ async def validar(file: UploadFile, max_bytes: int) -> ArchivoValidado:
         mime_type=mime_type,
         extension=MIME_PERMITIDOS[mime_type],
         sha256=hashlib.sha256(contenido).hexdigest(),
-        nombre_original=_nombre_original(file.filename),
+        nombre_original=nombre_original_seguro(file.filename),
     )
 
 
@@ -96,9 +96,11 @@ def _escribir(destino: Path, contenido: bytes) -> None:
         fh.write(contenido)
 
 
-async def guardar(settings: Settings, archivo: ArchivoValidado, hoy: date) -> str:
+async def guardar(
+    settings: Settings, archivo: ArchivoValidado, hoy: date, *, subdir: str = SUBDIR
+) -> str:
     """Guarda el archivo y devuelve su ruta relativa a `UPLOAD_DIR` (lo que va a la base)."""
-    relativa = f"{SUBDIR}/{hoy.year:04d}/{hoy.month:02d}/{uuid.uuid4().hex}{archivo.extension}"
+    relativa = f"{subdir}/{hoy.year:04d}/{hoy.month:02d}/{uuid.uuid4().hex}{archivo.extension}"
     await anyio.to_thread.run_sync(_escribir, upload_root(settings) / relativa, archivo.contenido)
     return relativa
 

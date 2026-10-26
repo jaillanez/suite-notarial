@@ -303,6 +303,12 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Tabla dentro de un área con alto máximo: cabecera fija arriba y fila de totales fija abajo (Superficie Hundida, 600, con «Total · n filas»). Si se eligen muchas columnas, el desplazamiento horizontal queda acotado al panel.
 - Exportar a Excel y CSV como botones secundarios en la cabecera del panel; el pie recuerda que cada exportación queda auditada y si el reporte tiene datos sensibles.
 
+### Sitio institucional (público)
+- Misma identidad que la Suite, en modo lectura: cabecera con logo y navegación corta (Inicio, Novedades, Verificar boleta, Ingresar), columna de 64rem y pie con la nota de integridad.
+- Secciones separadas por una línea fina y un título en Petróleo Profundo, sin tarjetas: la información se lee como un registro.
+- Documentos agrupados por tipo; el ejercicio encabeza cada fila en cifras grandes y tabulares, con «Descargar PDF» como botón secundario. Huella y versiones anteriores en un desplegable con chevron.
+- Novedades en una columna de 65ch, cuerpo en 1.125rem y párrafos separados; el texto se muestra tal cual se cargó (escapado).
+
 ### Verificación pública
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 

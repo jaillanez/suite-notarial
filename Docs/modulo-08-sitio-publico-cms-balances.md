@@ -5,6 +5,31 @@
 **Requerimientos del Pliego:** `WEB-01`, `WEB-02`, `WEB-03`, `WEB-04`, `SEC-01`, `SEC-03`  
 **Stack de Referencia:** Python 3.12+ | FastAPI | pypdf / pypdf2 | PostgreSQL 16+ | SQLAlchemy 2.0 (Async) | React + TypeScript (SSR / Static Hydration)
 
+> **Implementación (Fase 7).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
+>
+> - **Contenido:** autoridades (baja lógica, orden y mandato), novedades en texto plano por
+>   párrafos (sin HTML ni Markdown: se muestran escapadas) y documentos oficiales (estados
+>   contables, memorias, resoluciones, otros). Estados `BORRADOR`, `PUBLICADO`, `ARCHIVADO`; lo
+>   publicado no vuelve a borrador (trigger). Sin `VISTA_PREVIA`: el borrador ya se ve en la
+>   administración.
+> - **Validación del PDF:** cabecera `%PDF-`, magic bytes, apertura con `pypdf`, sin cifrar, con
+>   páginas, y sin contenido activo: se recorre el grafo de objetos resuelto (nombres escapados
+>   incluidos) y se rechazan JavaScript, Launch, SubmitForm, ImportData, adjuntos, multimedia,
+>   formularios y XFA. Tamaño máximo `CMS_MAX_DOC_MB` (25).
+> - **Versionado:** `cms_documentos` (enlace canónico permanente, `slug` inmutable) +
+>   `cms_documento_versiones` (inmutables). Reemplazar exige motivo (público) y crea una versión
+>   nueva; la anterior sigue accesible en `/v{n}.pdf`. Las versiones previas a la primera
+>   publicación (borradores) no se exponen.
+> - **Integridad al servir (WEB-02):** cada descarga verifica el SHA-256 contra lo registrado; si
+>   no coincide responde 503 y audita `CMS_DOCUMENTO_ALTERADO` (CRITICAL). La administración
+>   muestra el control por versión.
+> - **Caché:** listados públicos 60 s; todos los PDF `no-cache` con `ETag` = huella (304 si no
+>   cambió): un reemplazo se ve al instante y un documento archivado deja de servirse.
+> - **URLs** desde `PUBLIC_WEB_URL` (`/api/v1/publico/documentos/{slug}.pdf`).
+> - **Rutas:** `/api/v1/cms/{autoridades, novedades, documentos, documentos/{id}/versiones,
+>   .../estado}` (permiso `cms:publish`) y públicas `/api/v1/publico/{sitio, novedades,
+>   novedades/{slug}, documentos/{slug}.pdf, documentos/{slug}/v{n}.pdf}`.
+
 ---
 
 ### 1. Propósito, Alcance y Mitigación de Defectos Críticos

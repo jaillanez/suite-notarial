@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
     label: 'Reportes',
     permission: ['reports:financial', 'audit:read', 'escribanos:read'],
   },
+  { to: '/cms', label: 'Sitio', permission: 'cms:publish' },
   { to: '/usuarios', label: 'Usuarios', permission: 'users:read' },
   { to: '/auditoria', label: 'Auditoría', permission: 'audit:read' },
   { to: '/estado', label: 'Estado del sistema' },

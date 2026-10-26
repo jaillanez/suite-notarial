@@ -12,6 +12,8 @@ from app.core.db import get_engine
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import register_middleware
+from app.modules.cms.router import public_router as sitio_public_router
+from app.modules.cms.router import router as cms_router
 from app.modules.ddjj.router import public_router as boletas_public_router
 from app.modules.ddjj.router import router as ddjj_router
 from app.modules.health.router import router as health_router
@@ -64,6 +66,8 @@ def create_app() -> FastAPI:
     app.include_router(boletas_public_router, prefix="/api/v1")
     app.include_router(pagos_router, prefix="/api/v1")
     app.include_router(reportes_router, prefix="/api/v1")
+    app.include_router(cms_router, prefix="/api/v1")
+    app.include_router(sitio_public_router, prefix="/api/v1")
     return app
 
 

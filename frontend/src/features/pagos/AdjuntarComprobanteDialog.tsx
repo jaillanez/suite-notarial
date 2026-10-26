@@ -1,73 +1,20 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { FileUp, Upload } from 'lucide-react'
-import { useId, useState } from 'react'
+import { Upload } from 'lucide-react'
+import { useState } from 'react'
 
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Dialog } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
+import { FileField } from '../../components/ui/FileField'
 import { toProblem } from '../../lib/api'
 import { formatDecimal, formatMoney, normalizeDecimalInput } from '../../lib/decimal'
 import type { Boleta } from '../ddjj/api'
 import { formatDate, todayIso } from '../padron/labels'
 import { adjuntarComprobante } from './api'
-import { MAX_BYTES, TIPOS_ACEPTADOS, formatTamano } from './labels'
+import { MAX_BYTES, TIPOS_ACEPTADOS } from './labels'
 
 const TIPOS = new Set(TIPOS_ACEPTADOS.split(','))
-
-function ArchivoField({
-  archivo,
-  error,
-  onChange,
-}: {
-  archivo: File | null
-  error?: string
-  onChange: (file: File | null) => void
-}) {
-  const id = useId()
-  return (
-    <div>
-      <span className="block text-sm font-medium text-ink">Comprobante</span>
-      <label
-        htmlFor={id}
-        className={`mt-1.5 flex min-h-20 cursor-pointer items-center gap-3 rounded-control border border-dashed bg-surface-sunken px-4 py-3 transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50 has-[:focus-visible]:border-action-600 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-action-600 ${error ? 'border-danger-700' : 'border-line-strong'}`}
-      >
-        <FileUp aria-hidden="true" className="size-6 shrink-0 text-brand-800" strokeWidth={2} />
-        <span className="min-w-0 text-sm">
-          {archivo ? (
-            <>
-              <span className="block truncate font-semibold text-ink">{archivo.name}</span>
-              <span className="block text-ink-muted tabular-nums">
-                {formatTamano(archivo.size)} · Tocá para cambiarlo
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="block font-semibold text-brand-800">Elegí el archivo</span>
-              <span className="block text-ink-muted">PDF, PNG o JPG de hasta 10 MB</span>
-            </>
-          )}
-        </span>
-        <input
-          id={id}
-          type="file"
-          accept={TIPOS_ACEPTADOS}
-          className="sr-only"
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
-          onChange={(e) => {
-            onChange(e.target.files?.[0] ?? null)
-          }}
-        />
-      </label>
-      {error && (
-        <p id={`${id}-error`} className="mt-1.5 text-sm font-medium text-danger-700">
-          {error}
-        </p>
-      )}
-    </div>
-  )
-}
 
 export function AdjuntarComprobanteDialog({
   boleta,
@@ -162,7 +109,14 @@ export function AdjuntarComprobanteDialog({
           </div>
         )}
         <div className="sm:col-span-2">
-          <ArchivoField archivo={archivo} error={errorArchivo} onChange={setArchivo} />
+          <FileField
+            label="Comprobante"
+            accept={TIPOS_ACEPTADOS}
+            formatos="PDF, PNG o JPG de hasta 10 MB"
+            archivo={archivo}
+            error={errorArchivo}
+            onChange={setArchivo}
+          />
         </div>
         <Field
           label="Fecha de la transferencia"
