@@ -32,9 +32,36 @@ export function formatPercent(value: string | null): string {
   return `${formatted} %`
 }
 
-/** Acepta lo que tipea una persona en es-AR ("1.234,56" o "1234.56") y lo normaliza. */
+/**
+ * Importe tipeado en es-AR → texto decimal: "1.234,56" → "1234.56", "1.500.000" → "1500000",
+ * "450.000" → "450000". Un importe no tiene tres decimales, así que un punto seguido de grupos
+ * de tres dígitos es siempre separador de miles. Para tasas usar `normalizeTasaInput`.
+ */
 export function normalizeDecimalInput(value: string): string {
   const trimmed = value.trim().replace(/\s/g, '')
   if (trimmed.includes(',')) return trimmed.replace(/\./g, '').replace(',', '.')
+  if (/^\d{1,3}(\.\d{3})+$/.test(trimmed)) return trimmed.replace(/\./g, '')
   return trimmed
+}
+
+/** Tasa o porcentaje tipeado ("1,5" o "12.125") → texto decimal, sin regla de miles. */
+export function normalizeTasaInput(value: string): string {
+  const trimmed = value.trim().replace(/\s/g, '')
+  if (trimmed.includes(',')) return trimmed.replace(/\./g, '').replace(',', '.')
+  return trimmed
+}
+
+/** Signo de `a - b` para dos decimales en texto ("30.0001" vs "30"), sin pasar por float. */
+export function compararDecimal(a: string, b: string): number {
+  const partes = (v: string): [boolean, string, string] => {
+    const negativo = v.trim().startsWith('-')
+    const [entero = '0', fraccion = ''] = v.trim().replace(/^[-+]/, '').split('.')
+    return [negativo, entero, fraccion]
+  }
+  const [an, ae, af] = partes(a)
+  const [bn, be, bf] = partes(b)
+  const largo = Math.max(af.length, bf.length)
+  const ai = BigInt(ae + af.padEnd(largo, '0')) * (an ? -1n : 1n)
+  const bi = BigInt(be + bf.padEnd(largo, '0')) * (bn ? -1n : 1n)
+  return ai === bi ? 0 : ai > bi ? 1 : -1
 }

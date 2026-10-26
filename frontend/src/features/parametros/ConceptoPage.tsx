@@ -13,7 +13,12 @@ import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
-import { formatMoney, formatPercent, normalizeDecimalInput } from '../../lib/decimal'
+import {
+  formatMoney,
+  formatPercent,
+  normalizeDecimalInput,
+  normalizeTasaInput,
+} from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { formatDate, todayIso } from '../padron/labels'
 import {
@@ -39,6 +44,11 @@ import {
 
 const opt = (value: string): string | null => {
   const v = normalizeDecimalInput(value)
+  return v ? v : null
+}
+
+const optTasa = (value: string): string | null => {
+  const v = normalizeTasaInput(value)
   return v ? v : null
 }
 
@@ -76,13 +86,13 @@ function ProponerDialog({
         resolucion_respaldo: form.resolucion_respaldo.trim(),
         motivo: form.motivo.trim(),
         ...(t === 'PORCENTUAL_ACTO' && {
-          porcentaje: opt(form.porcentaje),
+          porcentaje: optTasa(form.porcentaje),
           monto_minimo: opt(form.monto_minimo),
           monto_maximo: opt(form.monto_maximo),
         }),
         ...((t === 'FIJO_MENSUAL' || t === 'FIJO_ACTO') && { monto_fijo: opt(form.monto_fijo) }),
         ...(t === 'TASA_MORA' && {
-          tasa: opt(form.tasa),
+          tasa: optTasa(form.tasa),
           periodo_tasa: form.periodo_tasa,
           dias_gracia: form.dias_gracia ? Number.parseInt(form.dias_gracia, 10) : null,
         }),

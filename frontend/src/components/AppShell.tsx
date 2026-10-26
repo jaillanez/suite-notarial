@@ -30,6 +30,11 @@ const NAV: NavItem[] = [
     label: 'Reportes',
     permission: ['reports:financial', 'audit:read', 'escribanos:read'],
   },
+  {
+    to: '/prestamos',
+    label: 'Préstamos',
+    permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
+  },
   { to: '/cms', label: 'Sitio', permission: 'cms:publish' },
   { to: '/usuarios', label: 'Usuarios', permission: 'users:read' },
   { to: '/auditoria', label: 'Auditoría', permission: 'audit:read' },
@@ -37,7 +42,7 @@ const NAV: NavItem[] = [
 ]
 
 function navClass({ isActive }: { isActive: boolean }): string {
-  return `flex min-h-11 items-center rounded-control px-3 text-sm font-medium transition-colors duration-150 ease-out-quint ${
+  return `flex min-h-11 items-center rounded-control px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 ease-out-quint ${
     isActive
       ? 'bg-brand-50 text-brand-900'
       : 'text-ink-muted hover:bg-brand-50 hover:text-brand-800'
@@ -128,7 +133,7 @@ export function AppShell() {
         {items.length > 0 && (
           <nav
             aria-label="Principal"
-            className="mx-auto hidden max-w-5xl gap-1 px-4 pb-2 sm:flex sm:px-6"
+            className="mx-auto hidden max-w-5xl flex-wrap gap-1 px-4 pb-2 sm:flex sm:px-6"
           >
             {navLinks}
           </nav>
