@@ -452,3 +452,48 @@ async def test_conformidades_de_otra_homologacion_no_cuentan(
             homologacion_ruta=homologacion_aprobada,
             maker=maker,
         )
+
+
+async def test_definitiva_con_los_mismos_rechazos_en_cantidad_pero_otras_filas(
+    maker: Maker,
+    lote: Callable[..., Path],
+    operador: User,
+    homologacion_aprobada: Path,
+    simulacros_minimos: Callable[[int], None],
+    tesoreria: Firmante,
+    caja: Firmante,
+    db_session: AsyncSession,
+) -> None:
+    """Se compara qué filas se rechazan, no cuántas."""
+    import uuid
+
+    from app.modules.migracion import formato
+    from app.modules.migracion.catalog import Entidad
+
+    simulacros_minimos(1)
+    directorio = lote()
+    escribanos = formato.leer_lote(directorio).filas[Entidad.ESCRIBANOS]
+    # Una persona de la Suite choca con el escribano A: el simulacro firmado lo rechaza.
+    persona = Persona(
+        id=uuid.uuid4(),
+        cuit=escribanos[0].datos["cuit"],
+        numero_documento="1",
+        apellido="Manual",
+        nombre="Alta",
+    )
+    db_session.add(persona)
+    await db_session.flush()
+    await _habilitar(maker, directorio, operador, homologacion_aprobada, tesoreria, caja)
+    # Después le corrigen el CUIT y ahora choca con el escribano B: mismo número de rechazos.
+    persona.cuit = escribanos[1].datos["cuit"]
+    await db_session.flush()
+
+    with pytest.raises(service.MigracionError, match="distintas de las del simulacro firmado"):
+        await service.correr(
+            directorio,
+            ModoCorrida.DEFINITIVA,
+            operador.email,
+            homologacion_ruta=homologacion_aprobada,
+            maker=maker,
+        )
+    assert await _contar(db_session, HistoricoBoleta) == 0

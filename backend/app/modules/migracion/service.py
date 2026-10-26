@@ -35,6 +35,7 @@ from app.modules.migracion.catalog import (
     AreaConformidad,
     EstadoCorrida,
     ModoCorrida,
+    Severidad,
 )
 from app.modules.migracion.models import Conformidad, Corrida, ObservacionMigracion
 from app.modules.migracion.validacion import Existentes, Staging, validar
@@ -62,9 +63,7 @@ class Resultado:
 
 
 def _error_saneado(exc: BaseException) -> str:
-    """Tipo de error y restricción violada, sin valores de la fila (pueden ser datos personales).
-    El detalle completo queda solo en el log del servidor."""
-    log.exception("Corrida de migración fallida")
+    """Tipo de error y restricción violada, sin valores de la fila (pueden ser datos personales)."""
     original = getattr(exc, "orig", None)
     restriccion = getattr(getattr(original, "__cause__", None), "constraint_name", None)
     partes = [type(exc).__name__]
@@ -72,7 +71,10 @@ def _error_saneado(exc: BaseException) -> str:
         partes.append(type(original).__name__)
     if restriccion:
         partes.append(f"restricción {restriccion}")
-    return " · ".join(partes)
+    resumen = " · ".join(partes)
+    # Ni el mensaje ni los parámetros de la excepción: pueden traer valores de la fila.
+    log.error("Corrida de migración fallida: %s", resumen)
+    return resumen
 
 
 def _ahora() -> datetime:
@@ -172,6 +174,32 @@ async def habilitacion_definitiva(
     return motivos
 
 
+def _rechazos_de(st: Staging) -> frozenset[tuple[str, int, str, str]]:
+    """Qué filas se rechazan y por qué (no solo cuántas)."""
+    return frozenset(
+        (o.entidad.value, o.fila, o.codigo_legado[:100], o.codigo)
+        for o in st.observaciones
+        if o.severidad is Severidad.BLOQUEANTE
+    )
+
+
+async def _rechazos(
+    session: AsyncSession, corrida_id: uuid.UUID
+) -> frozenset[tuple[str, int, str, str]]:
+    filas = await session.execute(
+        select(
+            ObservacionMigracion.entidad,
+            ObservacionMigracion.fila,
+            ObservacionMigracion.codigo_legado,
+            ObservacionMigracion.codigo,
+        ).where(
+            ObservacionMigracion.corrida_id == corrida_id,
+            ObservacionMigracion.severidad == Severidad.BLOQUEANTE.value,
+        )
+    )
+    return frozenset((e, f, c, k) for e, f, c, k in filas.all())
+
+
 def _observaciones(corrida_id: uuid.UUID, st: Staging) -> list[dict[str, Any]]:
     return [
         {
@@ -239,7 +267,7 @@ async def correr(
 
     async with maker() as session:
         operador = await _operador(session, operador_email)
-        bloqueantes_firmados: int | None = None
+        rechazos_firmados: frozenset[tuple[str, int, str, str]] | None = None
         if modo is ModoCorrida.DEFINITIVA:
             motivos = await habilitacion_definitiva(
                 session, lote.huella, hom.huella, hom.es_ejemplo
@@ -247,7 +275,8 @@ async def correr(
             if motivos:
                 raise MigracionError("Carga definitiva no habilitada:\n- " + "\n- ".join(motivos))
             firmado = await _ultimo_simulacro(session, lote.huella, hom.huella)
-            bloqueantes_firmados = firmado.bloqueantes if firmado else None
+            if firmado is not None:
+                rechazos_firmados = await _rechazos(session, firmado.id)
         corrida = Corrida(
             id=uuid.uuid4(),
             modo=modo.value,
@@ -285,7 +314,7 @@ async def correr(
             duracion = (time.perf_counter_ns() - inicio) // 1_000_000
             # La definitiva tiene que cuadrar por sí misma y rechazar exactamente lo que se
             # firmó en el simulacro (si cambió la Suite en el medio, hay que volver a ensayar).
-            igual_a_lo_firmado = informe["bloqueantes"] == bloqueantes_firmados
+            igual_a_lo_firmado = _rechazos_de(st) == rechazos_firmados
             definitiva_ok = (
                 modo is ModoCorrida.DEFINITIVA and bool(informe["cuadra"]) and igual_a_lo_firmado
             )
