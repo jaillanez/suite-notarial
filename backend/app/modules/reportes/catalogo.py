@@ -66,7 +66,7 @@ FECHAS = (
 CARGO_TEXTO = {
     Cargo.TITULAR.value: "Titular",
     Cargo.ADSCRIPTO.value: "Adscripto",
-    Cargo.SUPLENTE_INTERINO.value: "Suplente interino",
+    Cargo.SUPLENTE_INTERINO.value: "A cargo",
 }
 
 
