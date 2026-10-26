@@ -464,13 +464,16 @@ async def test_cola_llena(
     assert "lecturas en curso" in response.json()["detail"]
 
 
-def _pdf_con_flujo(datos: bytes, filtro: str = "/FlateDecode") -> bytes:
+def _pdf_con_flujo(
+    datos: bytes, filtro: str = "/FlateDecode", extra: list[bytes] | None = None
+) -> bytes:
     """PDF mínimo de una página cuyo contenido es `datos` ya codificado."""
     objetos = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
         f"<< /Length {len(datos)} /Filter {filtro} >>\nstream\n".encode() + datos + b"\nendstream",
+        *(extra or []),
     ]
     salida = bytearray(b"%PDF-1.7\n")
     posiciones = []
@@ -499,6 +502,23 @@ async def test_pdf_bomba_de_descompresion(notario: AsyncClient, borrador: dict[s
     assert response.status_code == 413
     assert "demasiado pesado" in response.json()["detail"]
 
+    # La bomba fuera del contenido de la página (p. ej. una fuente) también cuenta.
+    escondida = zlib.compress(b"\x00" * 30_000_000, 9)
+    oculta = _pdf_con_flujo(
+        zlib.compress(b"BT ET"),
+        extra=[
+            f"<< /Length {len(escondida)} /Filter /FlateDecode >>\nstream\n".encode()
+            + escondida
+            + b"\nendstream"
+        ],
+    )
+    response = await notario.post(
+        "/api/v1/ia/minutas",
+        data={"ddjj_id": borrador["id"]},
+        files={"archivo": ("fuente.pdf", oculta, "application/pdf")},
+    )
+    assert response.status_code == 413
+
     otra_compresion = _pdf_con_flujo(b"no importa", "/LZWDecode")
     response = await notario.post(
         "/api/v1/ia/minutas",
@@ -506,4 +526,3 @@ async def test_pdf_bomba_de_descompresion(notario: AsyncClient, borrador: dict[s
         files={"archivo": ("lzw.pdf", otra_compresion, "application/pdf")},
     )
     assert response.status_code == 422
-    assert "compresión" in response.json()["detail"]

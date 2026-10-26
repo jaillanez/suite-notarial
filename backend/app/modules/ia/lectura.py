@@ -7,10 +7,11 @@ solo metadatos y su SHA-256.
 
 import hashlib
 import io
+import re
 import shutil
 import subprocess
 import zlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -18,9 +19,8 @@ from typing import Any
 import anyio
 import zxingcpp
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
-from pypdf.generic import ArrayObject, IndirectObject, StreamObject
+from pypdf import Configuration, PdfReader, apply_configuration
+from pypdf.errors import LimitReachedError, PdfReadError
 
 from app.core.config import get_settings
 from app.modules.pagos.storage import ArchivoInvalidoError, ArchivoValidado
@@ -28,10 +28,10 @@ from app.modules.pagos.storage import ArchivoInvalidoError, ArchivoValidado
 # Una foto de celular ronda los 12 MP; el tope evita "bombas" de descompresión.
 MAX_PIXELES = 40_000_000
 MAX_PAGINAS_PDF = 50
-# Contenido descomprimido de todo el documento (páginas y Form XObjects): una minuta de texto
-# ocupa decenas de KB por página. Se mide ANTES de que pypdf infle nada.
+# Todo lo que el PDF puede descomprimir (cualquier stream): una minuta de texto ocupa decenas
+# de KB por página. Se mide ANTES de que pypdf abra el archivo.
 MAX_INFLADO_PDF = 16 * 1024 * 1024
-MAX_PROFUNDIDAD_XOBJECT = 5
+MAX_STREAMS_PDF = 5_000
 # Mismo tope que el texto pegado (y que el extractor).
 MAX_CARACTERES = 200_000
 _limitador: anyio.CapacityLimiter | None = None
@@ -149,92 +149,77 @@ def _demasiado_complejo() -> ArchivoInvalidoError:
     )
 
 
-def _inflado(flujo: StreamObject, presupuesto: int) -> int:
-    """Bytes que ocupa el stream descomprimido, inflando como mucho `presupuesto + 1` bytes."""
-    filtro = flujo.get("/Filter")
-    crudo: bytes = getattr(flujo, "_data", b"") or b""
-    if filtro is None:
-        return len(crudo)
-    if isinstance(filtro, ArrayObject):
-        filtro = filtro[0] if len(filtro) == 1 else None
-    if filtro != "/FlateDecode" or flujo.get("/DecodeParms") is not None:
-        # Una minuta de texto no necesita otras compresiones ni predictores.
-        raise ArchivoInvalidoError(
-            "El PDF usa una compresión que no se admite: exportalo de nuevo como PDF simple.",
-            status=422,
-        )
-    try:
-        salida = zlib.decompressobj().decompress(crudo, presupuesto + 1)
-    except zlib.error as exc:
-        raise ArchivoInvalidoError("El PDF está dañado o no se puede abrir.", status=422) from exc
-    return len(salida)
+_INICIO_STREAM = re.compile(rb"(?<!end)stream\r?\n")
 
 
-def _flujos(recurso: Any, profundidad: int, vistos: set[int]) -> Iterator[StreamObject]:
-    """Contenidos de una página o Form XObject y, recursivamente, los Form XObjects que usa."""
-    if profundidad > MAX_PROFUNDIDAD_XOBJECT:
-        raise _demasiado_complejo()
-    contenidos = recurso.get("/Contents")
-    if contenidos is not None:
-        contenidos = contenidos.get_object()
-        for item in contenidos if isinstance(contenidos, ArrayObject) else [contenidos]:
-            flujo = item.get_object()
-            if isinstance(flujo, StreamObject):
-                yield flujo
-    recursos = recurso.get("/Resources")
-    xobjects = recursos.get_object().get("/XObject") if recursos is not None else None
-    if xobjects is None:
-        return
-    for ref in xobjects.get_object().values():
-        if isinstance(ref, IndirectObject):
-            if ref.idnum in vistos:
-                continue
-            vistos.add(ref.idnum)
-        xobject = ref.get_object()
-        # Las imágenes no se decodifican al extraer texto; los formularios sí.
-        if isinstance(xobject, StreamObject) and xobject.get("/Subtype") == "/Form":
-            yield xobject
-            yield from _flujos(xobject, profundidad + 1, vistos)
-
-
-def _controlar_inflado(reader: PdfReader) -> None:
+def _controlar_inflado(contenido: bytes) -> None:
+    """Antes de que pypdf abra el archivo: mide cada `stream … endstream` (contenidos, fuentes,
+    streams de objetos y de xref) inflando como mucho lo que queda del presupuesto total."""
     restante = MAX_INFLADO_PDF
-    vistos: set[int] = set()
-    for page in reader.pages:
-        for flujo in _flujos(page, 0, vistos):
-            restante -= _inflado(flujo, restante)
-            if restante < 0:
-                raise _demasiado_complejo()
+    for cantidad, inicio in enumerate(_INICIO_STREAM.finditer(contenido), start=1):
+        if cantidad > MAX_STREAMS_PDF:
+            raise _demasiado_complejo()
+        fin = contenido.find(b"endstream", inicio.end())
+        datos = contenido[inicio.end() : fin if fin >= 0 else len(contenido)]
+        try:
+            tamano = len(zlib.decompressobj().decompress(datos, restante + 1))
+        except zlib.error:
+            # No es zlib (imagen JPEG, datos sin comprimir): ocupa lo que pesa.
+            tamano = len(datos)
+        restante -= tamano
+        if restante < 0:
+            raise _demasiado_complejo()
+
+
+# Topes de pypdf mientras se lee una minuta (por stream; el total lo controla el recorrido
+# previo). Se aplican solo en el contexto de esta lectura: no cambian la validación del CMS.
+_POR_STREAM = 4 * 1024 * 1024
+LIMITES_PYPDF = Configuration(
+    zlib_maximum_output_length=_POR_STREAM,
+    lzw_maximum_output_length=_POR_STREAM,
+    run_length_maximum_output_length=_POR_STREAM,
+    jbig2_maximum_output_length=_POR_STREAM,
+    brotli_maximum_output_length=_POR_STREAM,
+    array_based_stream_maximum_output_length=_POR_STREAM,
+    image_maximum_buffer_size=_POR_STREAM,
+    stream_decoding_work_maximum_length=MAX_INFLADO_PDF,
+    xform_maximum_invocations_per_extraction=500,
+)
 
 
 def _texto_pdf(contenido: bytes) -> tuple[str, int]:
     """Texto de un PDF, cortando apenas se pasa de los topes (no después de extraerlo todo)."""
+    _controlar_inflado(contenido)
     try:
-        reader = PdfReader(io.BytesIO(contenido), strict=False)
-        if reader.is_encrypted:
-            raise ArchivoInvalidoError(
-                "El PDF está protegido con contraseña: subí una versión sin cifrar.", status=422
-            )
-        paginas = len(reader.pages)
-        if paginas > MAX_PAGINAS_PDF:
-            raise ArchivoInvalidoError(
-                f"El PDF tiene más de {MAX_PAGINAS_PDF} páginas: subí solo la minuta.", status=422
-            )
-        _controlar_inflado(reader)
-        partes: list[str] = []
-        total = 0
-        for page in reader.pages:
-            texto = page.extract_text() or ""
-            total += len(texto)
-            if total > MAX_CARACTERES:
-                raise ArchivoInvalidoError(
-                    "El PDF tiene demasiado texto: subí solo la minuta.", status=413
-                )
-            partes.append(texto)
+        with apply_configuration(LIMITES_PYPDF):
+            return _leer_pdf(contenido)
     except ArchivoInvalidoError:
         raise
-    except (PdfReadError, ValueError, KeyError, TypeError, IndexError) as exc:
+    except (PdfReadError, LimitReachedError, ValueError, KeyError, TypeError, IndexError) as exc:
         raise ArchivoInvalidoError("El PDF está dañado o no se puede abrir.", status=422) from exc
+
+
+def _leer_pdf(contenido: bytes) -> tuple[str, int]:
+    reader = PdfReader(io.BytesIO(contenido), strict=False)
+    if reader.is_encrypted:
+        raise ArchivoInvalidoError(
+            "El PDF está protegido con contraseña: subí una versión sin cifrar.", status=422
+        )
+    paginas = len(reader.pages)
+    if paginas > MAX_PAGINAS_PDF:
+        raise ArchivoInvalidoError(
+            f"El PDF tiene más de {MAX_PAGINAS_PDF} páginas: subí solo la minuta.", status=422
+        )
+    partes: list[str] = []
+    total = 0
+    for page in reader.pages:
+        texto = page.extract_text() or ""
+        total += len(texto)
+        if total > MAX_CARACTERES:
+            raise ArchivoInvalidoError(
+                "El PDF tiene demasiado texto: subí solo la minuta.", status=413
+            )
+        partes.append(texto)
     return "\n".join(partes), paginas
 
 
