@@ -415,14 +415,20 @@ async def get_escribano(session: AsyncSession, escribano_id: uuid.UUID) -> Escri
 
 
 async def create_escribano(
-    session: AsyncSession, ctx: RequestContext, actor: User, data: EscribanoIn
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    data: EscribanoIn,
+    *,
+    escribano_id: uuid.UUID | None = None,
 ) -> Escribano:
+    """`escribano_id` permite referenciar el alta en la misma transacción (ratificación de IA)."""
     persona = Persona(id=uuid.uuid4(), **data.persona.model_dump(), created_by_user_id=actor.id)
     persona.tipo_documento = data.persona.tipo_documento.value
     persona.email = str(data.persona.email).lower() if data.persona.email else None
     session.add(persona)
     escribano = Escribano(
-        id=uuid.uuid4(),
+        id=escribano_id or uuid.uuid4(),
         persona_id=persona.id,
         matricula_numero=data.matricula_numero,
         tomo=data.tomo,

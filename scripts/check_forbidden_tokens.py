@@ -12,6 +12,8 @@ from pathlib import Path
 
 # Rutas consideradas lógica monetaria (regla FIN). Mantener en sync con backend/tests/test_guards.py.
 MONEY_HINTS = ("money", "aportes", "boletas", "pagos", "prestamos", "liquidacion", "parametros")
+# Módulos monetarios que se reconocen por nombre exacto de carpeta (la IA propone bases imponibles).
+MONEY_DIRS = ("ia",)
 
 
 def check(path: Path) -> list[str]:
@@ -19,7 +21,9 @@ def check(path: Path) -> list[str]:
         return [f"{path}: el archivo no existe"]
     if "app" not in path.parts:
         return []
-    is_money = any(hint in part for part in path.parts for hint in MONEY_HINTS)
+    is_money = any(hint in part for part in path.parts for hint in MONEY_HINTS) or any(
+        d in path.parts for d in MONEY_DIRS
+    )
     source = path.read_text(encoding="utf-8")
     try:
         tokens = [

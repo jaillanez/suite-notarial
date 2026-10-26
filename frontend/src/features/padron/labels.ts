@@ -18,7 +18,7 @@ export const ESTADO_REGISTRO: Record<EstadoRegistro, { label: string; tone: Tone
 export const CARGO: Record<Cargo, string> = {
   TITULAR: 'Titular',
   ADSCRIPTO: 'Adscripto',
-  SUPLENTE_INTERINO: 'Suplente interino',
+  SUPLENTE_INTERINO: 'A cargo',
 }
 
 export const ESTADOS_DEFINITIVOS: EstadoMatricula[] = ['CESANTE', 'JUBILADO', 'FALLECIDO']

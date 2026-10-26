@@ -1,16 +1,19 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save } from 'lucide-react'
+import { IdCard, Save, X } from 'lucide-react'
 import { useState, type SyntheticEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
+import { FileField } from '../../components/ui/FileField'
 import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
-import { createEscribano } from './api'
+import { analizarDni, descartarSugerencia, ratificarEscribano, type Sugerencia } from '../ia/api'
+import { AlertasSugerencia, ConfirmacionHumana, PistaCampo } from '../ia/componentes'
+import { createEscribano, type EscribanoInput } from './api'
 
 const EMPTY = {
   cuit: '',
@@ -30,29 +33,120 @@ const EMPTY = {
 
 const orNull = (value: string): string | null => (value.trim() ? value.trim() : null)
 
+const soloDigitos = (value: string) => value.replace(/\D/g, '')
+const conGuiones = (cuit: string) =>
+  cuit.length === 11 ? `${cuit.slice(0, 2)}-${cuit.slice(2, 10)}-${cuit.slice(10)}` : cuit
+type CampoDni = 'apellido' | 'nombre' | 'numero_documento' | 'fecha_nacimiento' | 'cuit'
+
+/** Lectura asistida del DNI: propone los datos personales; el alta la confirma la persona. */
+function LeerDni({
+  sugerencia,
+  onLeido,
+  onDescartado,
+}: {
+  sugerencia: Sugerencia | null
+  onLeido: (s: Sugerencia) => void
+  onDescartado: () => void
+}) {
+  const [archivo, setArchivo] = useState<File | null>(null)
+  const leer = useMutation({ mutationFn: () => analizarDni(archivo as File), onSuccess: onLeido })
+  const descartar = useMutation({
+    mutationFn: () => descartarSugerencia(sugerencia?.id ?? ''),
+    onSuccess: () => {
+      setArchivo(null)
+      onDescartado()
+    },
+  })
+  const problem = leer.isError ? toProblem(leer.error) : null
+
+  return (
+    <Panel
+      title="Leer el DNI (opcional)"
+      description="Con una foto del frente (código de barras) o del dorso, la Suite completa los datos personales. Los revisás antes de dar de alta; la foto no se guarda."
+    >
+      <div className="space-y-4 px-5 py-5 sm:px-6">
+        {sugerencia ? (
+          <>
+            <p className="text-sm text-ink">
+              Datos leídos del DNI. Revisá cada uno abajo: debajo de cada campo se indica si lo
+              sugirió la Suite o si lo corregiste.
+            </p>
+            <AlertasSugerencia alertas={sugerencia.alertas} />
+            {descartar.isError && <Alert tone="danger">{toProblem(descartar.error).detail}</Alert>}
+            <div className="flex justify-end">
+              <Button
+                icon={X}
+                busy={descartar.isPending}
+                busyLabel="Descartando…"
+                onClick={() => {
+                  descartar.mutate()
+                }}
+              >
+                Descartar la lectura
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <FileField
+              label="Foto del DNI"
+              accept="image/png,image/jpeg"
+              formatos="PNG o JPG del frente o del dorso, nítida y sin reflejos"
+              archivo={archivo}
+              onChange={(f) => {
+                setArchivo(f)
+                leer.reset()
+              }}
+            />
+            {problem && <Alert tone="danger">{problem.detail}</Alert>}
+            <div className="flex justify-end">
+              <Button
+                icon={IdCard}
+                busy={leer.isPending}
+                busyLabel="Leyendo el DNI…"
+                disabled={!archivo}
+                onClick={() => {
+                  leer.mutate()
+                }}
+              >
+                Leer el DNI
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
 export function EscribanoNuevoPage() {
   const [form, setForm] = useState(EMPTY)
+  const [sugerencia, setSugerencia] = useState<Sugerencia | null>(null)
+  const [revisado, setRevisado] = useState(false)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const input = (): EscribanoInput => ({
+    persona: {
+      cuit: form.cuit.trim(),
+      tipo_documento: form.tipo_documento,
+      numero_documento: form.numero_documento.trim(),
+      apellido: form.apellido.trim(),
+      nombre: form.nombre.trim(),
+      fecha_nacimiento: orNull(form.fecha_nacimiento),
+      email: orNull(form.email),
+      telefono: orNull(form.telefono),
+      domicilio_real: orNull(form.domicilio_real),
+    },
+    matricula_numero: Number(form.matricula_numero),
+    tomo: orNull(form.tomo),
+    folio: orNull(form.folio),
+    fecha_matriculacion: form.fecha_matriculacion,
+  })
   const create = useMutation({
-    mutationFn: () =>
-      createEscribano({
-        persona: {
-          cuit: form.cuit.trim(),
-          tipo_documento: form.tipo_documento,
-          numero_documento: form.numero_documento.trim(),
-          apellido: form.apellido.trim(),
-          nombre: form.nombre.trim(),
-          fecha_nacimiento: orNull(form.fecha_nacimiento),
-          email: orNull(form.email),
-          telefono: orNull(form.telefono),
-          domicilio_real: orNull(form.domicilio_real),
-        },
-        matricula_numero: Number(form.matricula_numero),
-        tomo: orNull(form.tomo),
-        folio: orNull(form.folio),
-        fecha_matriculacion: form.fecha_matriculacion,
-      }),
+    mutationFn: async () =>
+      sugerencia
+        ? (await ratificarEscribano(sugerencia.id, input())).escribano
+        : await createEscribano(input()),
     onSuccess: async (escribano) => {
       await queryClient.invalidateQueries({ queryKey: ['padron'] })
       void navigate(`/padron/escribanos/${escribano.id}`, { replace: true })
@@ -64,9 +158,49 @@ export function EscribanoNuevoPage() {
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
+      // Lo revisado es lo que se confirma: un cambio posterior exige volver a revisar.
+      setRevisado(false)
     },
   })
+  const pista = (key: CampoDni) => {
+    if (!sugerencia) return undefined
+    const actual = key === 'cuit' ? soloDigitos(form.cuit) : form[key]
+    return (
+      <PistaCampo
+        campo={sugerencia.campos[key]}
+        actual={actual}
+        mostrar={key === 'cuit' ? conGuiones : undefined}
+      />
+    )
+  }
+  const leido = (s: Sugerencia) => {
+    const v = (k: string) => s.campos[k]?.valor ?? ''
+    setForm((f) => ({
+      ...f,
+      apellido: v('apellido'),
+      nombre: v('nombre'),
+      tipo_documento: 'DNI',
+      numero_documento: v('numero_documento'),
+      fecha_nacimiento: v('fecha_nacimiento'),
+      cuit: conGuiones(v('cuit')),
+    }))
+    setSugerencia(s)
+    setRevisado(false)
+  }
+  const descartado = () => {
+    setForm((f) => ({
+      ...f,
+      apellido: '',
+      nombre: '',
+      numero_documento: '',
+      fecha_nacimiento: '',
+      cuit: '',
+    }))
+    setSugerencia(null)
+    setRevisado(false)
+  }
   const ready =
+    (!sugerencia || revisado) &&
     form.cuit &&
     form.numero_documento &&
     form.apellido &&
@@ -89,6 +223,7 @@ export function EscribanoNuevoPage() {
         {problem && Object.keys(problem.fieldErrors).length === 0 && (
           <Alert tone="danger">{problem.detail}</Alert>
         )}
+        <LeerDni sugerencia={sugerencia} onLeido={leido} onDescartado={descartado} />
         <Panel title="Datos personales">
           <div className="grid gap-5 px-5 py-5 sm:grid-cols-2 sm:px-6">
             <Field
@@ -96,6 +231,7 @@ export function EscribanoNuevoPage() {
               autoComplete="off"
               required
               error={err('apellido')}
+              hint={pista('apellido')}
               {...bind('apellido')}
             />
             <Field
@@ -103,6 +239,7 @@ export function EscribanoNuevoPage() {
               autoComplete="off"
               required
               error={err('nombre')}
+              hint={pista('nombre')}
               {...bind('nombre')}
             />
             <Field
@@ -111,7 +248,7 @@ export function EscribanoNuevoPage() {
               placeholder="20-12345678-9"
               required
               error={err('cuit')}
-              hint="Se valida con el dígito verificador de AFIP."
+              hint={pista('cuit') ?? 'Se valida con el dígito verificador de AFIP.'}
               className="[&_input]:tabular-nums"
               {...bind('cuit')}
             />
@@ -126,6 +263,7 @@ export function EscribanoNuevoPage() {
                 inputMode="numeric"
                 required
                 error={err('numero_documento')}
+                hint={pista('numero_documento')}
                 className="[&_input]:tabular-nums"
                 {...bind('numero_documento')}
               />
@@ -134,6 +272,7 @@ export function EscribanoNuevoPage() {
               label="Fecha de nacimiento"
               type="date"
               error={err('fecha_nacimiento')}
+              hint={pista('fecha_nacimiento')}
               {...bind('fecha_nacimiento')}
             />
             <Field label="Teléfono" type="tel" autoComplete="off" {...bind('telefono')} />
@@ -176,6 +315,11 @@ export function EscribanoNuevoPage() {
             />
           </div>
         </Panel>
+        {sugerencia && (
+          <ConfirmacionHumana checked={revisado} onChange={setRevisado}>
+            Revisé los datos personales contra el DNI y confirmo que son correctos.
+          </ConfirmacionHumana>
+        )}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Link
             to="/padron/escribanos"

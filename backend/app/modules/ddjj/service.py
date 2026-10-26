@@ -503,7 +503,11 @@ async def agregar_acto(
     principal: Principal,
     ddjj_id: uuid.UUID,
     data: ActoIn,
+    *,
+    acto_id: uuid.UUID | None = None,
 ) -> Acto:
+    """`acto_id` lo fija quien necesita referenciar el acto en la misma transacción (p. ej. la
+    ratificación de una sugerencia de IA): el commit es uno solo."""
     ddjj = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, ddjj.registro_id)
     _exigir_borrador(ddjj)
@@ -527,7 +531,7 @@ async def agregar_acto(
     if cargo is None:
         raise _invalid("El escribano no tenía cargo en este registro a la fecha del acto.")
     item = Acto(
-        id=uuid.uuid4(),
+        id=acto_id or uuid.uuid4(),
         ddjj_id=ddjj.id,
         escribano_id=data.escribano_id,
         cargo=cargo.cargo,

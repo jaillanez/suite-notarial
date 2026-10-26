@@ -9,6 +9,7 @@ import { LoginPage } from './features/auth/LoginPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { DeclaracionesPage } from './features/ddjj/DeclaracionesPage'
 import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
+import { MinutaPage } from './features/ia/MinutaPage'
 import { VerificarBoletaPage } from './features/ddjj/VerificarBoletaPage'
 import { ComprobantePage } from './features/pagos/ComprobantePage'
 import { ConciliacionPage } from './features/pagos/ConciliacionPage'
@@ -110,6 +111,7 @@ const router = createBrowserRouter([
             children: [
               { path: '/ddjj', element: <DeclaracionesPage /> },
               { path: '/ddjj/:id', element: <DeclaracionPage /> },
+              { path: '/ddjj/:id/minuta', element: <MinutaPage /> },
             ],
           },
           {
