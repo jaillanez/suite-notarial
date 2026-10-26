@@ -17,8 +17,9 @@ DDJJ y boletas, pagos y conciliación, reportes, sitio institucional, préstamos
 | 3 | Motor paramétrico de aportes: conceptos, vigencias versionadas y cálculo | Completa |
 | 4 | DDJJ, liquidación y boletas con PDF, QR y verificación pública | Completa |
 | 5 | Pagos: comprobantes y mesa de conciliación de Tesorería | Completa |
-| 6 | Reportes con paginación en servidor y exportación XLSX/CSV con paridad de totales | En revisión |
-| 7–10 | Ver `AGENTS.md` | Pendiente |
+| 6 | Reportes con paginación en servidor y exportación XLSX/CSV con paridad de totales | Completa |
+| 7 | Sitio institucional: novedades, autoridades y documentos oficiales con integridad verificada | En revisión |
+| 8–10 | Ver `AGENTS.md` | Pendiente |
 
 ## Stack
 
@@ -154,6 +155,7 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `PASSWORD_RESET_TTL_MIN` | Vigencia del token de recuperación (30) |
 | `CAJA_NOMBRE` / `CAJA_CUIT` / `CAJA_DOMICILIO` / `CAJA_CONTACTO` | Datos de la Caja impresos en la boleta |
 | `BANCO_NOMBRE` / `BANCO_CUENTA` / `BANCO_CBU` / `BANCO_ALIAS` | Cuenta recaudadora impresa en la boleta. Solo en el `.env` de cada entorno; sin CBU la boleta dice «Datos bancarios a confirmar» |
+| `CMS_MAX_DOC_MB` | Tamaño máximo de los documentos oficiales que se publican en el sitio (25) |
 | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB) |
 | `LOG_LEVEL` | Nivel de logging (JSON a stdout) |
 
@@ -285,6 +287,19 @@ Ya aplicadas:
 - **Exportación:** XLSX con importes `Decimal` exactos, autofiltro y fila de totales; CSV es-AR
   (`;`, coma decimal, UTF-8 con BOM). Fechas en hora de San Juan, protección contra inyección de
   fórmulas y registro de cada exportación en la auditoría (máximo 50.000 filas).
+
+## Sitio institucional (Fase 7)
+
+- **Público sin sesión** en `/sitio`: novedades, autoridades vigentes y documentos oficiales
+  (estados contables, memorias, resoluciones) por tipo y ejercicio, con descarga, huella SHA-256
+  y versiones anteriores. Administración en `/cms` con el permiso `cms:publish`.
+- **Solo PDFs reales:** se valida cabecera, tipo, estructura (pypdf), que no esté cifrado y que
+  no tenga contenido activo. Una página HTML disfrazada de `.pdf` se rechaza al subirla.
+- **Enlace permanente:** reemplazar el archivo crea una versión nueva (con motivo público); el
+  enlace canónico pasa a servirla y las anteriores quedan accesibles. Nada se borra y las
+  versiones no se modifican (triggers).
+- **Integridad al servir:** cada descarga verifica la huella; un archivo alterado no se entrega
+  y queda una alerta CRITICAL en la auditoría. Toda publicación y cambio se audita.
 
 ## Seguridad de acceso (Fase 1)
 
