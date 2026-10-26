@@ -402,3 +402,63 @@ async def test_reporte_de_sugerencias(
     assert csv.text.count("\r\n") == pantalla.json()["total"] + 2  # encabezado y totales
     # El notario no ve el reporte de auditoría.
     assert (await notario.get("/api/v1/reportes/SUGERENCIAS_IA")).status_code == 403
+
+
+async def test_registro_minimizado(
+    notario: AsyncClient,
+    escenario: Escenario,
+    borrador: dict[str, Any],
+    db_session: AsyncSession,
+) -> None:
+    """La respuesta trae valores y citas; la fila (que no se borra) solo huellas y códigos."""
+    from app.modules.ia.models import Sugerencia
+
+    s = await _analizar(notario, borrador, minuta(escenario))
+    assert s["campos"]["base_imponible"]["evidencia"]
+    await notario.post(
+        f"/api/v1/ia/sugerencias/{s['id']}/ratificar-acto", json=_confirmado(s, folio=346)
+    )
+    fila = await db_session.get(Sugerencia, s["id"])
+    assert fila is not None
+    await db_session.refresh(fila)
+    guardado = str(fila.salida) + str(fila.datos_confirmados) + str(fila.entrada)
+    for dato in ("45000000", "Sintético", "20-12345678-6", "Juan Carlos", "'valor'"):
+        assert dato not in guardado, dato
+    assert "'evidencia'" not in guardado and "'mensaje'" not in guardado
+    assert fila.campos_modificados == ["folio"]
+    # Releer la sugerencia ya no devuelve los valores (no están guardados).
+    leida = (await notario.get(f"/api/v1/ia/sugerencias/{s['id']}")).json()
+    assert leida["campos"]["numero_escritura"]["valor"] is None
+    assert leida["campos"]["numero_escritura"]["regla"]
+
+
+async def test_pdf_con_demasiado_texto(notario: AsyncClient, borrador: dict[str, Any]) -> None:
+    from weasyprint import HTML
+
+    parrafo = "Texto de relleno sin datos. " * 400
+    pdf = HTML(string="".join(f"<p>{parrafo}</p>" for _ in range(20))).write_pdf()
+    assert pdf is not None
+    response = await notario.post(
+        "/api/v1/ia/minutas",
+        data={"ddjj_id": borrador["id"]},
+        files={"archivo": ("largo.pdf", pdf, "application/pdf")},
+    )
+    assert response.status_code == 413
+    assert "demasiado texto" in response.json()["detail"]
+
+
+async def test_cola_llena(
+    notario: AsyncClient,
+    escenario: Escenario,
+    borrador: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def llena() -> None:
+        raise lectura.ColaLlenaError
+
+    monkeypatch.setattr(lectura, "_con_lugar", llena)
+    response = await notario.post(
+        "/api/v1/ia/minutas", data={"ddjj_id": borrador["id"], "texto": minuta(escenario)}
+    )
+    assert response.status_code == 503
+    assert "lecturas en curso" in response.json()["detail"]

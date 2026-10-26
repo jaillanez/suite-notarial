@@ -7,22 +7,26 @@ from pydantic import BaseModel, StringConstraints
 from app.modules.ddjj.schemas import ActoOut
 from app.modules.ia.catalog import EstadoSugerencia, NivelAlerta, TipoSugerencia
 from app.modules.ia.models import Sugerencia
+from app.modules.ia.resultado import Resultado
 from app.modules.padron.schemas import EscribanoDetalle
 
 
 class CampoOut(BaseModel):
-    valor: str | None
+    """`valor` y `evidencia` vienen solo en la respuesta del análisis: no se guardan."""
+
+    valor: str | None = None
     # Confianza 0 a 1 con 4 decimales, como texto (sin flotantes).
     confianza: str
     regla: str
-    evidencia: str | None
+    evidencia: str | None = None
 
 
 class AlertaOut(BaseModel):
     codigo: str
     nivel: NivelAlerta
-    mensaje: str
-    evidencia: str | None
+    # Solo en la respuesta del análisis (el mensaje puede citar datos del documento).
+    mensaje: str | None = None
+    evidencia: str | None = None
 
 
 class EntradaOut(BaseModel):
@@ -55,8 +59,9 @@ class SugerenciaOut(BaseModel):
     created_at: datetime
 
     @classmethod
-    def de(cls, s: Sugerencia) -> "SugerenciaOut":
-        salida: dict[str, Any] = s.salida
+    def de(cls, s: Sugerencia, resultado: Resultado | None = None) -> "SugerenciaOut":
+        """Con `resultado` (recién analizado), completa; sin él, lo que quedó registrado."""
+        salida: dict[str, Any] = resultado.a_respuesta() if resultado else s.salida
         return cls(
             id=s.id,
             tipo=TipoSugerencia(s.tipo),

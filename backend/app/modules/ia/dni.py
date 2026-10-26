@@ -23,8 +23,12 @@ from app.modules.ia.catalog import (
 from app.modules.ia.resultado import Alerta, Campo, Resultado
 
 CONFIANZA_PDF417 = Decimal("0.98")
+# MRZ: número y nacimiento tienen dígito de control propio; los nombres solo los cubre el dígito
+# compuesto de la línea 2 de forma parcial, así que se los trata como lectura OCR a cotejar.
 CONFIANZA_MRZ = Decimal("0.90")
+CONFIANZA_MRZ_NOMBRES = Decimal("0.70")
 CONFIANZA_CUIL = Decimal("0.50")
+CONFIANZA_VENCIDO = Decimal("0.40")
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,7 @@ class DatosDni:
     fecha_emision: date | None
     motor: str
     evidencia: str
+    vencimiento: date | None = None
 
 
 def _fecha_ddmmaaaa(valor: str) -> date | None:
@@ -138,6 +143,16 @@ def _fecha_mrz(aammdd: str, hoy: date) -> date | None:
         return None
 
 
+def _fecha_vencimiento(aammdd: str) -> date | None:
+    """El vencimiento siempre es de este siglo (el DNI tarjeta es posterior a 2009)."""
+    if not re.fullmatch(r"[0-9]{6}", aammdd):
+        return None
+    try:
+        return date(2000 + int(aammdd[:2]), int(aammdd[2:4]), int(aammdd[4:]))
+    except ValueError:
+        return None
+
+
 def parsear_mrz(lineas: list[str], hoy: date) -> DatosDni | None:
     """TD1: tres líneas de 30 caracteres. Valida los dígitos del documento y del nacimiento."""
     limpias = [re.sub(r"\s", "", ln.upper()) for ln in lineas]
@@ -148,9 +163,16 @@ def parsear_mrz(lineas: list[str], hoy: date) -> DatosDni | None:
             continue
         documento, chk_doc = l1[5:14], l1[14]
         nacimiento, chk_nac = l2[0:6], l2[6]
-        if not chk_doc.isdigit() or digito_mrz(documento) != int(chk_doc):
-            continue
-        if not chk_nac.isdigit() or digito_mrz(nacimiento) != int(chk_nac):
+        vence, chk_vence = l2[8:14], l2[14]
+        compuesto = l1[5:30] + l2[0:7] + l2[8:15] + l2[18:29]
+        # Los cuatro dígitos de control de TD1: documento, nacimiento, vencimiento y compuesto.
+        verificados = (
+            (documento, chk_doc),
+            (nacimiento, chk_nac),
+            (vence, chk_vence),
+            (compuesto, l2[29]),
+        )
+        if not all(chk.isdigit() and digito_mrz(dato) == int(chk) for dato, chk in verificados):
             continue
         numero = _numero_dni(documento.replace("<", ""))
         fecha = _fecha_mrz(nacimiento, hoy)
@@ -167,6 +189,7 @@ def parsear_mrz(lineas: list[str], hoy: date) -> DatosDni | None:
             fecha_emision=None,
             motor=MOTOR_DNI_MRZ,
             evidencia=f"Zona MRZ del dorso: {l1}",
+            vencimiento=_fecha_vencimiento(vence),
         )
     return None
 
@@ -196,23 +219,33 @@ def _capitalizar(valor: str) -> str:
     )
 
 
-def a_resultado(datos: DatosDni, ya_en_padron: bool) -> Resultado:
-    confianza = CONFIANZA_PDF417 if datos.motor == MOTOR_DNI_PDF417 else CONFIANZA_MRZ
-    origen = "Código PDF417 del frente" if datos.motor == MOTOR_DNI_PDF417 else "Zona MRZ del dorso"
-    validado = f"{origen}, validado."
+def a_resultado(datos: DatosDni, ya_en_padron: bool, hoy: date) -> Resultado:
+    vencido = datos.vencimiento is not None and datos.vencimiento < hoy
+    if datos.motor == MOTOR_DNI_PDF417:
+        confianza = nombres = CONFIANZA_PDF417
+        regla = regla_nombres = "Código PDF417 del frente (con corrección de errores propia)."
+    else:
+        confianza, nombres = CONFIANZA_MRZ, CONFIANZA_MRZ_NOMBRES
+        regla = "Zona MRZ del dorso, verificado con su dígito de control."
+        regla_nombres = (
+            "Zona MRZ del dorso leída por OCR: los nombres no tienen dígito de control propio, "
+            "cotejalos con el documento."
+        )
+    if vencido:
+        confianza = nombres = CONFIANZA_VENCIDO
     campos = {
-        "numero_documento": Campo(datos.numero, confianza, validado, datos.evidencia),
-        "apellido": Campo(_capitalizar(datos.apellido), confianza, validado, datos.evidencia),
+        "numero_documento": Campo(datos.numero, confianza, regla, datos.evidencia),
+        "apellido": Campo(_capitalizar(datos.apellido), nombres, regla_nombres, datos.evidencia),
         "nombre": Campo(
             _capitalizar(datos.nombre) or None,
-            confianza if datos.nombre else Decimal("0"),
-            validado,
+            nombres if datos.nombre else Decimal("0"),
+            regla_nombres,
             datos.evidencia,
         ),
         "fecha_nacimiento": Campo(
             datos.fecha_nacimiento.isoformat() if datos.fecha_nacimiento else None,
             confianza if datos.fecha_nacimiento else Decimal("0"),
-            validado,
+            regla,
             datos.evidencia,
         ),
         "cuit": Campo(
@@ -222,7 +255,21 @@ def a_resultado(datos: DatosDni, ya_en_padron: bool) -> Resultado:
             "CUIL/CUIT, puede tener otro prefijo.",
         ),
     }
-    alertas: list[Alerta] = []
+    alertas: list[Alerta] = [
+        Alerta(
+            "COTEJAR_DOCUMENTO",
+            NivelAlerta.AVISO,
+            "Cotejá cada dato con el documento físico antes de confirmar el alta.",
+        )
+    ]
+    if vencido and datos.vencimiento is not None:
+        alertas.append(
+            Alerta(
+                "DNI_VENCIDO",
+                NivelAlerta.ADVERTENCIA,
+                f"El DNI venció el {datos.vencimiento:%d/%m/%Y}: pedí el ejemplar vigente.",
+            )
+        )
     if ya_en_padron:
         alertas.append(
             Alerta(

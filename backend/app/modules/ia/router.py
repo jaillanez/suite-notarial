@@ -61,10 +61,10 @@ async def analizar_minuta(
         UploadFile | None, File(description="PDF con texto, PNG o JPG de hasta 10 MB")
     ] = None,
 ) -> SugerenciaOut:
-    sugerencia = await service.analizar_minuta(
+    sugerencia, resultado = await service.analizar_minuta(
         session, ctx, principal, ddjj_id, archivo=archivo, texto=texto
     )
-    return SugerenciaOut.de(sugerencia)
+    return SugerenciaOut.de(sugerencia, resultado)
 
 
 @router.post("/dni", response_model=SugerenciaOut, status_code=201)
@@ -74,7 +74,8 @@ async def analizar_dni(
     ctx: RequestContextDep,
     archivo: Annotated[UploadFile, File(description="Foto del frente o del dorso (PNG o JPG)")],
 ) -> SugerenciaOut:
-    return SugerenciaOut.de(await service.analizar_dni(session, ctx, principal, archivo))
+    sugerencia, resultado = await service.analizar_dni(session, ctx, principal, archivo)
+    return SugerenciaOut.de(sugerencia, resultado)
 
 
 @router.get("/sugerencias/{sugerencia_id}", response_model=SugerenciaOut)

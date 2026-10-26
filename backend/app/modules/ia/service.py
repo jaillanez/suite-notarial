@@ -36,7 +36,7 @@ from app.modules.ia.catalog import (
     TipoSugerencia,
 )
 from app.modules.ia.models import Sugerencia
-from app.modules.ia.resultado import Resultado
+from app.modules.ia.resultado import Resultado, huella
 from app.modules.iam.deps import Principal
 from app.modules.padron import service as padron_service
 from app.modules.padron.models import Escribano, Persona, RegistroNotarial
@@ -53,6 +53,13 @@ def _invalid(message: str, status: HTTPStatus = HTTPStatus.UNPROCESSABLE_ENTITY)
 
 def _archivo_error(exc: ArchivoInvalidoError) -> ProblemError:
     return ProblemError(HTTPStatus(exc.status), str(exc))
+
+
+def _cola_llena() -> ProblemError:
+    return ProblemError(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "Hay muchas lecturas en curso: probá de nuevo en un minuto.",
+    )
 
 
 def _ocr_no_disponible() -> ProblemError:
@@ -89,7 +96,7 @@ def _registrar(
         tiempo_ms=tiempo_ms,
         confianza=resultado.confianza(),
         entrada=entrada,
-        salida=resultado.a_json(),
+        salida=resultado.a_registro(),
         ddjj_id=ddjj_id,
         solicitado_por_user_id=principal.user.id,
     )
@@ -170,26 +177,38 @@ async def analizar_minuta(
     *,
     archivo: UploadFile | None,
     texto: str | None,
-) -> Sugerencia:
+) -> tuple[Sugerencia, Resultado]:
     if (archivo is None) == (texto is None or not texto.strip()):
         raise _invalid("Subí el archivo de la minuta o pegá su texto (uno de los dos).")
-    ddjj = await _ddjj_operable(session, principal, ddjj_id)
+    if texto is not None and len(texto) > MAX_TEXTO:
+        raise _invalid(f"El texto supera los {MAX_TEXTO:,} caracteres.".replace(",", "."))
+    await _ddjj_operable(session, principal, ddjj_id)
+    # La lectura puede tardar (OCR): no se retiene una conexión de la base mientras tanto.
+    await session.commit()
     inicio = time.perf_counter_ns()
-    if archivo is not None:
-        try:
+    try:
+        if archivo is not None:
             validado = await storage.validar(archivo, get_settings().max_upload_bytes)
             leido = await lectura.leer_minuta(validado)
-        except ArchivoInvalidoError as exc:
-            raise _archivo_error(exc) from exc
-        except lectura.OcrNoDisponibleError as exc:
-            raise _ocr_no_disponible() from exc
-        contenido, entrada = leido.contenido, leido.metadatos
-    else:
-        assert texto is not None  # noqa: S101 - garantizado por la validación de arriba
-        if len(texto) > MAX_TEXTO:
-            raise _invalid(f"El texto supera los {MAX_TEXTO:,} caracteres.".replace(",", "."))
-        contenido, entrada = texto, lectura.metadatos_texto(texto)
-    resultado = minutas.extraer(contenido, await _contexto(session, ddjj))
+            contenido, entrada = leido.contenido, leido.metadatos
+        else:
+            assert texto is not None  # noqa: S101 - garantizado por la validación de arriba
+            contenido, entrada = texto, lectura.metadatos_texto(texto)
+    except ArchivoInvalidoError as exc:
+        raise _archivo_error(exc) from exc
+    except lectura.OcrNoDisponibleError as exc:
+        raise _ocr_no_disponible() from exc
+    except lectura.ColaLlenaError as exc:
+        raise _cola_llena() from exc
+    if len(contenido) > MAX_TEXTO:
+        raise _invalid("El documento tiene demasiado texto: subí solo la minuta.")
+    # Se revalida: la DDJJ pudo presentarse (o el cargo cerrarse) durante la lectura.
+    ddjj = await _ddjj_operable(session, principal, ddjj_id)
+    contexto = await _contexto(session, ddjj)
+    try:
+        resultado = await lectura.en_hilo(minutas.extraer, contenido, contexto)
+    except lectura.ColaLlenaError as exc:
+        raise _cola_llena() from exc
     sugerencia = _registrar(
         session,
         ctx,
@@ -203,7 +222,7 @@ async def analizar_minuta(
         ddjj_id=ddjj.id,
     )
     await session.commit()
-    return sugerencia
+    return sugerencia, resultado
 
 
 # --------------------------------------------------------------------------- DNI
@@ -211,13 +230,17 @@ async def analizar_minuta(
 
 async def analizar_dni(
     session: AsyncSession, ctx: RequestContext, principal: Principal, archivo: UploadFile
-) -> Sugerencia:
+) -> tuple[Sugerencia, Resultado]:
+    # Permisos ya verificados: se libera la conexión antes de leer la imagen.
+    await session.commit()
     inicio = time.perf_counter_ns()
     try:
         validado = await storage.validar(archivo, get_settings().max_upload_bytes)
         leido = await lectura.leer_dni(validado)
     except ArchivoInvalidoError as exc:
         raise _archivo_error(exc) from exc
+    except lectura.ColaLlenaError as exc:
+        raise _cola_llena() from exc
     datos = next((d for d in map(dni.parsear_pdf417, leido.codigos) if d is not None), None)
     if datos is None:
         datos = dni.parsear_mrz(leido.lineas_mrz, today_local())
@@ -231,7 +254,7 @@ async def analizar_dni(
     ya_en_padron = await session.scalar(
         select(Persona.id).where(Persona.numero_documento == datos.numero).limit(1)
     )
-    resultado = dni.a_resultado(datos, ya_en_padron is not None)
+    resultado = dni.a_resultado(datos, ya_en_padron is not None, today_local())
     sugerencia = _registrar(
         session,
         ctx,
@@ -244,7 +267,7 @@ async def analizar_dni(
         tiempo_ms=_ms(inicio),
     )
     await session.commit()
-    return sugerencia
+    return sugerencia, resultado
 
 
 # --------------------------------------------------------------------------- consulta
@@ -284,14 +307,18 @@ def _texto(valor: object) -> str | None:
     return str(valor)
 
 
-def campos_modificados(sugerencia: Sugerencia, confirmados: dict[str, object]) -> list[str]:
-    """Campos en que la persona se apartó de lo sugerido (incluye los que el motor no propuso)."""
+def huellas_confirmadas(sugerencia: Sugerencia, confirmados: dict[str, object]) -> dict[str, Any]:
+    """Huella de lo que confirmó la persona en cada campo que el motor evaluó."""
     campos: dict[str, Any] = sugerencia.salida["campos"]
-    return sorted(
-        nombre
-        for nombre, campo in campos.items()
-        if nombre in confirmados and _texto(confirmados[nombre]) != campo["valor"]
-    )
+    return {k: huella(_texto(confirmados[k])) for k in campos if k in confirmados}
+
+
+def campos_modificados(sugerencia: Sugerencia, confirmadas: dict[str, Any]) -> list[str]:
+    """Campos en que la persona se apartó de lo sugerido (incluye los que el motor no propuso).
+
+    Se comparan huellas: el registro no guarda los valores."""
+    campos: dict[str, Any] = sugerencia.salida["campos"]
+    return sorted(k for k, h in confirmadas.items() if h != campos[k]["huella"])
 
 
 def _resolver(
@@ -300,13 +327,13 @@ def _resolver(
     principal: Principal,
     sugerencia: Sugerencia,
     confirmados: dict[str, object],
-    datos_json: dict[str, Any],
 ) -> list[str]:
-    modificados = campos_modificados(sugerencia, confirmados)
+    confirmadas = huellas_confirmadas(sugerencia, confirmados)
+    modificados = campos_modificados(sugerencia, confirmadas)
     sugerencia.estado = EstadoSugerencia.RATIFICADA.value
     sugerencia.resuelto_por_user_id = principal.user.id
     sugerencia.resuelto_en = datetime.now(UTC)
-    sugerencia.datos_confirmados = datos_json
+    sugerencia.datos_confirmados = confirmadas
     sugerencia.campos_modificados = modificados
     record_audit(
         session,
@@ -339,7 +366,7 @@ async def ratificar_acto(
     assert sugerencia.ddjj_id is not None  # noqa: S101 - CHECK minuta_ddjj
     acto_id = uuid.uuid4()
     sugerencia.acto_id = acto_id
-    _resolver(session, ctx, principal, sugerencia, dict(data), data.model_dump(mode="json"))
+    _resolver(session, ctx, principal, sugerencia, dict(data))
     # Mismas validaciones, permisos y auditoría que la carga manual; confirma todo junto.
     acto = await ddjj_service.agregar_acto(
         session, ctx, principal, sugerencia.ddjj_id, data, acto_id=acto_id
@@ -359,7 +386,7 @@ async def ratificar_escribano(
     _pendiente(sugerencia, TipoSugerencia.OCR_DNI)
     escribano_id = uuid.uuid4()
     sugerencia.escribano_id = escribano_id
-    _resolver(session, ctx, principal, sugerencia, dict(data.persona), data.model_dump(mode="json"))
+    _resolver(session, ctx, principal, sugerencia, dict(data.persona))
     escribano = await padron_service.create_escribano(
         session, ctx, principal.user, data, escribano_id=escribano_id
     )

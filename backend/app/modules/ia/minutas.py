@@ -478,7 +478,7 @@ def _escribano(texto: str, p: str, ctx: ContextoMinuta, alertas: list[Alerta]) -
                     texto,
                     c,
                     "0.90",
-                    f"Matrícula {numero}: {c.apellido}, {c.nombre}.",
+                    "Por la matrícula que menciona el texto.",
                     _cita(texto, m.start(), m.end()),
                     mencion,
                     alertas,
@@ -494,7 +494,7 @@ def _escribano(texto: str, p: str, ctx: ContextoMinuta, alertas: list[Alerta]) -
             texto,
             c,
             "0.75",
-            f"El texto menciona a {c.apellido}, {c.nombre}, con cargo en el registro.",
+            "Por el apellido que menciona el texto, entre quienes tienen cargo en el registro.",
             _cita(texto, m.start(), m.end()),
             mencion,
             alertas,
@@ -509,8 +509,8 @@ def _escribano(texto: str, p: str, ctx: ContextoMinuta, alertas: list[Alerta]) -
             return Campo(
                 str(c.escribano_id),
                 _d("0.60"),
-                f"La minuta lo presenta como {CARGO_TEXTO[c.cargo]} del registro: "
-                f"{c.apellido}, {c.nombre}.",
+                f"Por el cargo con que se presenta el autorizante ({CARGO_TEXTO[c.cargo]} del "
+                "registro).",
                 _cita(texto, mencion[1].start(), mencion[1].end()),
             )
     if not por_apellido and len(ctx.candidatos) == 1:
@@ -519,7 +519,7 @@ def _escribano(texto: str, p: str, ctx: ContextoMinuta, alertas: list[Alerta]) -
             texto,
             c,
             "0.50",
-            f"Único escribano con cargo en el registro en el período ({c.apellido}).",
+            "Único escribano con cargo en el registro en el período.",
             None,
             mencion,
             alertas,

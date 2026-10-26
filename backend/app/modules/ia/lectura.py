@@ -9,6 +9,7 @@ import hashlib
 import io
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -25,11 +26,19 @@ from app.modules.pagos.storage import ArchivoInvalidoError, ArchivoValidado
 # Una foto de celular ronda los 12 MP; el tope evita "bombas" de descompresión.
 MAX_PIXELES = 40_000_000
 MAX_PAGINAS_PDF = 50
+# Contenido descomprimido por página: una minuta de texto ocupa decenas de KB.
+MAX_CONTENIDO_PAGINA = 4 * 1024 * 1024
+# Mismo tope que el texto pegado (y que el extractor).
+MAX_CARACTERES = 200_000
 _limitador: anyio.CapacityLimiter | None = None
 
 
 class OcrNoDisponibleError(Exception):
     pass
+
+
+class ColaLlenaError(Exception):
+    """Demasiadas lecturas esperando: se rechaza en vez de acumular pedidos."""
 
 
 def _limiter() -> anyio.CapacityLimiter:
@@ -38,6 +47,18 @@ def _limiter() -> anyio.CapacityLimiter:
     if _limitador is None:
         _limitador = anyio.CapacityLimiter(get_settings().IA_OCR_CONCURRENCIA)
     return _limitador
+
+
+def _con_lugar() -> anyio.CapacityLimiter:
+    limitador = _limiter()
+    if limitador.statistics().tasks_waiting >= 4 * get_settings().IA_OCR_CONCURRENCIA:
+        raise ColaLlenaError
+    return limitador
+
+
+async def en_hilo[T](funcion: Callable[..., T], *args: object) -> T:
+    """Trabajo de CPU (lectura, OCR, extracción) fuera del event loop y con cupo acotado."""
+    return await anyio.to_thread.run_sync(funcion, *args, limiter=_con_lugar())
 
 
 @dataclass(frozen=True)
@@ -119,6 +140,7 @@ def _tesseract(imagen: Image.Image, argumentos: list[str]) -> str:
 
 
 def _texto_pdf(contenido: bytes) -> tuple[str, int]:
+    """Texto de un PDF, cortando apenas se pasa de los topes (no después de extraerlo todo)."""
     try:
         reader = PdfReader(io.BytesIO(contenido), strict=False)
         if reader.is_encrypted:
@@ -130,12 +152,28 @@ def _texto_pdf(contenido: bytes) -> tuple[str, int]:
             raise ArchivoInvalidoError(
                 f"El PDF tiene más de {MAX_PAGINAS_PDF} páginas: subí solo la minuta.", status=422
             )
-        texto = "\n".join(page.extract_text() or "" for page in reader.pages)
+        partes: list[str] = []
+        total = 0
+        for page in reader.pages:
+            # pypdf ya limita cada stream inflado; esto acota lo que cada página puede ocupar.
+            flujo = page.get_contents()
+            if flujo is not None and len(flujo.get_data()) > MAX_CONTENIDO_PAGINA:
+                raise ArchivoInvalidoError(
+                    "Una página del PDF es demasiado compleja para leerla: subí solo la minuta.",
+                    status=413,
+                )
+            texto = page.extract_text() or ""
+            total += len(texto)
+            if total > MAX_CARACTERES:
+                raise ArchivoInvalidoError(
+                    "El PDF tiene demasiado texto: subí solo la minuta.", status=413
+                )
+            partes.append(texto)
     except ArchivoInvalidoError:
         raise
     except (PdfReadError, ValueError, KeyError, TypeError, IndexError) as exc:
         raise ArchivoInvalidoError("El PDF está dañado o no se puede abrir.", status=422) from exc
-    return texto, paginas
+    return "\n".join(partes), paginas
 
 
 def _metadatos(archivo: ArchivoValidado, **extra: Any) -> dict[str, Any]:
@@ -165,7 +203,7 @@ def _leer_minuta(archivo: ArchivoValidado) -> Texto:
 
 
 async def leer_minuta(archivo: ArchivoValidado) -> Texto:
-    return await anyio.to_thread.run_sync(_leer_minuta, archivo, limiter=_limiter())
+    return await en_hilo(_leer_minuta, archivo)
 
 
 @dataclass(frozen=True)
@@ -208,7 +246,7 @@ def _leer_dni(archivo: ArchivoValidado, con_mrz: bool) -> LecturaDni:
 
 
 async def leer_dni(archivo: ArchivoValidado) -> LecturaDni:
-    return await anyio.to_thread.run_sync(_leer_dni, archivo, True, limiter=_limiter())
+    return await en_hilo(_leer_dni, archivo, True)
 
 
 def metadatos_texto(texto: str) -> dict[str, Any]:

@@ -13,6 +13,7 @@ from app.modules.ia.numeros import monto_ar, monto_en_letras, palabras_a_entero,
 TITULAR = Candidato(uuid.uuid4(), "Albarracín", "María", 456, "TITULAR")
 ADSCRIPTO = Candidato(uuid.uuid4(), "Quiroga", "Pedro", 789, "ADSCRIPTO")
 A_CARGO = Candidato(uuid.uuid4(), "Sánchez", "Laura", 321, "SUPLENTE_INTERINO")
+HOY_DNI = date(2026, 10, 23)
 
 
 def ctx(
@@ -177,7 +178,7 @@ def test_pdf417_formato_tarjeta() -> None:
         "M",
     )
     assert d.fecha_nacimiento == date(1975, 3, 15)
-    r = dni.a_resultado(d, ya_en_padron=False)
+    r = dni.a_resultado(d, ya_en_padron=False, hoy=HOY_DNI)
     assert r.campos["apellido"].valor == "Sintetico de la Prueba"
     assert r.campos["cuit"].valor == "20123456786"
     assert r.campos["cuit"].confianza == Decimal("0.50")
@@ -215,23 +216,63 @@ def test_digito_mrz_referencia_icao() -> None:
     assert dni.digito_mrz("740812") == 2
 
 
-def test_mrz() -> None:
-    doc = "12345678<"
-    nac = "750315"
+def _td1(documento: str, nacimiento: str, vence: str, nombres: str) -> list[str]:
+    """Tres líneas TD1 con sus cuatro dígitos de control calculados."""
+    doc = documento.ljust(9, "<")
     l1 = f"IDARG{doc}{dni.digito_mrz(doc)}".ljust(30, "<")
-    l2 = f"{nac}{dni.digito_mrz(nac)}M3001019ARG".ljust(30, "<")
-    l3 = "SINTETICO<<JUAN<CARLOS".ljust(30, "<")
-    d = dni.parsear_mrz(["ruido", l1, l2, l3], date(2026, 10, 23))
+    l2 = f"{nacimiento}{dni.digito_mrz(nacimiento)}M{vence}{dni.digito_mrz(vence)}ARG".ljust(
+        29, "<"
+    )
+    compuesto = l1[5:30] + l2[0:7] + l2[8:15] + l2[18:29]
+    l2 += str(dni.digito_mrz(compuesto))
+    return [l1, l2, nombres.ljust(30, "<")]
+
+
+def test_mrz() -> None:
+    lineas = _td1("12345678", "750315", "300101", "SINTETICO<<JUAN<CARLOS")
+    d = dni.parsear_mrz(["ruido", *lineas], HOY_DNI)
     assert d is not None
-    assert (d.numero, d.apellido, d.nombre, d.fecha_nacimiento) == (
+    assert (d.numero, d.apellido, d.nombre, d.fecha_nacimiento, d.vencimiento) == (
         "12345678",
         "SINTETICO",
         "JUAN CARLOS",
         date(1975, 3, 15),
+        date(2030, 1, 1),
     )
-    # Un dígito verificador alterado invalida la lectura.
-    malo = l1[:14] + str((dni.digito_mrz(doc) + 1) % 10) + l1[15:]
-    assert dni.parsear_mrz([malo, l2, l3], date(2026, 10, 23)) is None
+    r = dni.a_resultado(d, ya_en_padron=False, hoy=HOY_DNI)
+    # Los nombres no tienen dígito propio: menos confianza y una regla que lo dice.
+    assert r.campos["apellido"].confianza < r.campos["numero_documento"].confianza
+    assert "cotejalos" in r.campos["apellido"].regla
+    assert "COTEJAR_DOCUMENTO" in {a.codigo for a in r.alertas}
+
+
+@pytest.mark.parametrize("posicion", [(0, 14), (1, 6), (1, 14), (1, 29)])
+def test_mrz_digito_alterado(posicion: tuple[int, int]) -> None:
+    """Documento, nacimiento, vencimiento y compuesto: cualquiera alterado invalida la lectura."""
+    lineas = _td1("12345678", "750315", "300101", "SINTETICO<<JUAN")
+    fila, col = posicion
+    original = lineas[fila][col]
+    lineas[fila] = lineas[fila][:col] + str((int(original) + 1) % 10) + lineas[fila][col + 1 :]
+    assert dni.parsear_mrz(lineas, HOY_DNI) is None
+
+
+def test_mrz_vencido() -> None:
+    d = dni.parsear_mrz(_td1("12345678", "750315", "200101", "SINTETICO<<JUAN"), HOY_DNI)
+    assert d is not None
+    r = dni.a_resultado(d, ya_en_padron=False, hoy=HOY_DNI)
+    assert "DNI_VENCIDO" in {a.codigo for a in r.alertas}
+    assert r.campos["numero_documento"].confianza == Decimal("0.40")
+
+
+def test_registro_sin_datos_personales() -> None:
+    """Lo que se guarda: regla, confianza y huella; ni valores, ni citas, ni mensajes."""
+    d = dni.parsear_pdf417("00512345678@SINTETICO@JUAN@M@12345678@B@15/03/1975@10/06/2020@200")
+    assert d is not None
+    registro = dni.a_resultado(d, ya_en_padron=True, hoy=HOY_DNI).a_registro()
+    texto = str(registro)
+    assert "12345678" not in texto and "Sintetico" not in texto and "1975" not in texto
+    assert set(registro["campos"]["numero_documento"]) == {"confianza", "regla", "huella"}
+    assert all(set(a) == {"codigo", "nivel"} for a in registro["alertas"])
 
 
 def test_cuil_sugerido() -> None:
