@@ -172,9 +172,20 @@ describe('foto del índice', () => {
     expect(screen.getByRole('checkbox', { name: 'Incluir la escritura 119' })).not.toBeChecked()
     expect(screen.getByText(/ya está declarada este año/)).toBeInTheDocument()
 
+    // El índice no dice quién autorizó: no se carga hasta elegirlo.
+    expect(screen.getAllByText('Falta elegir el escribano')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar 1 acto' }))
+    expect(
+      await screen.findByText('Elegí el escribano que autorizó las escrituras.'),
+    ).toBeInTheDocument()
+    expect(iaApi.ratificarActo).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Escribano que autorizó estas escrituras'), {
+      target: { value: 'e2' },
+    })
+    expect(screen.getAllByText('Autorizó Sintético, Adscripto')).toHaveLength(2)
+
     fireEvent.click(screen.getByRole('button', { name: 'Cargar 1 acto' }))
     expect(await screen.findByText('Se cargó 1 acto.')).toBeInTheDocument()
-    // El índice no dice quién autorizó: va el escribano del último acto cargado.
     expect(iaApi.ratificarActo).toHaveBeenCalledWith(
       's1',
       expect.objectContaining({
@@ -207,7 +218,10 @@ describe('foto del índice', () => {
       target: { files: [new File(['x'], 'indice.jpg', { type: 'image/jpeg' })] },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Leer el índice' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Cargar 1 acto' }))
+    fireEvent.change(await screen.findByLabelText('Escribano que autorizó estas escrituras'), {
+      target: { value: 'e1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar 1 acto' }))
 
     const fila = (await screen.findByRole('alert')).closest('li')
     expect(fila).not.toBeNull()

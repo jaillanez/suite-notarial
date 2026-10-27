@@ -14,16 +14,17 @@ import { Link, useParams } from 'react-router'
 
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
+import { Select } from '../../components/ui/Select'
 import { PageHeader, Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { formatMoney, normalizeDecimalInput } from '../../lib/decimal'
-import { actoCompleto, actoInput, actoSugerido, type ActoForm } from '../ddjj/acto'
+import { actoCompleto, actoInput, type ActoForm } from '../ddjj/acto'
 import { ActoCampos } from '../ddjj/ActoCampos'
 import { fetchDeclaracion, type DeclaracionDetalle } from '../ddjj/api'
 import { CATEGORIA, formatPeriodo, registroLabel } from '../ddjj/labels'
 import { useVerificacionActo } from '../ddjj/verificacion'
 import { ResultadoVerificacion } from '../ddjj/VerificacionActo'
-import { formatDate, todayIso } from '../padron/labels'
+import { CARGO, formatDate } from '../padron/labels'
 import {
   analizarIndice,
   descartarSugerencia,
@@ -174,26 +175,34 @@ interface Renglon {
   estado: EstadoRenglon
 }
 
+/** El índice no dice quién autorizó cada escritura: la persona lo elige para todo el lote (salvo
+ * que el registro tenga un solo escribano, donde no hay duda). Nunca se asigna en silencio. */
+function escribanoUnico(ddjj: DeclaracionDetalle): string {
+  return ddjj.escribanos.length === 1 ? (ddjj.escribanos[0]?.id ?? '') : ''
+}
+
 function renglonesDe(ddjj: DeclaracionDetalle, sugerencias: Sugerencia[]): Renglon[] {
-  // El índice no dice quién autorizó: se propone el escribano del último acto cargado.
-  const escribano = actoSugerido(ddjj, todayIso()).escribano_id
+  const escribano = escribanoUnico(ddjj)
   return sugerencias.map((s) => {
     const form = formularioDe(ddjj, s, escribano)
     const advertencias = s.alertas.some((a) => a.nivel === 'ADVERTENCIA')
     const repetido = s.alertas.some((a) => a.codigo === 'NUMERO_YA_DECLARADO')
+    // El escribano se elige arriba para todos: su falta no abre cada renglón.
+    const completo = actoCompleto({ ...form, escribano_id: form.escribano_id || 'elegido' })
     return {
       sugerencia: s,
       form,
       // Un número ya declarado probablemente es un renglón de otro mes: no se incluye solo.
       incluir: !repetido,
-      abierto: advertencias || !actoCompleto(form),
+      abierto: advertencias || !completo,
       estado: { tipo: 'pendiente' },
     }
   })
 }
 
-function Resumen({ form }: { form: ActoForm }) {
+function Resumen({ ddjj, form }: { ddjj: DeclaracionDetalle; form: ActoForm }) {
   const base = form.categoria === 'ESCRITURA_CON_VALOR' && form.base_imponible.trim()
+  const escribano = ddjj.escribanos.find((e) => e.id === form.escribano_id)
   return (
     <span className="min-w-0 flex-1">
       <span className="block font-semibold text-ink tabular-nums">
@@ -213,6 +222,9 @@ function Resumen({ form }: { form: ActoForm }) {
           {formatMoney(normalizeDecimalInput(form.base_imponible))}
         </span>
       )}
+      <span className="block truncate text-sm text-ink-muted">
+        {escribano ? `Autorizó ${escribano.apellido_nombre}` : 'Falta elegir el escribano'}
+      </span>
     </span>
   )
 }
@@ -275,7 +287,7 @@ function FilaRenglon({
             onCambio({ incluir: e.target.checked })
           }}
         />
-        <Resumen form={renglon.form} />
+        <Resumen ddjj={ddjj} form={renglon.form} />
         <span className="flex shrink-0 flex-col items-end gap-2">
           {estado.tipo === 'cargado' && (
             <span className="inline-flex items-center gap-1 text-sm font-semibold text-success-700">
@@ -338,6 +350,19 @@ function Revision({
   const [renglones, setRenglones] = useState(() => renglonesDe(ddjj, sugerencias))
   const [cargando, setCargando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [escribanoLote, setEscribanoLote] = useState(() => escribanoUnico(ddjj))
+  const elegirEscribano = (id: string) => {
+    // Cambia los renglones que siguen con el del lote; los que se editaron uno por uno, no.
+    setRenglones((rs) =>
+      rs.map((r) =>
+        r.estado.tipo !== 'cargado' && r.form.escribano_id === escribanoLote
+          ? { ...r, form: { ...r.form, escribano_id: id } }
+          : r,
+      ),
+    )
+    setEscribanoLote(id)
+    setAviso(null)
+  }
   const cambiar = (i: number, cambio: Partial<Renglon>) => {
     setRenglones((rs) => rs.map((r, j) => (j === i ? { ...r, ...cambio } : r)))
   }
@@ -348,6 +373,10 @@ function Revision({
 
   const cargar = async () => {
     setAviso(null)
+    if (renglones.some((r) => r.incluir && r.estado.tipo !== 'cargado' && !r.form.escribano_id)) {
+      setAviso('Elegí el escribano que autorizó las escrituras.')
+      return
+    }
     const incompletos = renglones.filter(
       (r) => r.incluir && r.estado.tipo !== 'cargado' && !actoCompleto(r.form),
     )
@@ -401,6 +430,26 @@ function Revision({
           </Button>
         }
       >
+        <div className="border-b border-line px-5 py-4 sm:px-6">
+          <Select
+            label="Escribano que autorizó estas escrituras"
+            value={escribanoLote}
+            disabled={cargando}
+            onChange={(e) => {
+              elegirEscribano(e.target.value)
+            }}
+            options={[
+              ...(escribanoLote ? [] : [{ value: '', label: 'Elegí el escribano…' }]),
+              ...ddjj.escribanos.map((e) => ({
+                value: e.id,
+                label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${String(e.matricula_numero)}`,
+              })),
+            ]}
+          />
+          <p className="mt-1.5 text-sm text-ink-muted">
+            El índice no lo dice. Si alguna escritura es de otro escribano, cambialo en ese renglón.
+          </p>
+        </div>
         <ul className="divide-y divide-line">
           {renglones.map((r, i) => (
             <FilaRenglon
