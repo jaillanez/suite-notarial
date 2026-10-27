@@ -207,6 +207,16 @@ Ya aplicadas:
 - **Registros y cargos:** un titular vigente por registro y un cargo vigente por escribano
   (índices únicos parciales). El registro pasa a *con titular* al designarlo y a *vacante* al
   cerrar su titularidad. Los cargos se cierran con fecha y motivo.
+- **Escribano a cargo** (`/a-cargo`, `/api/v1/a-cargo`): designación con **fecha desde y hasta**
+  que convive con el cargo propio del designado. Cualquier escribano activo de la provincia puede
+  quedar a cargo de cualquier registro (confirmado por la Caja el 27/10/2026). La carga el titular
+  desde su autogestión (nunca con fecha anterior a su propio cargo) o la Caja. Un ajuste de la
+  Caja decide si la del titular **espera aprobación** (la aprueba otra persona) o **rige por
+  aviso**; la que carga la Caja rige siempre. `TODO(negocio)`: por defecto, aviso. Solo una
+  designación aprobada habilita, y solo entre sus fechas: el designado opera las DDJJ del
+  registro, figura como «a cargo» y no suma aporte médico. Se anula o se termina antes con motivo,
+  sin dejar actos declarados fuera de un cargo; al cerrarse el cargo del titular, las que él cargó
+  se terminan en esa fecha. El padrón ya no asigna «a cargo» sin fechas.
 - **Sin borrado físico (INM):** la app no tiene DELETE ni TRUNCATE sobre las tablas del padrón y un
   trigger lo impide también al dueño. Toda alta, edición, cambio de estado o cargo se audita.
 - **Endpoints:** `/api/v1/padron/{escribanos,registros,circunscripciones,departamentos,cargos}`.

@@ -40,6 +40,7 @@ import { RegistrosPage } from './features/padron/RegistrosPage'
 import { ConceptoPage } from './features/parametros/ConceptoPage'
 import { ParametrosPage } from './features/parametros/ParametrosPage'
 import { UsersPage } from './features/users/UsersPage'
+import { ACargoPage } from './features/acargo/ACargoPage'
 
 const router = createBrowserRouter([
   {
@@ -115,6 +116,14 @@ const router = createBrowserRouter([
               { path: '/ddjj/:id', element: <DeclaracionPage /> },
               { path: '/ddjj/:id/minuta', element: <MinutaPage /> },
             ],
+          },
+          {
+            element: (
+              <RequirePermission
+                permission={['escribanos:read', 'ddjj:create_own', 'ddjj:read_own']}
+              />
+            ),
+            children: [{ path: '/a-cargo', element: <ACargoPage /> }],
           },
           {
             element: <RequirePermission permission="comprobantes:verify" />,
