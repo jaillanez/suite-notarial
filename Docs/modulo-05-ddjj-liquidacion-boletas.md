@@ -7,11 +7,18 @@
 
 > **Implementación (Fase 4).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
 >
+> - **Controles del libro de protocolo:** número de escritura único por registro, protocolo y año
+>   (bloquea), salvo los actos múltiples de una misma escritura (misma DDJJ y fecha, un aporte
+>   por acto, columna `orden_en_escritura`), folio repetido o fuera de orden y fecha fuera de orden (avisan), números salteados
+>   del año en la ficha. `TODO(negocio)`: confirmar que la numeración se reinicia cada año.
 > - **Una DDJJ por registro notarial y período**, no por escribano: reúne los actos de titular,
 >   adscriptos y escribanos a cargo, como en el sistema en uso. Cada acto guarda el escribano y su
 >   cargo a la fecha del acto.
 > - **Categorías de acto** relevadas del sistema actual: escritura con valor (porcentaje sobre la
 >   base con mínimo y tope), acta o poder y otro acto (montos fijos) y sin efecto (no aporta).
+>   Exento (no aporta): motivo obligatorio (`CONVENIO_IPV`, `ACTA_SUBSANATORIA` u `OTRO` con
+>   detalle); cuenta como acto y el mínimo mensual se cobra igual. `TODO(negocio)`: confirmar
+>   otros motivos frecuentes y si la Caja revisa las exenciones.
 > - **Liquidación** (`app/modules/ddjj/liquidacion.py`, reproduce la boleta 1069 de 09/2026):
 >   excedente = máx(0, protocolos − aporte mínimo mensual); total en término = mínimo + excedente +
 >   aporte médico (uno por titular o adscripto con cargo en el período); interés de mora sobre el

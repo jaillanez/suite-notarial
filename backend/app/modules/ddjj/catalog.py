@@ -14,6 +14,18 @@ class CategoriaActo(StrEnum):
     OTRO_ACTO = "OTRO_ACTO"
     # Escritura que quedó sin efecto: se declara para no dejar huecos en la numeración, sin aporte.
     SIN_EFECTO = "SIN_EFECTO"
+    # Acto exento de aporte (con motivo): se declara y cuenta, pero no aporta. El mínimo mensual
+    # se cobra igual.
+    EXENTO = "EXENTO"
+
+
+class MotivoExencion(StrEnum):
+    """Por qué un acto no aporta. TODO(negocio): la Caja nombró estos dos casos; confirmar si
+    hay otros frecuentes que convenga listar y si la Caja revisa las exenciones declaradas."""
+
+    CONVENIO_IPV = "CONVENIO_IPV"  # viviendas del Instituto Provincial de la Vivienda
+    ACTA_SUBSANATORIA = "ACTA_SUBSANATORIA"  # corrige una escritura anterior
+    OTRO = "OTRO"  # con detalle obligatorio
 
 
 class TipoProtocolo(StrEnum):
@@ -39,6 +51,7 @@ CONCEPTO_POR_CATEGORIA: dict[CategoriaActo, str | None] = {
     CategoriaActo.ACTA_O_PODER: "APORTE_FIJO_ACTAS_PODERES",
     CategoriaActo.OTRO_ACTO: "APORTE_FIJO_OTROS_ACTOS",
     CategoriaActo.SIN_EFECTO: None,
+    CategoriaActo.EXENTO: None,
 }
 CONCEPTO_MINIMO = "APORTE_MINIMO_MENSUAL"
 CONCEPTO_MEDICO = "APORTE_MEDICO_ASISTENCIAL"

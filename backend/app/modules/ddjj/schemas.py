@@ -8,7 +8,14 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
-from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ, TipoProtocolo
+from app.modules.ddjj.catalog import (
+    CategoriaActo,
+    EstadoBoleta,
+    EstadoDDJJ,
+    MotivoExencion,
+    TipoProtocolo,
+)
+from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.parametros.schemas import Money
@@ -28,6 +35,7 @@ Periodo = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidato
 # Base imponible: hasta 16 enteros (Numeric(18,2)).
 BaseImponible = Annotated[Money, Field(max_digits=18)]
 Naturaleza = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=300)]
+DetalleExencion = Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]
 Motivo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1000)]
 Texto = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
 
@@ -64,6 +72,11 @@ class ActoIn(BaseModel):
     naturaleza: Naturaleza
     categoria: CategoriaActo
     base_imponible: BaseImponible = Decimal("0.00")
+    # Otro acto de una escritura ya cargada en esta DDJJ (aporte múltiple).
+    acto_multiple: bool = False
+    # Obligatorio para un acto exento; con «otro motivo», también el detalle.
+    motivo_exencion: MotivoExencion | None = None
+    detalle_exencion: DetalleExencion | None = None
 
     @model_validator(mode="after")
     def _base_segun_categoria(self) -> "ActoIn":
@@ -72,6 +85,19 @@ class ActoIn(BaseModel):
             raise ValueError("Una escritura con valor necesita la base imponible.")
         if not con_valor and self.base_imponible != 0:
             raise ValueError("Solo las escrituras con valor llevan base imponible.")
+        return self
+
+    @model_validator(mode="after")
+    def _motivo_de_exencion(self) -> "ActoIn":
+        self.detalle_exencion = self.detalle_exencion or None  # "" (o solo espacios) = sin detalle
+        if self.categoria is not CategoriaActo.EXENTO:
+            if self.motivo_exencion is not None or self.detalle_exencion is not None:
+                raise ValueError("Solo un acto exento lleva motivo de exención.")
+            return self
+        if self.motivo_exencion is None:
+            raise ValueError("Indicá el motivo de la exención.")
+        if self.motivo_exencion is MotivoExencion.OTRO and len(self.detalle_exencion or "") < 3:
+            raise ValueError("Detallá el motivo de la exención.")
         return self
 
 
@@ -87,11 +113,14 @@ class ActoOut(BaseModel):
     cargo: Cargo
     tipo_protocolo: TipoProtocolo
     numero_escritura: int
+    orden_en_escritura: int
     folio: int | None
     fecha_acto: date
     naturaleza: str
     categoria: CategoriaActo
     base_imponible: Money
+    motivo_exencion: MotivoExencion | None
+    detalle_exencion: str | None
     # En borrador es el aporte estimado con los parámetros vigentes; presentada, el congelado.
     aporte: Money | None
     vigencia_id: uuid.UUID | None
@@ -173,11 +202,51 @@ class DeclaracionOut(BaseModel):
     created_at: datetime
 
 
+class ControlOut(BaseModel):
+    codigo: str
+    nivel: NivelControl
+    mensaje: str
+
+
+class TramoOut(BaseModel):
+    desde: int
+    hasta: int
+
+
+class HuecoOut(BaseModel):
+    tipo_protocolo: TipoProtocolo
+    tramos: list[TramoOut]
+    total: int
+
+
 class DeclaracionDetalle(DeclaracionOut):
     actos: list[ActoOut]
     boletas: list[BoletaOut]
     escribanos: list[EscribanoResumen]
     puede_operar: bool
+    # Controles del libro de protocolo: por acto (solo los que tienen algo) y números salteados.
+    controles: dict[uuid.UUID, list[ControlOut]]
+    huecos: list[HuecoOut]
+
+
+class VerificacionActoIn(BaseModel):
+    """Acto a medio cargar: lo que haya, para ver el aporte y los controles mientras se tipea."""
+
+    tipo_protocolo: TipoProtocolo = TipoProtocolo.GENERAL
+    numero_escritura: int | None = Field(default=None, gt=0, le=1_000_000)
+    folio: int | None = Field(default=None, gt=0, le=1_000_000)
+    fecha_acto: date | None = None
+    categoria: CategoriaActo | None = None
+    base_imponible: BaseImponible | None = None
+    acto_multiple: bool = False
+    # Al editar o revisar un acto ya cargado.
+    excluir_acto_id: uuid.UUID | None = None
+
+
+class VerificacionActoOut(BaseModel):
+    # Aporte estimado con los parámetros vigentes del período (None si faltan datos).
+    aporte: Money | None
+    controles: list[ControlOut]
 
 
 class PresentarIn(BaseModel):

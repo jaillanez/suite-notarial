@@ -4,7 +4,9 @@ import type { EstadoComprobante } from '../pagos/api'
 
 export type EstadoDDJJ = 'BORRADOR' | 'PRESENTADA' | 'RECTIFICADA'
 export type EstadoBoleta = 'PENDIENTE' | 'PAGADA' | 'ANULADA'
-export type CategoriaActo = 'ESCRITURA_CON_VALOR' | 'ACTA_O_PODER' | 'OTRO_ACTO' | 'SIN_EFECTO'
+export type CategoriaActo =
+  'ESCRITURA_CON_VALOR' | 'ACTA_O_PODER' | 'OTRO_ACTO' | 'SIN_EFECTO' | 'EXENTO'
+export type MotivoExencion = 'CONVENIO_IPV' | 'ACTA_SUBSANATORIA' | 'OTRO'
 export type TipoProtocolo = 'GENERAL' | 'AUXILIAR'
 
 export interface RegistroResumen {
@@ -34,11 +36,15 @@ export interface Acto {
   cargo: Cargo
   tipo_protocolo: TipoProtocolo
   numero_escritura: number
+  /** 1 para el primer acto de la escritura; 2, 3… para los demás (aporte múltiple). */
+  orden_en_escritura: number
   folio: number | null
   fecha_acto: string
   naturaleza: string
   categoria: CategoriaActo
   base_imponible: string
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
   aporte: string | null
   vigencia_id: string | null
 }
@@ -94,11 +100,47 @@ export interface Declaracion {
   created_at: string
 }
 
+export type NivelControl = 'BLOQUEANTE' | 'ADVERTENCIA'
+
+/** Control del libro de protocolo (numeración, folio o fecha). */
+export interface ControlProtocolo {
+  codigo: string
+  nivel: NivelControl
+  mensaje: string
+}
+
+/** Números de escritura salteados en el año, por protocolo. */
+export interface Hueco {
+  tipo_protocolo: TipoProtocolo
+  /** Tramos consecutivos de números salteados. */
+  tramos: { desde: number; hasta: number }[]
+  total: number
+}
+
 export interface DeclaracionDetalle extends Declaracion {
   actos: Acto[]
   boletas: Boleta[]
   escribanos: EscribanoResumen[]
   puede_operar: boolean
+  /** Solo los actos que tienen algún control, por id. */
+  controles: Record<string, ControlProtocolo[]>
+  huecos: Hueco[]
+}
+
+export interface VerificacionActoInput {
+  tipo_protocolo: TipoProtocolo
+  numero_escritura: number | null
+  folio: number | null
+  fecha_acto: string | null
+  categoria: CategoriaActo | null
+  base_imponible: string | null
+  acto_multiple: boolean
+  excluir_acto_id?: string | null
+}
+
+export interface VerificacionActo {
+  aporte: string | null
+  controles: ControlProtocolo[]
 }
 
 export interface Liquidacion {
@@ -126,6 +168,9 @@ export interface ActoInput {
   naturaleza: string
   categoria: CategoriaActo
   base_imponible: string
+  acto_multiple: boolean
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
 }
 
 export interface Verificacion {
@@ -192,6 +237,14 @@ export async function fetchLiquidacion(id: string, fechaPago: string): Promise<L
 
 export async function agregarActo(id: string, data: ActoInput): Promise<Acto> {
   return (await api.post<Acto>(`${P}/declaraciones/${id}/actos`, data)).data
+}
+
+export async function verificarActo(
+  id: string,
+  data: VerificacionActoInput,
+): Promise<VerificacionActo> {
+  return (await api.post<VerificacionActo>(`${P}/declaraciones/${id}/actos/verificacion`, data))
+    .data
 }
 
 export async function bajaActo(id: string, actoId: string, motivo: string): Promise<void> {

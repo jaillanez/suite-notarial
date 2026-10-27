@@ -15,8 +15,10 @@ import {
   formatMoney,
   normalizeDecimalInput,
 } from '../../lib/decimal'
-import { actoCompleto, actoInput, actoVacio, type ActoForm } from '../ddjj/acto'
+import { actoCompleto, actoInput, actoVacio, type ActoForm, type CampoActo } from '../ddjj/acto'
 import { ActoCampos } from '../ddjj/ActoCampos'
+import { useVerificacionActo } from '../ddjj/verificacion'
+import { ResultadoVerificacion } from '../ddjj/VerificacionActo'
 import {
   fetchDeclaracion,
   type CategoriaActo,
@@ -40,7 +42,7 @@ import {
   Respaldo,
 } from './componentes'
 
-const ETIQUETAS: Record<keyof ActoForm, string> = {
+const ETIQUETAS: Record<CampoActo, string> = {
   escribano_id: 'Escribano',
   categoria: 'Tipo de acto',
   tipo_protocolo: 'Protocolo',
@@ -170,7 +172,7 @@ function EntradaMinuta({
 // --------------------------------------------------------------------------- revisión
 
 function formularioDe(ddjj: DeclaracionDetalle, s: Sugerencia): ActoForm {
-  const v = (k: keyof ActoForm) => s.campos[k]?.valor ?? null
+  const v = (k: CampoActo) => s.campos[k]?.valor ?? null
   const vacio = actoVacio(ddjj)
   const escribano = v('escribano_id')
   const base = v('base_imponible')
@@ -184,6 +186,9 @@ function formularioDe(ddjj: DeclaracionDetalle, s: Sugerencia): ActoForm {
     fecha_acto: v('fecha_acto') ?? '',
     naturaleza: v('naturaleza') ?? '',
     base_imponible: base && base !== '0.00' ? formatDecimal(base) : '',
+    acto_multiple: false,
+    motivo_exencion: '',
+    detalle_exencion: '',
   }
 }
 
@@ -200,6 +205,7 @@ function RevisionMinuta({
   const queryClient = useQueryClient()
   const [form, setForm] = useState(() => formularioDe(ddjj, sugerencia))
   const [revisado, setRevisado] = useState(false)
+  const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
   const confirmar = useMutation({
     mutationFn: () => ratificarActo(sugerencia.id, actoInput(form)),
     onSuccess: async () => {
@@ -234,7 +240,7 @@ function RevisionMinuta({
         return valor
     }
   }
-  const pista = (campo: keyof ActoForm) => {
+  const pista = (campo: CampoActo) => {
     let actual = form[campo]
     if (campo === 'base_imponible') {
       const normalizado = normalizeDecimalInput(actual)
@@ -253,7 +259,7 @@ function RevisionMinuta({
     )
   }
   const pistas = Object.fromEntries(
-    (Object.keys(ETIQUETAS) as (keyof ActoForm)[]).map((k) => [k, pista(k)]),
+    (Object.keys(ETIQUETAS) as CampoActo[]).map((k) => [k, pista(k)]),
   )
   const advertencias = sugerencia.alertas.filter((a) => a.nivel === 'ADVERTENCIA').length
 
@@ -300,6 +306,7 @@ function RevisionMinuta({
                   setRevisado(false)
                 }}
               />
+              <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
             </div>
           </Panel>
           <ConfirmacionHumana checked={revisado} onChange={setRevisado}>
@@ -322,7 +329,7 @@ function RevisionMinuta({
               icon={Check}
               busy={confirmar.isPending}
               busyLabel="Agregando…"
-              disabled={!revisado || !actoCompleto(form)}
+              disabled={!revisado || !actoCompleto(form) || bloqueado}
               onClick={() => {
                 confirmar.mutate()
               }}

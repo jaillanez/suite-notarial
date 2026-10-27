@@ -42,6 +42,8 @@ const DDJJ: ddjjApi.DeclaracionDetalle = {
     },
   ],
   puede_operar: true,
+  controles: {},
+  huecos: [],
 }
 
 const campo = (valor: string | null, confianza = '0.9000', evidencia: string | null = null) => ({
@@ -105,6 +107,7 @@ describe('carga desde la minuta (Human in Command)', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(ddjjApi.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(ddjjApi.verificarActo).mockResolvedValue({ aporte: '972000.00', controles: [] })
     vi.mocked(iaApi.fetchEstadoIa).mockResolvedValue({
       ocr_disponible: true,
       idiomas_ocr: 'spa+eng',
@@ -172,6 +175,9 @@ describe('carga desde la minuta (Human in Command)', () => {
         fecha_acto: '2026-09-14',
         naturaleza: 'Compraventa',
         base_imponible: '45000000.00',
+        acto_multiple: false,
+        motivo_exencion: null,
+        detalle_exencion: null,
       })
     })
     expect(await screen.findByText('Ficha de la declaración')).toBeInTheDocument()

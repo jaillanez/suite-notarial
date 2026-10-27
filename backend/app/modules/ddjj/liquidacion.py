@@ -57,7 +57,7 @@ class Liquidacion:
 
 
 def aporte_de_acto(acto: ActoALiquidar, vigencia: VigenciaSnapshot | None) -> AporteActo:
-    if acto.categoria is CategoriaActo.SIN_EFECTO:
+    if acto.categoria in (CategoriaActo.SIN_EFECTO, CategoriaActo.EXENTO):
         return AporteActo(CERO, None)
     if vigencia is None:
         raise LiquidacionError(f"Falta la vigencia para un acto {acto.categoria.value}.")

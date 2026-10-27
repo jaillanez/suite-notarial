@@ -587,8 +587,8 @@ def _validaciones(
             Alerta(
                 "NUMERO_YA_DECLARADO",
                 NivelAlerta.ADVERTENCIA,
-                f"La escritura N° {numero} del protocolo {protocolo.lower()} ya está declarada en "
-                "esta DDJJ.",
+                f"La escritura N° {numero} del protocolo {protocolo.lower()} ya está declarada "
+                "este año.",
             )
         )
     return alertas

@@ -17,6 +17,7 @@ import hashlib
 import json
 import secrets
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -32,6 +33,7 @@ from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import today_local
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
+from app.modules.ddjj import protocolo
 from app.modules.ddjj.catalog import (
     CONCEPTO_MEDICO,
     CONCEPTO_MINIMO,
@@ -45,12 +47,13 @@ from app.modules.ddjj.liquidacion import (
     ActoALiquidar,
     Liquidacion,
     LiquidacionError,
+    aporte_de_acto,
     liquidar,
     totalizar,
 )
 from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
 from app.modules.ddjj.pdf import DatosBoleta, EscribanoBoleta
-from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn
+from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn, VerificacionActoIn
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
@@ -65,6 +68,8 @@ from app.modules.parametros.motor import VigenciaSnapshot
 # Plazo máximo entre la emisión de una boleta y la fecha hasta la que se puede pagar.
 # TODO(negocio): confirmar con la Caja el plazo de validez de una boleta.
 MAX_DIAS_VALIDEZ_BOLETA = 60
+# Tope técnico de actos por DDJJ (acota el costo de liquidar y controlar una declaración).
+MAX_ACTOS_POR_DDJJ = 2000
 CARGO_TEXTO = {
     Cargo.TITULAR.value: "Titular",
     Cargo.ADSCRIPTO.value: "Adscripto",
@@ -477,11 +482,14 @@ ACTO_FIELDS = (
     "cargo",
     "tipo_protocolo",
     "numero_escritura",
+    "orden_en_escritura",
     "folio",
     "fecha_acto",
     "naturaleza",
     "categoria",
     "base_imponible",
+    "motivo_exencion",
+    "detalle_exencion",
 )
 
 
@@ -530,6 +538,27 @@ async def agregar_acto(
     )
     if cargo is None:
         raise _invalid("El escribano no tenía cargo en este registro a la fecha del acto.")
+    # La fecha ya está dentro del período: el año del protocolo es el del período.
+    anio = int(ddjj.periodo[:4])
+    await _bloquear_protocolo(session, ddjj.registro_id, anio)
+    if len(await list_actos(session, ddjj.id)) >= MAX_ACTOS_POR_DDJJ:
+        raise _conflict(f"Una declaración jurada admite hasta {MAX_ACTOS_POR_DDJJ} actos.")
+    vista = protocolo.Vista(
+        await actos_del_anio(session, ddjj.registro_id, anio),
+        await _visible(session, principal, ddjj.registro_id),
+    )
+    candidato = protocolo.Candidato(
+        data.tipo_protocolo.value,
+        data.numero_escritura,
+        data.folio,
+        data.fecha_acto,
+        ddjj_id=ddjj.id,
+        multiple=data.acto_multiple,
+    )
+    for control in protocolo.revisar(vista, candidato):
+        if control.nivel is protocolo.NivelControl.BLOQUEANTE:
+            raise _conflict(control.mensaje)
+    orden = await _orden_en_escritura(session, ddjj, data)
     item = Acto(
         id=acto_id or uuid.uuid4(),
         ddjj_id=ddjj.id,
@@ -537,11 +566,14 @@ async def agregar_acto(
         cargo=cargo.cargo,
         tipo_protocolo=data.tipo_protocolo.value,
         numero_escritura=data.numero_escritura,
+        orden_en_escritura=orden,
         folio=data.folio,
         fecha_acto=data.fecha_acto,
         naturaleza=data.naturaleza,
         categoria=data.categoria.value,
         base_imponible=data.base_imponible,
+        motivo_exencion=data.motivo_exencion.value if data.motivo_exencion else None,
+        detalle_exencion=data.detalle_exencion,
         created_by_user_id=principal.user.id,
     )
     session.add(item)
@@ -557,12 +589,185 @@ async def agregar_acto(
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
+        # Solo la carrera contra el índice único es un duplicado; cualquier otra violación es
+        # un error interno y no se disfraza de escritura repetida.
+        restriccion = getattr(getattr(exc.orig, "__cause__", None), "constraint_name", None)
+        if restriccion != "uq_ddjj_actos_escritura":
+            raise
         raise _conflict(
             f"La escritura N° {data.numero_escritura} del protocolo "
             f"{data.tipo_protocolo.value.lower()} ya está declarada en esta DDJJ."
         ) from exc
     result = await session.execute(select(Acto).where(Acto.id == item.id))
     return result.unique().scalar_one()
+
+
+# --------------------------------------------------------------------------- libro de protocolo
+
+
+async def actos_del_anio(
+    session: AsyncSession, registro_id: uuid.UUID, anio: int
+) -> list[protocolo.ActoDeclarado]:
+    """Actos vigentes del registro con fecha en el año, en DDJJ no reemplazadas por una
+    rectificativa (los de la rectificada viven en su rectificativa)."""
+    filas = await session.execute(
+        select(
+            Acto.id,
+            Acto.ddjj_id,
+            Acto.tipo_protocolo,
+            Acto.numero_escritura,
+            Acto.folio,
+            Acto.fecha_acto,
+            DeclaracionJurada.periodo,
+        )
+        .join(DeclaracionJurada, DeclaracionJurada.id == Acto.ddjj_id)
+        .where(
+            DeclaracionJurada.registro_id == registro_id,
+            DeclaracionJurada.estado != EstadoDDJJ.RECTIFICADA.value,
+            Acto.is_active.is_(True),
+            Acto.fecha_acto >= date(anio, 1, 1),
+            Acto.fecha_acto <= date(anio, 12, 31),
+        )
+    )
+    return [protocolo.ActoDeclarado(*fila) for fila in filas.all()]
+
+
+async def _orden_en_escritura(session: AsyncSession, ddjj: DeclaracionJurada, data: ActoIn) -> int:
+    """1 para el primer acto de una escritura; para un acto múltiple, el siguiente de su
+    escritura, que tiene que estar cargada en esta DDJJ y con la misma fecha."""
+    hermanos = [
+        a
+        for a in await list_actos(session, ddjj.id)
+        if a.tipo_protocolo == data.tipo_protocolo.value
+        and a.numero_escritura == data.numero_escritura
+    ]
+    if not data.acto_multiple:
+        return 1
+    if not hermanos:
+        raise _invalid(
+            f"La escritura N° {data.numero_escritura} no está cargada en esta declaración: "
+            "cargá primero su primer acto y después los demás como acto múltiple."
+        )
+    if any(a.fecha_acto != data.fecha_acto for a in hermanos):
+        raise _invalid(
+            f"Un acto múltiple lleva la fecha de su escritura ({hermanos[0].fecha_acto:%d/%m/%Y})."
+        )
+    return max(a.orden_en_escritura for a in hermanos) + 1
+
+
+async def _bloquear_protocolo(session: AsyncSession, registro_id: uuid.UUID, anio: int) -> None:
+    """Serializa las altas de actos de un registro en un año: el control de número repetido
+    entre DDJJ de distintos meses y la inserción quedan en la misma sección crítica."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:clave, 0))"),
+        {"clave": f"ddjj-protocolo:{registro_id}:{anio}"},
+    )
+
+
+async def _visible(
+    session: AsyncSession, principal: Principal, registro_id: uuid.UUID
+) -> Callable[[str], bool]:
+    """Si quien consulta puede ver la DDJJ de un período del registro (para no citar número,
+    folio ni fecha de escrituras fuera de su alcance)."""
+    alcance = await _alcance_ddjj(session, principal)
+    if alcance is None:
+        return lambda _periodo: True
+    return lambda periodo: any(a.incluye(registro_id, periodo) for a in alcance)
+
+
+async def controles_ddjj(
+    session: AsyncSession, principal: Principal, ddjj: DeclaracionJurada, actos: list[Acto]
+) -> tuple[dict[uuid.UUID, list[protocolo.Control]], list[protocolo.Hueco]]:
+    """Controles de cada acto de la DDJJ y números salteados del año del período."""
+    vista = protocolo.Vista(
+        await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4])),
+        await _visible(session, principal, ddjj.registro_id),
+    )
+    por_acto: dict[uuid.UUID, list[protocolo.Control]] = {}
+    for a in actos:
+        candidato = protocolo.Candidato(
+            a.tipo_protocolo,
+            a.numero_escritura,
+            a.folio,
+            a.fecha_acto,
+            ddjj_id=a.ddjj_id,
+            multiple=True,
+            excluir=a.id,
+        )
+        controles = protocolo.revisar(vista, candidato)
+        if controles:
+            por_acto[a.id] = controles
+    return por_acto, protocolo.huecos(vista)
+
+
+async def _exigir_numeracion_sin_repetidos(
+    session: AsyncSession, principal: Principal, ddjj: DeclaracionJurada, actos: list[Acto]
+) -> None:
+    """Ninguna escritura de la DDJJ puede estar declarada en otra DDJJ del año (red de
+    seguridad al presentar, además del control al cargar)."""
+    anio = int(ddjj.periodo[:4])
+    await _bloquear_protocolo(session, ddjj.registro_id, anio)
+    vista = protocolo.Vista(
+        await actos_del_anio(session, ddjj.registro_id, anio),
+        await _visible(session, principal, ddjj.registro_id),
+    )
+    for a in actos:
+        candidato = protocolo.Candidato(
+            a.tipo_protocolo,
+            a.numero_escritura,
+            a.folio,
+            a.fecha_acto,
+            ddjj_id=a.ddjj_id,
+            multiple=True,
+            excluir=a.id,
+        )
+        for control in protocolo.revisar(vista, candidato):
+            if control.nivel is protocolo.NivelControl.BLOQUEANTE:
+                raise _conflict(f"No se puede presentar: {control.mensaje}")
+
+
+async def verificar_acto(
+    session: AsyncSession, principal: Principal, ddjj_id: uuid.UUID, data: VerificacionActoIn
+) -> tuple[Decimal | None, list[protocolo.Control]]:
+    """Aporte estimado y controles de un acto a medio cargar (no guarda nada)."""
+    ddjj = await get_declaracion(session, principal, ddjj_id)
+    await _exigir_operacion(session, principal, ddjj.registro_id)
+    # El año sale del período (no de la fecha que manda el cliente): un acto solo puede tener
+    # fecha dentro del período de su DDJJ.
+    desde, hasta = rango_periodo(ddjj.periodo)
+    fecha = data.fecha_acto if data.fecha_acto and desde <= data.fecha_acto <= hasta else None
+    controles = protocolo.revisar(
+        protocolo.Vista(
+            await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4])),
+            await _visible(session, principal, ddjj.registro_id),
+        ),
+        protocolo.Candidato(
+            data.tipo_protocolo.value,
+            data.numero_escritura,
+            data.folio,
+            fecha,
+            ddjj_id=ddjj.id,
+            multiple=data.acto_multiple,
+            excluir=data.excluir_acto_id,
+        ),
+    )
+    aporte = None
+    if data.categoria is not None:
+        codigo = CONCEPTO_POR_CATEGORIA[data.categoria]
+        vigencia = None
+        if codigo is not None:
+            inicio, _ = rango_periodo(ddjj.periodo)
+            try:
+                vigencia = await parametros.get_vigencia(session, codigo, inicio)
+            except ProblemError:
+                vigencia = None
+        try:
+            aporte = aporte_de_acto(
+                ActoALiquidar(data.categoria, data.base_imponible or Decimal("0")), vigencia
+            ).aporte
+        except LiquidacionError:
+            aporte = None
+    return aporte, controles
 
 
 async def baja_acto(
@@ -849,6 +1054,7 @@ async def presentar(
         raise _invalid("La declaración jurada se presenta una vez terminado el período.")
     _validar_fecha_pago(data.fecha_pago)
     actos = await list_actos(session, ddjj.id)
+    await _exigir_numeracion_sin_repetidos(session, principal, ddjj, actos)
     pre = await preliquidar(session, ddjj, actos, data.fecha_pago)
     for acto, aporte in zip(actos, pre.liquidacion.aportes, strict=True):
         acto.aporte = aporte.aporte
@@ -1017,11 +1223,14 @@ async def rectificar(
                 cargo=acto.cargo,
                 tipo_protocolo=acto.tipo_protocolo,
                 numero_escritura=acto.numero_escritura,
+                orden_en_escritura=acto.orden_en_escritura,
                 folio=acto.folio,
                 fecha_acto=acto.fecha_acto,
                 naturaleza=acto.naturaleza,
                 categoria=acto.categoria,
                 base_imponible=acto.base_imponible,
+                motivo_exencion=acto.motivo_exencion,
+                detalle_exencion=acto.detalle_exencion,
                 created_by_user_id=principal.user.id,
             )
         )

@@ -5,8 +5,8 @@ import { Select } from '../../components/ui/Select'
 import type { Problem } from '../../lib/api'
 import { CARGO, todayIso } from '../padron/labels'
 import type { ActoForm } from './acto'
-import type { CategoriaActo, DeclaracionDetalle, TipoProtocolo } from './api'
-import { CATEGORIA, PROTOCOLO, rangoPeriodo } from './labels'
+import type { CategoriaActo, DeclaracionDetalle, MotivoExencion, TipoProtocolo } from './api'
+import { CATEGORIA, MOTIVO_EXENCION, PROTOCOLO, rangoPeriodo } from './labels'
 
 type Clave = keyof ActoForm
 
@@ -29,7 +29,13 @@ export function ActoCampos({
   const hoy = todayIso()
   const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
   const bind = (
-    key: 'numero_escritura' | 'folio' | 'fecha_acto' | 'naturaleza' | 'base_imponible',
+    key:
+      | 'numero_escritura'
+      | 'folio'
+      | 'fecha_acto'
+      | 'naturaleza'
+      | 'base_imponible'
+      | 'detalle_exencion',
   ) => ({
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
@@ -75,6 +81,34 @@ export function ActoCampos({
           {pistas.categoria ?? CATEGORIA[form.categoria].ayuda}
         </p>
       </div>
+      {form.categoria === 'EXENTO' && (
+        <>
+          <div className={form.motivo_exencion === 'OTRO' ? '' : 'sm:col-span-2'}>
+            <Select
+              label="Motivo de la exención"
+              value={form.motivo_exencion}
+              onChange={(e) => {
+                onChange({ motivo_exencion: e.target.value as MotivoExencion | '' })
+              }}
+              options={[
+                ...(form.motivo_exencion ? [] : [{ value: '', label: 'Elegí el motivo' }]),
+                ...(Object.keys(MOTIVO_EXENCION) as MotivoExencion[]).map((m) => ({
+                  value: m,
+                  label: MOTIVO_EXENCION[m],
+                })),
+              ]}
+            />
+          </div>
+          {form.motivo_exencion === 'OTRO' && (
+            <Field
+              label="¿Cuál?"
+              maxLength={300}
+              placeholder="Motivo de la exención"
+              {...bind('detalle_exencion')}
+            />
+          )}
+        </>
+      )}
       <div>
         <Select
           label="Protocolo"
@@ -114,6 +148,23 @@ export function ActoCampos({
         hint={pistas.folio}
         {...bind('folio')}
       />
+      <label className="flex min-h-11 cursor-pointer items-start gap-3 sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={form.acto_multiple}
+          onChange={(e) => {
+            onChange({ acto_multiple: e.target.checked })
+          }}
+          className="mt-0.5 size-5 shrink-0 cursor-pointer accent-brand-800"
+        />
+        <span className="text-sm">
+          <span className="block font-medium text-ink">Otro acto de la misma escritura</span>
+          <span className="block text-ink-muted">
+            Por ejemplo, compraventa e hipoteca en una sola escritura: cargá primero un acto y
+            después cada uno de los demás con este mismo número. Cada acto lleva su aporte.
+          </span>
+        </span>
+      </label>
       <Field
         className="sm:col-span-2"
         label="Naturaleza del acto"

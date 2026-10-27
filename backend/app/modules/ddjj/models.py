@@ -112,23 +112,43 @@ class Acto(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "ddjj_actos"
     __table_args__ = (
         CheckConstraint(
-            "categoria IN ('ESCRITURA_CON_VALOR', 'ACTA_O_PODER', 'OTRO_ACTO', 'SIN_EFECTO')",
+            "categoria IN ('ESCRITURA_CON_VALOR', 'ACTA_O_PODER', 'OTRO_ACTO', 'SIN_EFECTO', "
+            "'EXENTO')",
             name="categoria_valida",
+        ),
+        # Un acto exento siempre dice por qué; «otro motivo», con detalle.
+        CheckConstraint(
+            "(categoria = 'EXENTO') = (motivo_exencion IS NOT NULL)", name="exento_con_motivo"
+        ),
+        CheckConstraint(
+            "motivo_exencion IS NULL "
+            "OR motivo_exencion IN ('CONVENIO_IPV', 'ACTA_SUBSANATORIA', 'OTRO')",
+            name="motivo_exencion",
+        ),
+        CheckConstraint(
+            "motivo_exencion IS DISTINCT FROM 'OTRO' OR length(detalle_exencion) >= 3",
+            name="exencion_otro_con_detalle",
+        ),
+        CheckConstraint(
+            "detalle_exencion IS NULL OR motivo_exencion IS NOT NULL", name="detalle_exencion"
         ),
         CheckConstraint("tipo_protocolo IN ('GENERAL', 'AUXILIAR')", name="protocolo"),
         CheckConstraint("numero_escritura > 0", name="numero"),
         CheckConstraint("folio IS NULL OR folio > 0", name="folio"),
+        CheckConstraint("orden_en_escritura > 0", name="orden_en_escritura"),
         CheckConstraint("base_imponible >= 0", name="base"),
         CheckConstraint(
             "(categoria = 'ESCRITURA_CON_VALOR') = (base_imponible > 0)",
             name="base_segun_categoria",
         ),
-        # Un número de escritura por protocolo en cada DDJJ (entre los actos vigentes).
+        # Cada acto de una escritura es un renglón (aporte múltiple: varios actos en la misma
+        # escritura, p. ej. venta de lotes a distintos compradores), numerado dentro de ella.
         Index(
             "uq_ddjj_actos_escritura",
             "ddjj_id",
             "tipo_protocolo",
             "numero_escritura",
+            "orden_en_escritura",
             unique=True,
             postgresql_where=text("is_active"),
         ),
@@ -146,11 +166,16 @@ class Acto(UUIDMixin, TimestampMixin, Base):
     cargo: Mapped[str] = mapped_column(String(30), nullable=False)
     tipo_protocolo: Mapped[str] = mapped_column(String(10), nullable=False)
     numero_escritura: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 1 para el primer acto de la escritura; 2, 3… para los demás actos de la misma escritura.
+    orden_en_escritura: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     folio: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fecha_acto: Mapped[date] = mapped_column(Date, nullable=False)
     naturaleza: Mapped[str] = mapped_column(String(300), nullable=False)
     categoria: Mapped[str] = mapped_column(String(30), nullable=False)
     base_imponible: Mapped[Decimal] = mapped_column(BASE, nullable=False, server_default="0")
+    # Solo para la categoría EXENTO.
+    motivo_exencion: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    detalle_exencion: Mapped[str | None] = mapped_column(String(300), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
