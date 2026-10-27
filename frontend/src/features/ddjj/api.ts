@@ -94,11 +94,46 @@ export interface Declaracion {
   created_at: string
 }
 
+export type NivelControl = 'BLOQUEANTE' | 'ADVERTENCIA'
+
+/** Control del libro de protocolo (numeración, folio o fecha). */
+export interface ControlProtocolo {
+  codigo: string
+  nivel: NivelControl
+  mensaje: string
+}
+
+/** Números de escritura salteados en el año, por protocolo. */
+export interface Hueco {
+  tipo_protocolo: TipoProtocolo
+  /** Tramos consecutivos de números salteados. */
+  tramos: { desde: number; hasta: number }[]
+  total: number
+}
+
 export interface DeclaracionDetalle extends Declaracion {
   actos: Acto[]
   boletas: Boleta[]
   escribanos: EscribanoResumen[]
   puede_operar: boolean
+  /** Solo los actos que tienen algún control, por id. */
+  controles: Record<string, ControlProtocolo[]>
+  huecos: Hueco[]
+}
+
+export interface VerificacionActoInput {
+  tipo_protocolo: TipoProtocolo
+  numero_escritura: number | null
+  folio: number | null
+  fecha_acto: string | null
+  categoria: CategoriaActo | null
+  base_imponible: string | null
+  excluir_acto_id?: string | null
+}
+
+export interface VerificacionActo {
+  aporte: string | null
+  controles: ControlProtocolo[]
 }
 
 export interface Liquidacion {
@@ -192,6 +227,14 @@ export async function fetchLiquidacion(id: string, fechaPago: string): Promise<L
 
 export async function agregarActo(id: string, data: ActoInput): Promise<Acto> {
   return (await api.post<Acto>(`${P}/declaraciones/${id}/actos`, data)).data
+}
+
+export async function verificarActo(
+  id: string,
+  data: VerificacionActoInput,
+): Promise<VerificacionActo> {
+  return (await api.post<VerificacionActo>(`${P}/declaraciones/${id}/actos/verificacion`, data))
+    .data
 }
 
 export async function bajaActo(id: string, actoId: string, motivo: string): Promise<void> {

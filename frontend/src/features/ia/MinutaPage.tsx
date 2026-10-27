@@ -17,6 +17,8 @@ import {
 } from '../../lib/decimal'
 import { actoCompleto, actoInput, actoVacio, type ActoForm } from '../ddjj/acto'
 import { ActoCampos } from '../ddjj/ActoCampos'
+import { useVerificacionActo } from '../ddjj/verificacion'
+import { ResultadoVerificacion } from '../ddjj/VerificacionActo'
 import {
   fetchDeclaracion,
   type CategoriaActo,
@@ -200,6 +202,7 @@ function RevisionMinuta({
   const queryClient = useQueryClient()
   const [form, setForm] = useState(() => formularioDe(ddjj, sugerencia))
   const [revisado, setRevisado] = useState(false)
+  const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
   const confirmar = useMutation({
     mutationFn: () => ratificarActo(sugerencia.id, actoInput(form)),
     onSuccess: async () => {
@@ -300,6 +303,7 @@ function RevisionMinuta({
                   setRevisado(false)
                 }}
               />
+              <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
             </div>
           </Panel>
           <ConfirmacionHumana checked={revisado} onChange={setRevisado}>
@@ -322,7 +326,7 @@ function RevisionMinuta({
               icon={Check}
               busy={confirmar.isPending}
               busyLabel="Agregando…"
-              disabled={!revisado || !actoCompleto(form)}
+              disabled={!revisado || !actoCompleto(form) || bloqueado}
               onClick={() => {
                 confirmar.mutate()
               }}

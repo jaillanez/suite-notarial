@@ -7,6 +7,8 @@ import {
   Plus,
   ReceiptText,
   ScanText,
+  TriangleAlert,
+  CircleX,
   Send,
   Trash2,
 } from 'lucide-react'
@@ -37,11 +39,15 @@ import {
   rectificar,
   type Acto,
   type Boleta,
+  type ControlProtocolo,
+  type Hueco,
   type DeclaracionDetalle,
   type Liquidacion,
 } from './api'
 import { actoCompleto, actoInput, actoVacio } from './acto'
 import { ActoCampos } from './ActoCampos'
+import { useVerificacionActo } from './verificacion'
+import { ResultadoVerificacion } from './VerificacionActo'
 import {
   CATEGORIA,
   ESTADO_BOLETA,
@@ -262,6 +268,7 @@ function ActoDialog({
 }) {
   const invalidate = useInvalidate(ddjj.id)
   const [form, setForm] = useState(() => actoVacio(ddjj))
+  const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
   const save = useMutation({
     mutationFn: () => agregarActo(ddjj.id, actoInput(form)),
     onSuccess: async () => {
@@ -288,7 +295,7 @@ function ActoDialog({
             icon={Plus}
             busy={save.isPending}
             busyLabel="Agregando…"
-            disabled={!actoCompleto(form)}
+            disabled={!actoCompleto(form) || bloqueado}
             onClick={() => {
               save.mutate()
             }}
@@ -308,6 +315,7 @@ function ActoDialog({
             setForm((f) => ({ ...f, ...cambio }))
           }}
         />
+        <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
       </div>
     </Dialog>
   )
@@ -370,6 +378,63 @@ function BajaDialog({
   )
 }
 
+/** Avisos del libro de protocolo bajo un acto (ícono y texto en el tono del aviso). */
+function ControlesActo({ controles }: { controles: ControlProtocolo[] | undefined }) {
+  if (!controles?.length) return null
+  return (
+    <ul className="mt-1.5 grid gap-1">
+      {controles.map((c) => {
+        const bloqueante = c.nivel === 'BLOQUEANTE'
+        const Icono = bloqueante ? CircleX : TriangleAlert
+        return (
+          <li
+            key={c.codigo}
+            className={`flex gap-1.5 text-sm font-medium ${bloqueante ? 'text-danger-700' : 'text-warning-700'}`}
+          >
+            <Icono aria-hidden="true" className="mt-0.5 size-4 shrink-0" strokeWidth={2.25} />
+            <span>{c.mensaje}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function listarTramos(tramos: Hueco['tramos']): string {
+  const partes = tramos.map((t) =>
+    t.desde === t.hasta
+      ? String(t.desde)
+      : t.hasta === t.desde + 1
+        ? `${String(t.desde)}, ${String(t.hasta)}`
+        : `${String(t.desde)} a ${String(t.hasta)}`,
+  )
+  if (partes.length === 1) return partes[0] ?? ''
+  return `${partes.slice(0, -1).join('; ')} y ${partes[partes.length - 1] ?? ''}`
+}
+
+/** Números de escritura salteados en el año: o se declaran o se declaran «sin efecto». */
+function Huecos({ ddjj }: { ddjj: DeclaracionDetalle }) {
+  if (ddjj.huecos.length === 0) return null
+  return (
+    <div className="border-b border-line px-5 py-4 sm:px-6">
+      <Alert tone="warning" title="Hay números de escritura sin declarar este año">
+        <ul className="space-y-1 tabular-nums">
+          {ddjj.huecos.map((h) => (
+            <li key={h.tipo_protocolo}>
+              Protocolo {PROTOCOLO[h.tipo_protocolo].toLowerCase()}: {listarTramos(h.tramos)} (
+              {h.total} {h.total === 1 ? 'número' : 'números'}).
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2">
+          Si alguna escritura no se otorgó, declarala con el tipo «Sin efecto» para que la
+          numeración del protocolo quede completa.
+        </p>
+      </Alert>
+    </div>
+  )
+}
+
 function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<string, string> }) {
   const editable = ddjj.estado === 'BORRADOR' && ddjj.puede_operar
   const [adding, setAdding] = useState(false)
@@ -410,6 +475,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
         ) : undefined
       }
     >
+      <Huecos ddjj={ddjj} />
       {ddjj.actos.length === 0 ? (
         <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
           {editable
@@ -457,6 +523,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                     <span className="block text-ink-muted">
                       {a.escribano} ({CARGO[a.cargo]})
                     </span>
+                    <ControlesActo controles={ddjj.controles[a.id]} />
                   </td>
                   <td className="px-3 py-3 text-right whitespace-nowrap text-ink tabular-nums">
                     {a.categoria === 'ESCRITURA_CON_VALOR' ? formatMoney(a.base_imponible) : '—'}
@@ -499,6 +566,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                 <p className="text-sm text-ink-muted tabular-nums">
                   {a.escribano} · {formatDate(a.fecha_acto)}
                 </p>
+                <ControlesActo controles={ddjj.controles[a.id]} />
                 {a.categoria === 'ESCRITURA_CON_VALOR' && (
                   <p className="text-sm text-ink-muted tabular-nums">
                     Base imponible{' '}

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -96,6 +96,8 @@ const DDJJ: apiModule.DeclaracionDetalle = {
     },
   ],
   puede_operar: true,
+  controles: {},
+  huecos: [],
 }
 
 function renderFicha() {
@@ -119,6 +121,7 @@ describe('etiquetas de DDJJ', () => {
 describe('ficha de la DDJJ', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: null, controles: [] })
   })
 
   it('muestra la liquidación del borrador y avisa los valores a confirmar', async () => {
@@ -137,6 +140,86 @@ describe('ficha de la DDJJ', () => {
     expect(screen.getAllByText('$ 1.081.699,06').length).toBeGreaterThan(0)
     expect(screen.getAllByText('$ 400.000,00').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Agregar acto' })).toBeInTheDocument()
+  })
+
+  it('avisa folios fuera de orden y números salteados del año', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({
+      ...DDJJ,
+      controles: {
+        a1: [
+          {
+            codigo: 'FOLIO_FUERA_DE_ORDEN',
+            nivel: 'ADVERTENCIA',
+            mensaje: 'El folio 30 no sigue el orden de la numeración.',
+          },
+        ],
+      },
+      huecos: [
+        {
+          tipo_protocolo: 'GENERAL',
+          tramos: [
+            { desde: 21, hasta: 22 },
+            { desde: 30, hasta: 41 },
+          ],
+          total: 14,
+        },
+      ],
+    })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
+      ...IMPORTES,
+      aportes: [{ acto_id: 'a1', aporte: '400000.00' }],
+      vencimiento: '2026-10-28',
+      fecha_pago: '2026-10-23',
+      usa_valores_de_ejemplo: false,
+    })
+
+    renderFicha()
+
+    expect(
+      await screen.findByText('Hay números de escritura sin declarar este año'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Protocolo general: 21, 22 y 30 a 41 \(14 números\)/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('El folio 30 no sigue el orden de la numeración.').length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('el alta muestra el aporte en vivo y no deja agregar un número repetido', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
+      ...IMPORTES,
+      aportes: [],
+      vencimiento: '2026-10-28',
+      fecha_pago: '2026-10-23',
+      usa_valores_de_ejemplo: false,
+    })
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({
+      aporte: '21600.00',
+      controles: [
+        {
+          codigo: 'NUMERO_REPETIDO',
+          nivel: 'BLOQUEANTE',
+          mensaje:
+            'La escritura N° 101 del protocolo general ya está declarada en la DDJJ 08/2026.',
+        },
+      ],
+    })
+
+    renderFicha()
+    fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
+    fireEvent.change(screen.getByLabelText('N° de escritura'), { target: { value: '101' } })
+    fireEvent.change(screen.getByLabelText('Naturaleza del acto'), {
+      target: { value: 'Compraventa' },
+    })
+    fireEvent.change(screen.getByLabelText('Base imponible ($)'), {
+      target: { value: '1.000.000' },
+    })
+
+    expect(await screen.findByText('$ 21.600,00')).toBeInTheDocument()
+    expect(screen.getByText(/ya está declarada en la DDJJ 08\/2026/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Agregar' })).toBeDisabled()
   })
 
   it('una DDJJ presentada no se edita: ofrece rectificar y descargar la boleta', async () => {
