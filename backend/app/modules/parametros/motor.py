@@ -18,8 +18,9 @@ from app.modules.parametros.catalog import (
 )
 
 CIEN = Decimal(100)
-# Días por período de la tasa para el interés diario lineal.
-# TODO(negocio): confirmar con la Caja la base (30/365 o días reales del mes/año).
+# Días por período de la tasa para el interés diario lineal. La Caja confirmó (27/10/2026) que
+# la tasa de mora es mensual con meses de 30 días. TODO(negocio): la base 365 de una tasa anual
+# no está confirmada (hoy ninguna vigencia la usa).
 DIAS_POR_PERIODO: dict[PeriodoTasa, Decimal] = {
     PeriodoTasa.MENSUAL: Decimal(30),
     PeriodoTasa.ANUAL: Decimal(365),
@@ -86,8 +87,8 @@ def dias_de_mora(vencimiento: date, fecha_pago: date, v: VigenciaSnapshot) -> in
     """Días de atraso computables.
 
     Pagado dentro de los días de gracia no hay mora; pasada la gracia se cuentan todos los
-    días desde el vencimiento. TODO(negocio): confirmar si la mora corre desde el vencimiento
-    o desde el fin de la gracia.
+    días desde el vencimiento (la Caja confirmó que la mora corre desde el vencimiento; la
+    vigente no tiene días de gracia).
     """
     _require(v, TipoConcepto.TASA_MORA)
     atraso = (fecha_pago - vencimiento).days
@@ -99,8 +100,8 @@ def dias_de_mora(vencimiento: date, fecha_pago: date, v: VigenciaSnapshot) -> in
 def interes_mora(monto: Decimal, dias: int, v: VigenciaSnapshot) -> Decimal:
     """Interés simple lineal: `monto * tasa / 100 / días del período * días` (Módulo 4 §3).
 
-    Tasa mensual: base 30 días; tasa anual: base 365 días.
-    TODO(negocio): confirmar con la Caja interés simple vs. compuesto y la base de días.
+    Tasa mensual: base 30 días (confirmado por la Caja: interés simple, mes de 30 días); tasa
+    anual: base 365 días.
     """
     _require(v, TipoConcepto.TASA_MORA)
     if v.tasa is None or v.periodo_tasa is None:

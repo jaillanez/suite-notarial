@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -186,10 +187,11 @@ async def test_reemision_fuera_de_termino_aplica_la_mora_y_anula_la_anterior(
 
     assert response.status_code == 201, response.text
     nueva = response.json()
-    # Vence el 28/10; pagando el 07/11 son 10 días a la tasa vigente (34 % anual, base 365).
-    esperado = (D("1081699.06") * D(34) / D(100) / D(365) * D(10)).quantize(D("0.01"))
+    # Vence el 28/10; pagando el 07/11 son 10 días a la tasa vigente (4,25 % mensual, mes de
+    # 30 días, interés simple: confirmada por la Caja).
+    esperado = (D("1081699.06") * D("4.25") / D(100) / D(30) * D(10)).quantize(D("0.01"))
     assert nueva["dias_mora"] == 10
-    assert nueva["interes_mora"] == f"{esperado:.2f}" == "10076.10"
+    assert nueva["interes_mora"] == f"{esperado:.2f}" == "15324.07"
     assert D(nueva["total_a_pagar"]) == D("1081699.06") + esperado
     assert nueva["numero"] == original["numero"] + 1
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
@@ -199,6 +201,7 @@ async def test_reemision_fuera_de_termino_aplica_la_mora_y_anula_la_anterior(
     assert anulada.json()["estado"] == "ANULADA"
 
 
+@pytest.mark.ejemplo("TASA_INTERES_MORA")
 async def test_la_vista_previa_avisa_valores_de_ejemplo(
     notario: AsyncClient, escenario: Escenario
 ) -> None:
@@ -209,7 +212,7 @@ async def test_la_vista_previa_avisa_valores_de_ejemplo(
         params={"fecha_pago": "2026-11-07"},
     )
 
-    # La tasa de mora relevada está marcada "a confirmar".
+    # La tasa de mora de este test está marcada "a confirmar".
     assert preview.status_code == 200, preview.text
     assert preview.json()["dias_mora"] == 10
     assert preview.json()["usa_valores_de_ejemplo"] is True

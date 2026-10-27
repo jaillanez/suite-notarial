@@ -21,8 +21,10 @@
 > - **Auditoría** en `audit_security_logs` (actor, UTC, IP, valor anterior y nuevo), sin la tabla
 >   `parametros_auditoria_log` aparte.
 > - **Fechas de consulta** en hora de San Juan, no del servidor.
-> - **Mora:** interés simple de §3 con base 30 días (tasa mensual) o 365 (tasa anual), marcado
->   `TODO(negocio)` junto con desde cuándo corre (vencimiento o fin de la gracia).
+> - **Mora (confirmada por la Caja el 27/10/2026):** 4,25 % mensual, interés simple, mes de 30
+>   días, contado desde el vencimiento, sin días de gracia. Reproduce al centavo la boleta sin
+>   actos 01/2026 del sistema actual (154.120,00 por 239 días = 52.182,46). El «34» de la pantalla
+>   del sistema actual no es esta tasa. `TODO(negocio)`: la resolución que la fija.
 > - **Valores 2026** relevados del sistema en uso en `parametros/sistema_actual.py`; la fecha de
 >   vencimiento por período es un calendario que corresponde a la Fase 4 (boletas).
 > - **Rutas:** `/api/v1/parametros/{conceptos, conceptos/{id}/vigencias, vigencias/{id}/aprobar,
