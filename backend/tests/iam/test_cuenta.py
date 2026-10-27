@@ -1,5 +1,7 @@
 """Cuenta propia: cambio de contraseña desde la sesión y datos del perfil."""
 
+from datetime import UTC, datetime, timedelta
+
 import pyotp
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -7,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
+from app.core.config import get_settings
 from app.modules.iam.models import User
 from tests.conftest import CSRF_HEADERS, FakeMailer
 from tests.ddjj.conftest import _escribano
@@ -144,3 +147,42 @@ async def test_el_nombre_de_un_escribano_lo_lleva_el_padron(
     telefono = await client.patch("/api/v1/auth/perfil", json={"phone_number": "264 555-0202"})
     assert telefono.status_code == 200
     assert telefono.json()["phone_number"] == "264 555-0202"
+
+
+async def test_el_bloqueo_vale_tambien_para_cambiar_la_contrasena(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await make_user(db_session)
+    await login(client, user)
+    intentos = get_settings().LOGIN_MAX_ATTEMPTS
+    for _ in range(intentos):
+        mal = await client.post(
+            "/api/v1/auth/password/change",
+            json={"current_password": "No-Es-La-Clave-1!", "new_password": NUEVA},
+        )
+        assert mal.status_code in (401, 422)
+    # Al llegar al bloqueo se cerraron todas las sesiones, también la que probaba.
+    assert (await client.get("/api/v1/auth/me")).status_code == 401
+    await db_session.refresh(user)
+    assert user.locked_until is not None
+    # Y con la cuenta bloqueada, ni la clave correcta sirve para cambiarla ni para entrar.
+    reingreso = await client.post(
+        "/api/v1/auth/login", json={"identifier": user.email, "password": PASSWORD}
+    )
+    assert reingreso.status_code == 401
+
+
+async def test_con_la_cuenta_bloqueada_no_se_cambia_ni_con_la_clave_correcta(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await make_user(db_session)
+    await login(client, user)
+    user.locked_until = datetime.now(UTC) + timedelta(minutes=10)
+    await db_session.commit()
+    respuesta = await client.post(
+        "/api/v1/auth/password/change",
+        json={"current_password": PASSWORD, "new_password": NUEVA},
+    )
+    assert respuesta.status_code == 429
+    await db_session.refresh(user)
+    assert await _eventos(db_session, user, "PASSWORD_CHANGED") == 0

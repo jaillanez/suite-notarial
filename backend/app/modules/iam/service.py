@@ -753,8 +753,19 @@ async def change_password(
 ) -> None:
     """Cambio de contraseña desde la sesión: exige la actual (un error cuenta para el bloqueo,
     como en el ingreso) y cierra las demás sesiones; la actual sigue abierta."""
+    # El bloqueo vale también acá: con una sesión robada no se puede seguir probando la clave.
+    if _is_locked(user):
+        await passwords.burn_verification_time_async(current_password)
+        raise ProblemError(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            "Demasiados intentos con la contraseña actual: probá de nuevo más tarde.",
+        )
     if not await passwords.verify_password_async(user.hashed_password, current_password):
         await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_FAILED)
+        if _is_locked(user):
+            # Llegó al bloqueo desde una sesión abierta: se cierran todas, también esta.
+            await revoke_all_user_sessions(session, user.id, "password_change_lockout")
+            await session.commit()
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, PASSWORD_ACTUAL_INCORRECTA)
     if new_password == current_password:
         raise ProblemError(
@@ -769,6 +780,7 @@ async def change_password(
     user.hashed_password = await passwords.hash_password_async(new_password)
     user.password_changed_at = now
     user.failed_login_attempts = 0
+    user.locked_until = None
     await session.execute(
         update(UserSession)
         .where(
