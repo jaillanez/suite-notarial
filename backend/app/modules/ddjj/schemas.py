@@ -18,7 +18,8 @@ from app.modules.ddjj.catalog import (
 from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
 from app.modules.pagos.catalog import EstadoComprobante
-from app.modules.parametros.schemas import Money
+from app.modules.parametros.catalog import PeriodoTasa
+from app.modules.parametros.schemas import Money, Rate
 
 PERIODO_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
@@ -131,6 +132,17 @@ class AporteActoOut(BaseModel):
     aporte: Money
 
 
+class TramoMoraOut(BaseModel):
+    """Días de atraso en que rigió una misma tasa (`desde` y `hasta` inclusive)."""
+
+    desde: date
+    hasta: date
+    dias: int
+    tasa: Rate
+    periodo_tasa: PeriodoTasa
+    interes: Money
+
+
 class LiquidacionOut(BaseModel):
     aportes: list[AporteActoOut]
     vencimiento: date
@@ -143,6 +155,7 @@ class LiquidacionOut(BaseModel):
     total_en_termino: Money
     dias_mora: int
     interes_mora: Money
+    tramos_mora: list[TramoMoraOut]
     total_a_pagar: Money
     # Algún parámetro usado está marcado como ejemplo (no oficial).
     usa_valores_de_ejemplo: bool
@@ -178,6 +191,7 @@ class BoletaOut(BaseModel):
     cantidad_aportes_medicos: int
     total_en_termino: Money
     interes_mora: Money
+    tramos_mora: list[TramoMoraOut]
     total_a_pagar: Money
     created_at: datetime
     emitida_por: str | None

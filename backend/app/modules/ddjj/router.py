@@ -37,6 +37,7 @@ from app.modules.ddjj.schemas import (
     PresentarIn,
     RegistroOperable,
     RegistroResumen,
+    TramoMoraOut,
     TramoOut,
     VencimientoIn,
     VencimientoOut,
@@ -57,6 +58,7 @@ from app.modules.pagos import service as pagos_service
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
+from app.modules.parametros.catalog import PeriodoTasa
 
 router = APIRouter(prefix="/ddjj", tags=["ddjj"])
 public_router = APIRouter(prefix="/boletas", tags=["boletas"])
@@ -179,6 +181,17 @@ async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> Bo
         cantidad_aportes_medicos=b.cantidad_aportes_medicos,
         total_en_termino=b.total_en_termino,
         interes_mora=b.interes_mora,
+        tramos_mora=[
+            TramoMoraOut(
+                desde=t.desde,
+                hasta=t.hasta,
+                dias=t.dias,
+                tasa=t.tasa,
+                periodo_tasa=PeriodoTasa(t.periodo_tasa),
+                interes=t.interes,
+            )
+            for t in b.tramos_mora
+        ],
         total_a_pagar=b.total_a_pagar,
         created_at=b.created_at,
         emitida_por=await _actor(session, principal, b.emitida_por_user_id),
@@ -397,6 +410,17 @@ async def liquidacion(
         total_en_termino=liq.total_en_termino,
         dias_mora=liq.dias_mora,
         interes_mora=liq.interes_mora,
+        tramos_mora=[
+            TramoMoraOut(
+                desde=t.desde,
+                hasta=t.hasta,
+                dias=t.dias,
+                tasa=t.tasa,
+                periodo_tasa=t.periodo_tasa,
+                interes=t.interes,
+            )
+            for t in liq.tramos_mora
+        ],
         total_a_pagar=liq.total_a_pagar,
         usa_valores_de_ejemplo=pre.usa_valores_de_ejemplo,
     )

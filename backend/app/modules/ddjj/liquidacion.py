@@ -54,6 +54,8 @@ class Liquidacion:
     dias_mora: int
     interes_mora: Decimal
     total_a_pagar: Decimal
+    # Interés por tasa vigente en cada tramo de días de atraso.
+    tramos_mora: tuple[motor.TramoMora, ...] = ()
 
 
 def aporte_de_acto(acto: ActoALiquidar, vigencia: VigenciaSnapshot | None) -> AporteActo:
@@ -76,7 +78,7 @@ def liquidar(
     cantidad_aportes_medicos: int,
     vencimiento: date,
     fecha_pago: date,
-    mora: VigenciaSnapshot | None,
+    mora: Sequence[VigenciaSnapshot],
 ) -> Liquidacion:
     if cantidad_aportes_medicos < 0:
         raise LiquidacionError("La cantidad de aportes médicos no puede ser negativa.")
@@ -102,22 +104,26 @@ def totalizar(
     cantidad_aportes_medicos: int,
     vencimiento: date,
     fecha_pago: date,
-    mora: VigenciaSnapshot | None,
+    mora: Sequence[VigenciaSnapshot],
 ) -> Liquidacion:
     """Mínimo, excedente e interés sobre importes ya calculados.
+
+    `mora` son las tasas de mora vigentes entre el vencimiento y la fecha de pago (vacío si se
+    paga en término): cada tramo de días se calcula con la suya.
 
     Se usa también para reemitir una boleta con otra fecha de pago a partir de los importes
     congelados de la original: solo cambia la mora.
     """
     excedente = max(CERO, total_protocolos - aporte_minimo)
     total_en_termino = aporte_minimo + excedente + aporte_medico
-    dias_mora = 0
-    interes = CERO
+    calculo = motor.Mora(0, CERO, ())
     if fecha_pago > vencimiento:
-        if mora is None:
+        if not mora:
             raise LiquidacionError("Falta la tasa de mora para pagar fuera de término.")
-        dias_mora = motor.dias_de_mora(vencimiento, fecha_pago, mora)
-        interes = motor.interes_mora(total_en_termino, dias_mora, mora)
+        try:
+            calculo = motor.mora_por_tramos(total_en_termino, vencimiento, fecha_pago, mora)
+        except motor.MotorError as exc:
+            raise LiquidacionError(str(exc)) from exc
     return Liquidacion(
         aportes=aportes,
         total_protocolos=total_protocolos,
@@ -126,7 +132,8 @@ def totalizar(
         aporte_medico=aporte_medico,
         cantidad_aportes_medicos=cantidad_aportes_medicos,
         total_en_termino=total_en_termino,
-        dias_mora=dias_mora,
-        interes_mora=interes,
-        total_a_pagar=total_en_termino + interes,
+        dias_mora=calculo.dias,
+        interes_mora=calculo.interes,
+        total_a_pagar=total_en_termino + calculo.interes,
+        tramos_mora=calculo.tramos,
     )

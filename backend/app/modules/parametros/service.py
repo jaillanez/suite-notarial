@@ -199,6 +199,43 @@ async def vigente_a_fecha(
     return result.unique().scalars().first()
 
 
+async def vigencias_entre(
+    session: AsyncSession, codigo: str, desde: date, hasta: date
+) -> list[VigenciaSnapshot]:
+    """Vigencias aprobadas de un concepto que rigen algún día entre `desde` y `hasta`, en orden.
+
+    Si algún día queda sin vigencia, es un error de negocio explícito (como en `get_vigencia`).
+    """
+    concepto = await session.scalar(select(Concepto).where(Concepto.codigo == codigo))
+    if concepto is None:
+        raise ProblemError(HTTPStatus.NOT_FOUND, f"El concepto {codigo} no existe.")
+    result = await session.execute(
+        select(Vigencia)
+        .where(
+            Vigencia.concepto_id == concepto.id,
+            Vigencia.estado == EstadoVigencia.VIGENTE,
+            Vigencia.fecha_desde <= hasta,
+            or_(Vigencia.fecha_hasta.is_(None), Vigencia.fecha_hasta >= desde),
+        )
+        .order_by(Vigencia.fecha_desde)
+    )
+    vigencias = [snapshot(v) for v in result.unique().scalars()]
+    cubierto = desde
+    for v in vigencias:
+        if v.fecha_desde > cubierto:
+            break
+        if v.fecha_hasta is None:
+            return vigencias
+        cubierto = max(cubierto, v.fecha_hasta + timedelta(days=1))
+        if cubierto > hasta:
+            return vigencias
+    raise ProblemError(
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+        f"No hay una vigencia aprobada de {codigo} para el {cubierto.strftime('%d/%m/%Y')}.",
+        type_="urn:suite-notarial:parametros:sin-vigencia",
+    )
+
+
 async def get_vigencia(session: AsyncSession, codigo: str, fecha: date) -> VigenciaSnapshot:
     """Parámetro vigente de un concepto a una fecha: la base de todo cálculo de boletas.
 

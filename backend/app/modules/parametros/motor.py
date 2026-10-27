@@ -5,8 +5,9 @@ calcula, de modo que el mismo cálculo se puede repetir exactamente sobre una bo
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from app.common.money import MONEY_QUANT, to_money
@@ -112,3 +113,79 @@ def interes_mora(monto: Decimal, dias: int, v: VigenciaSnapshot) -> Decimal:
         return Decimal("0.00")
     interes = to_money(monto) * v.tasa / CIEN / DIAS_POR_PERIODO[v.periodo_tasa] * Decimal(dias)
     return redondear(interes, v.regla_redondeo)
+
+
+@dataclass(frozen=True)
+class TramoMora:
+    """Días de atraso en que rigió una misma tasa (`desde` y `hasta` inclusive)."""
+
+    desde: date
+    hasta: date
+    dias: int
+    vigencia: VigenciaSnapshot
+    tasa: Decimal
+    periodo_tasa: PeriodoTasa
+    interes: Decimal
+
+
+@dataclass(frozen=True)
+class Mora:
+    dias: int
+    interes: Decimal
+    tramos: tuple[TramoMora, ...]
+
+
+def _vigencia_del_dia(vigencias: Sequence[VigenciaSnapshot], dia: date) -> VigenciaSnapshot:
+    for v in vigencias:
+        if v.fecha_desde <= dia and (v.fecha_hasta is None or dia <= v.fecha_hasta):
+            return v
+    raise MotorError(f"No hay tasa de mora vigente para el {dia:%d/%m/%Y}.")
+
+
+def mora_por_tramos(
+    monto: Decimal, vencimiento: date, fecha_pago: date, vigencias: Sequence[VigenciaSnapshot]
+) -> Mora:
+    """Interés simple sobre `monto` con la tasa vigente en cada día de atraso.
+
+    Cada día posterior al vencimiento, hasta la fecha de pago inclusive, se calcula con la tasa
+    vigente ese día (la Caja pidió que un cambio de tasa durante la mora se aplique por tramos).
+    Los días de gracia son los de la tasa vigente al vencimiento.
+
+    Redondeo: se suma el interés exacto de los tramos y se redondea el total una sola vez, con
+    la regla de la tasa vigente al vencimiento; cada tramo se informa redondeado y el último
+    absorbe la diferencia, para que el detalle sume exactamente el total impreso. Con una sola
+    tasa da lo mismo que `interes_mora`. TODO(negocio): confirmar con la Caja si prefiere
+    redondear cada tramo por separado (puede diferir en centavos).
+    """
+    for v in vigencias:
+        _require(v, TipoConcepto.TASA_MORA)
+        if v.tasa is None or v.periodo_tasa is None:
+            raise MotorError("La vigencia de mora no tiene tasa o su unidad.")
+    inicial = _vigencia_del_dia(vigencias, vencimiento)
+    dias = dias_de_mora(vencimiento, fecha_pago, inicial)
+    if dias == 0:
+        return Mora(0, Decimal("0.00"), ())
+    base = to_money(monto)
+    partes: list[tuple[date, date, VigenciaSnapshot, Decimal, PeriodoTasa]] = []
+    dia = vencimiento + timedelta(days=1)
+    while dia <= fecha_pago:
+        v = _vigencia_del_dia(vigencias, dia)
+        assert v.tasa is not None and v.periodo_tasa is not None  # noqa: S101 - validado arriba
+        hasta = fecha_pago if v.fecha_hasta is None else min(v.fecha_hasta, fecha_pago)
+        partes.append((dia, hasta, v, v.tasa, v.periodo_tasa))
+        dia = hasta + timedelta(days=1)
+    exactos = [
+        base * tasa / CIEN / DIAS_POR_PERIODO[periodo] * Decimal((h - d).days + 1)
+        for d, h, _, tasa, periodo in partes
+    ]
+    total = redondear(sum(exactos, Decimal(0)), inicial.regla_redondeo)
+    tramos: list[TramoMora] = []
+    for i, ((d, h, v, tasa, periodo), exacto) in enumerate(zip(partes, exactos, strict=True)):
+        ultimo = i == len(partes) - 1
+        interes = (
+            total - sum((t.interes for t in tramos), Decimal("0.00"))
+            if ultimo
+            else redondear(exacto, v.regla_redondeo)
+        )
+        tramos.append(TramoMora(d, h, (h - d).days + 1, v, tasa, periodo, interes))
+    return Mora(dias, total, tuple(tramos))

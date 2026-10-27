@@ -22,7 +22,10 @@
 > - **Liquidación** (`app/modules/ddjj/liquidacion.py`, reproduce la boleta 1069 de 09/2026):
 >   excedente = máx(0, protocolos − aporte mínimo mensual); total en término = mínimo + excedente +
 >   aporte médico (uno por titular o adscripto con cargo en el período); interés de mora sobre el
->   total en término con la tasa vigente al vencimiento. `TODO(negocio)` en cada supuesto.
+>   total en término por tramos: cada día de atraso con la tasa vigente ese día; la boleta guarda
+>   el detalle en `ddjj_boletas_tramos_mora` (inmutable, cubierto por la huella SHA-256).
+>   Redondeo del total una vez, el último tramo absorbe la diferencia. `TODO(negocio)` en cada
+>   supuesto.
 > - **Vigencias al primer día del período** (mes devengado). Al presentar se congelan el aporte y
 >   la vigencia de cada acto, y la boleta guarda las del mínimo, el médico y la mora (SNAP).
 > - **Calendario de vencimientos** por período (`ddjj_vencimientos`), cargado por Administración;
