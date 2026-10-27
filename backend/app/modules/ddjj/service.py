@@ -589,6 +589,11 @@ async def agregar_acto(
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
+        # Solo la carrera contra el índice único es un duplicado; cualquier otra violación es
+        # un error interno y no se disfraza de escritura repetida.
+        restriccion = getattr(getattr(exc.orig, "__cause__", None), "constraint_name", None)
+        if restriccion != "uq_ddjj_actos_escritura":
+            raise
         raise _conflict(
             f"La escritura N° {data.numero_escritura} del protocolo "
             f"{data.tipo_protocolo.value.lower()} ya está declarada en esta DDJJ."

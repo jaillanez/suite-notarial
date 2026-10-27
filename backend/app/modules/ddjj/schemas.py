@@ -89,15 +89,15 @@ class ActoIn(BaseModel):
 
     @model_validator(mode="after")
     def _motivo_de_exencion(self) -> "ActoIn":
+        self.detalle_exencion = self.detalle_exencion or None  # "" (o solo espacios) = sin detalle
         if self.categoria is not CategoriaActo.EXENTO:
-            if self.motivo_exencion is not None or self.detalle_exencion:
+            if self.motivo_exencion is not None or self.detalle_exencion is not None:
                 raise ValueError("Solo un acto exento lleva motivo de exención.")
             return self
         if self.motivo_exencion is None:
             raise ValueError("Indicá el motivo de la exención.")
         if self.motivo_exencion is MotivoExencion.OTRO and len(self.detalle_exencion or "") < 3:
             raise ValueError("Detallá el motivo de la exención.")
-        self.detalle_exencion = self.detalle_exencion or None
         return self
 
 

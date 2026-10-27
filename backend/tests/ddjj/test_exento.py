@@ -73,3 +73,14 @@ async def test_exento_no_aporta_pero_cuenta_y_se_cobra_el_minimo(
         "ACTA_SUBSANATORIA",
         "CONVENIO_IPV",
     ]
+
+
+async def test_detalle_vacio_en_un_acto_que_no_es_exento(
+    notario: AsyncClient, escenario: Escenario
+) -> None:
+    """Un detalle en blanco cuenta como ausente: no llega a la base como texto vacío."""
+    ddjj = await _borrador(notario, escenario, "2026-09")
+    acto = escritura(escenario.titular, 5, "1000", detalle_exencion="   ")
+    response = await _agregar(notario, ddjj["id"], acto)
+    assert response.status_code == 201, response.text
+    assert response.json()["detalle_exencion"] is None
