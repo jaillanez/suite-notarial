@@ -734,3 +734,91 @@ async def confirm_password_reset(
     )
     await session.commit()
     return user
+
+
+# --------------------------------------------------------------------------- cuenta propia
+
+PASSWORD_ACTUAL_INCORRECTA = "La contraseña actual no es correcta."
+
+
+async def change_password(
+    session: AsyncSession,
+    settings: Settings,
+    ctx: RequestContext,
+    user: User,
+    current: UserSession,
+    *,
+    current_password: str,
+    new_password: str,
+) -> None:
+    """Cambio de contraseña desde la sesión: exige la actual (un error cuenta para el bloqueo,
+    como en el ingreso) y cierra las demás sesiones; la actual sigue abierta."""
+    if not await passwords.verify_password_async(user.hashed_password, current_password):
+        await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_FAILED)
+        raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, PASSWORD_ACTUAL_INCORRECTA)
+    if new_password == current_password:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La nueva contraseña tiene que ser distinta de la actual.",
+        )
+    try:
+        passwords.check_password_policy(new_password, email=user.email)
+    except passwords.WeakPasswordError as exc:
+        raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
+    now = _now()
+    user.hashed_password = await passwords.hash_password_async(new_password)
+    user.password_changed_at = now
+    user.failed_login_attempts = 0
+    await session.execute(
+        update(UserSession)
+        .where(
+            UserSession.user_id == user.id,
+            UserSession.is_revoked.is_(False),
+            UserSession.session_family_id != current.session_family_id,
+        )
+        .values(is_revoked=True, revoked_at=now, revoked_reason="password_changed")
+    )
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PASSWORD_CHANGED,
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        details={"otras_sesiones_cerradas": True},
+    )
+    await session.commit()
+
+
+async def update_profile(
+    session: AsyncSession,
+    ctx: RequestContext,
+    user: User,
+    *,
+    full_name: str | None,
+    phone_number: str | None,
+    nombre_editable: bool,
+) -> User:
+    """Datos de contacto propios. El nombre de un escribano lo lleva el padrón (lo actualiza la
+    Caja): no se edita desde la cuenta."""
+    antes = {"full_name": user.full_name, "phone_number": user.phone_number}
+    if full_name is not None and full_name != user.full_name:
+        if not nombre_editable:
+            raise ProblemError(
+                HTTPStatus.FORBIDDEN,
+                "Tu nombre figura en el padrón de escribanos: lo actualiza la Caja.",
+            )
+        user.full_name = full_name
+    user.phone_number = phone_number or None
+    despues = {"full_name": user.full_name, "phone_number": user.phone_number}
+    if despues != antes:
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.USER_PROFILE_UPDATED,
+            actor_user_id=user.id,
+            target_user_id=user.id,
+            old_value=antes,
+            new_value=despues,
+        )
+    await session.commit()
+    return user

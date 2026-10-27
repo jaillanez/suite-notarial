@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
+import { RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
 import { useState, type SyntheticEvent } from 'react'
 import { useNavigate } from 'react-router'
 
@@ -11,8 +11,8 @@ import { Field, PasswordField } from '../../components/ui/Field'
 import { PageHeader, Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { disableMfa, enableMfa, regenerateRecoveryCodes, startMfaSetup, type MfaSetup } from './api'
+import { ContrasenaPanel, PerfilPanel } from './CuentaPaneles'
 import { RecoveryCodes } from './RecoveryCodes'
-import { roleLabel } from './roles'
 import { SESSION_KEY, needsMfaEnrollment, useSession } from './session'
 
 function groupSecret(secret: string): string {
@@ -228,8 +228,8 @@ export function AccountSecurityPage() {
   return (
     <>
       <PageHeader
-        title="Seguridad de la cuenta"
-        description="Tus datos de acceso y la verificación en dos pasos."
+        title="Mi cuenta"
+        description="Tus datos, tu contraseña y la verificación en dos pasos."
       />
       {forced && !codes && (
         <div className="mb-6">
@@ -240,6 +240,9 @@ export function AccountSecurityPage() {
         </div>
       )}
       <div className="space-y-6">
+        {/* Hasta activar el 2FA obligatorio, el backend solo atiende la verificación. */}
+        {!forced && <PerfilPanel />}
+        {!forced && <ContrasenaPanel />}
         <Panel
           title="Verificación en dos pasos"
           description="Además de la contraseña, al ingresar te pedimos un código que genera tu teléfono."
@@ -282,31 +285,6 @@ export function AccountSecurityPage() {
           ) : (
             <Enrollment onCodes={setCodes} />
           )}
-        </Panel>
-
-        <Panel title="Datos de la cuenta">
-          <dl className="divide-y divide-line">
-            {[
-              ['Nombre', user.full_name],
-              ['Correo electrónico', user.email],
-              ['CUIT', user.cuit],
-              ['Roles', user.roles.map(roleLabel).join(', ') || 'Sin roles asignados'],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 px-5 py-4 sm:px-6"
-              >
-                <dt className="text-sm font-medium text-ink-muted">{label}</dt>
-                <dd className="text-ink tabular-nums">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <div className="border-t border-line px-5 py-4 sm:px-6">
-            <p className="flex items-center gap-2 text-sm text-ink-muted">
-              <KeyRound aria-hidden="true" className="size-4" strokeWidth={2.25} />
-              Para cambiar la contraseña usá “Olvidé mi contraseña” desde la pantalla de ingreso.
-            </p>
-          </div>
         </Panel>
       </div>
 

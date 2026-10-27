@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { Check, Circle, KeyRound } from 'lucide-react'
+import { KeyRound } from 'lucide-react'
 import { useState, type SyntheticEvent } from 'react'
 import { Link } from 'react-router'
 
@@ -9,6 +9,7 @@ import { PasswordField } from '../../components/ui/Field'
 import { toProblem } from '../../lib/api'
 import { confirmPasswordReset } from './api'
 import { checkPasswordPolicy } from './passwordPolicy'
+import { RequisitosClave } from './RequisitosClave'
 
 /**
  * Lee el token del fragmento (`#token=...`), que el navegador nunca envía al servidor, y lo
@@ -117,26 +118,7 @@ export function ResetPasswordPage() {
           autoComplete="new-password"
           required
           autoFocus
-          hint={
-            <ul className="mt-1 grid gap-1 sm:grid-cols-2" aria-label="Requisitos de la contraseña">
-              {checks.map((check) => (
-                <li
-                  key={check.label}
-                  className={`flex items-center gap-1.5 ${check.ok ? 'text-success-700' : 'text-ink-muted'}`}
-                >
-                  {check.ok ? (
-                    <Check aria-hidden="true" className="size-4" strokeWidth={2.5} />
-                  ) : (
-                    <Circle aria-hidden="true" className="size-3.5" strokeWidth={2} />
-                  )}
-                  <span>
-                    {check.label}
-                    <span className="sr-only">{check.ok ? ': cumplido' : ': pendiente'}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          }
+          hint={<RequisitosClave checks={checks} />}
         />
         <PasswordField
           label="Repetí la contraseña"

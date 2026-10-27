@@ -67,6 +67,8 @@ export function AppShell() {
       // el observador seguiría con el usuario viejo y el ingreso devolvería al inicio.
       queryClient.setQueryData(SESSION_KEY, null)
       queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] })
+      // Tampoco quedan en memoria las mutaciones de la sesión (pueden llevar datos sensibles).
+      queryClient.getMutationCache().clear()
       void navigate('/ingresar', { replace: true })
     },
   })
@@ -106,7 +108,7 @@ export function AppShell() {
             >
               <span className="flex flex-col leading-tight">
                 <span className="text-sm font-semibold text-ink">{user?.full_name}</span>
-                <span className="text-xs text-ink-muted">Seguridad de la cuenta</span>
+                <span className="text-xs text-ink-muted">Mi cuenta</span>
               </span>
             </NavLink>
             <button
@@ -161,7 +163,7 @@ export function AppShell() {
               }}
             >
               <ShieldCheck aria-hidden="true" className="mr-2 size-4" strokeWidth={2.25} />
-              Seguridad de la cuenta
+              Mi cuenta
             </NavLink>
             <button
               type="button"

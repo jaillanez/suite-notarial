@@ -10,7 +10,7 @@ function FullPageLoading() {
   )
 }
 
-/** Exige sesión. Si el rol pide 2FA y falta, solo deja entrar a Seguridad de la cuenta. */
+/** Exige sesión. Si el rol pide 2FA y falta, solo deja entrar a Mi cuenta (verificación en dos pasos). */
 export function RequireAuth() {
   const { user, isLoading } = useSession()
   const location = useLocation()

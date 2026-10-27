@@ -70,3 +70,32 @@ export async function regenerateRecoveryCodes(code: string): Promise<string[]> {
   return (await api.post<{ recovery_codes: string[] }>('/v1/auth/mfa/recovery-codes', { code }))
     .data.recovery_codes
 }
+
+export interface Perfil {
+  email: string
+  full_name: string
+  cuit: string
+  phone_number: string | null
+  /** El nombre de un escribano lo lleva el padrón: lo cambia la Caja. */
+  nombre_editable: boolean
+}
+
+export async function fetchPerfil(): Promise<Perfil> {
+  return (await api.get<Perfil>('/v1/auth/perfil')).data
+}
+
+export async function actualizarPerfil(datos: {
+  full_name?: string
+  phone_number: string
+}): Promise<Perfil> {
+  return (await api.patch<Perfil>('/v1/auth/perfil', datos)).data
+}
+
+export async function cambiarContrasena(actual: string, nueva: string): Promise<string> {
+  return (
+    await api.post<{ message: string }>('/v1/auth/password/change', {
+      current_password: actual,
+      new_password: nueva,
+    })
+  ).data.message
+}

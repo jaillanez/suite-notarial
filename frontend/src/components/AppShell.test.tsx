@@ -15,8 +15,9 @@ describe('cerrar sesión', () => {
   it('vuelve a la pantalla de ingreso sin recargar', async () => {
     vi.mocked(authApi.fetchMe).mockResolvedValue(ESCRIBANO)
     vi.mocked(authApi.logout).mockResolvedValue()
+    const client = new QueryClient()
     render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <SessionProvider>
           <MemoryRouter initialEntries={['/']}>
             <Routes>
@@ -42,5 +43,13 @@ describe('cerrar sesión', () => {
     })
     expect(screen.queryByText('Página de inicio')).not.toBeInTheDocument()
     expect(authApi.logout).toHaveBeenCalledTimes(1)
+    // No queda nada de la sesión en memoria salvo la sesión vacía.
+    expect(client.getMutationCache().getAll()).toHaveLength(0)
+    expect(
+      client
+        .getQueryCache()
+        .getAll()
+        .map((q) => q.queryKey),
+    ).toEqual([['session']])
   })
 })
