@@ -16,15 +16,15 @@ def _acto(numero: int, folio: int | None, dia: int, tipo: str = "GENERAL") -> Ac
 
 
 DECLARADOS = [_acto(10, 20, 3), _acto(11, 22, 5), _acto(12, 25, 9), _acto(15, 31, 20)]
-INDICE = protocolo.Indice(DECLARADOS)
+VISTA = protocolo.Vista.total(DECLARADOS)
 
 
 def _codigos(c: Candidato) -> dict[str, NivelControl]:
-    return {x.codigo: x.nivel for x in protocolo.revisar(INDICE, c)}
+    return {x.codigo: x.nivel for x in protocolo.revisar(VISTA, c)}
 
 
 def test_numero_repetido_bloquea() -> None:
-    controles = protocolo.revisar(INDICE, Candidato("GENERAL", 11, 22, date(2026, 9, 5)))
+    controles = protocolo.revisar(VISTA, Candidato("GENERAL", 11, 22, date(2026, 9, 5)))
     assert [c.codigo for c in controles] == ["NUMERO_REPETIDO"]
     assert controles[0].nivel is NivelControl.BLOQUEANTE
     assert "DDJJ 09/2026" in controles[0].mensaje
@@ -55,37 +55,39 @@ def test_folio_y_fecha_fuera_de_orden() -> None:
 def test_al_revisar_un_acto_cargado_se_excluye_a_si_mismo() -> None:
     propio = DECLARADOS[1]
     c = Candidato("GENERAL", propio.numero, propio.folio, propio.fecha, excluir=propio.id)
-    assert protocolo.revisar(INDICE, c) == []
+    assert protocolo.revisar(VISTA, c) == []
 
 
 def test_huecos() -> None:
-    huecos = protocolo.huecos(protocolo.Indice([*DECLARADOS, _acto(1, 1, 1, "AUXILIAR")]))
+    huecos = protocolo.huecos(protocolo.Vista.total([*DECLARADOS, _acto(1, 1, 1, "AUXILIAR")]))
     assert huecos == [protocolo.Hueco("GENERAL", ((13, 14),), 2)]
     # Un salto largo es un solo tramo, no 198 números sueltos.
     largos = protocolo.huecos(
-        protocolo.Indice([_acto(1, None, 1), _acto(200, None, 2), _acto(202, None, 3)])
+        protocolo.Vista.total([_acto(1, None, 1), _acto(200, None, 2), _acto(202, None, 3)])
     )
     assert largos == [protocolo.Hueco("GENERAL", ((2, 199), (201, 201)), 199)]
 
 
 def test_sin_alcance_no_se_citan_datos_de_otras_escrituras() -> None:
-    c = Candidato("GENERAL", 11, 40, date(2026, 9, 1))
-    controles = protocolo.revisar(INDICE, c, visible=lambda _periodo: False)
-    mensajes = " ".join(x.mensaje for x in controles)
-    assert {x.codigo for x in controles} == {
-        "NUMERO_REPETIDO",
-        "FOLIO_FUERA_DE_ORDEN",
-        "FECHA_FUERA_DE_ORDEN",
-    }
-    assert "09/2026" not in mensajes and "N° 10" not in mensajes and "folio 22" not in mensajes
+    """Fuera del alcance: el número repetido bloquea sin decir dónde, y los avisos de folio y
+    fecha no se calculan (su sola presencia revelaría datos de DDJJ ajenas)."""
+    vista = protocolo.Vista(DECLARADOS, lambda _periodo: False)
+    controles = protocolo.revisar(vista, Candidato("GENERAL", 11, 40, date(2026, 9, 1)))
+    assert [(x.codigo, x.mensaje) for x in controles] == [
+        (
+            "NUMERO_REPETIDO",
+            "La escritura N° 11 del protocolo general ya está declarada en otra DDJJ del año.",
+        )
+    ]
+    assert protocolo.huecos(vista) == []
 
 
 def test_indice_con_muchos_actos() -> None:
     """El índice resuelve cada control sin recorrer el año (miles de escrituras)."""
     muchos = [_acto(n, n, 1 + n % 28) for n in range(1, 5001)]
-    indice = protocolo.Indice(muchos)
-    assert protocolo.revisar(indice, Candidato("GENERAL", 5001, 5001, date(2026, 9, 28))) == []
-    assert [x.codigo for x in protocolo.revisar(indice, Candidato("GENERAL", 5002, 3, None))] == [
+    vista = protocolo.Vista.total(muchos)
+    assert protocolo.revisar(vista, Candidato("GENERAL", 5001, 5001, date(2026, 9, 28))) == []
+    assert [x.codigo for x in protocolo.revisar(vista, Candidato("GENERAL", 5002, 3, None))] == [
         "FOLIO_REPETIDO",
         "FOLIO_FUERA_DE_ORDEN",
     ]

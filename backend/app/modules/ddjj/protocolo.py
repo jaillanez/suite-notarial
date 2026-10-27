@@ -10,8 +10,11 @@ y por año, y el folio y la fecha acompañan ese orden. Sobre los actos ya decla
 - números salteados entre la primera y la última escritura declaradas del año: se listan para
   declararlos «sin efecto» si no se usaron.
 
-Los mensajes citan número, folio y fecha de otra escritura solo si quien consulta puede ver la
-DDJJ donde está (`visible`); si no, dicen lo mismo sin esos datos.
+Cada consulta se hace con una `Vista` de quien consulta: el número repetido se controla contra
+todo el año (es la regla que protege la integridad), pero si la otra escritura está en una DDJJ
+fuera de su alcance el mensaje no dice cuál. Los avisos de folio y fecha y los números salteados
+se calculan solo con las escrituras que puede ver: así ni el texto ni la presencia del aviso
+revelan datos de DDJJ ajenas.
 
 TODO(negocio): confirmar con la Caja que la numeración vuelve a empezar cada año calendario.
 Las funciones de este módulo son puras; la consulta de los actos del año está en el servicio.
@@ -68,10 +71,6 @@ class Hueco:
     # Tramos consecutivos (desde, hasta), en orden; se recorta a MAX_TRAMOS.
     tramos: tuple[tuple[int, int], ...]
     total: int  # cuántos números faltan en total
-
-
-def _todo_visible(_periodo: str) -> bool:
-    return True
 
 
 def _por_folio(
@@ -138,6 +137,20 @@ class Indice:
             self.protocolos[tipo] = p
 
 
+class Vista:
+    """Lo que una persona puede consultar del protocolo del año de un registro."""
+
+    def __init__(self, declarados: list[ActoDeclarado], visible: Callable[[str], bool]) -> None:
+        self.completo = Indice(declarados)
+        self.propio = Indice([a for a in declarados if visible(a.periodo)])
+        self.visible = visible
+
+    @classmethod
+    def total(cls, declarados: list[ActoDeclarado]) -> "Vista":
+        """Para quien ve todo el registro (personal de la Caja)."""
+        return cls(declarados, lambda _periodo: True)
+
+
 def _protocolo(tipo: str) -> str:
     return "general" if tipo == "GENERAL" else "auxiliar"
 
@@ -146,16 +159,16 @@ def _periodo(periodo: str) -> str:
     return f"{periodo[5:7]}/{periodo[:4]}"
 
 
-def revisar(
-    indice: Indice, c: Candidato, visible: Callable[[str], bool] = _todo_visible
-) -> list[Control]:
+def revisar(vista: Vista, c: Candidato) -> list[Control]:
     """Controles de un acto (nuevo o ya cargado) contra los declarados del mismo año."""
-    p = indice.protocolos.get(c.tipo_protocolo)
-    if p is None or c.numero is None:
+    if c.numero is None:
         return []
     controles: list[Control] = []
     protocolo = _protocolo(c.tipo_protocolo)
-    repetidos = [a for a in p.por_numero.get(c.numero, []) if a.id != c.excluir]
+    completo = vista.completo.protocolos.get(c.tipo_protocolo)
+    repetidos = (
+        [a for a in completo.por_numero.get(c.numero, []) if a.id != c.excluir] if completo else []
+    )
     if repetidos:
         donde = repetidos[0].periodo
         controles.append(
@@ -163,9 +176,17 @@ def revisar(
                 "NUMERO_REPETIDO",
                 NivelControl.BLOQUEANTE,
                 f"La escritura N° {c.numero} del protocolo {protocolo} ya está declarada "
-                + (f"en la DDJJ {_periodo(donde)}." if visible(donde) else "en otra DDJJ del año."),
+                + (
+                    f"en la DDJJ {_periodo(donde)}."
+                    if vista.visible(donde)
+                    else "en otra DDJJ del año."
+                ),
             )
         )
+    # Folio y fecha: solo contra lo que quien consulta puede ver.
+    p = vista.propio.protocolos.get(c.tipo_protocolo)
+    if p is None:
+        return controles
     # Los números menores que el candidato son numeros[:menores]; los mayores, numeros[mayores:].
     menores = bisect.bisect_left(p.numeros, c.numero)
     mayores = bisect.bisect_right(p.numeros, c.numero)
@@ -177,16 +198,12 @@ def revisar(
         ]
         if mismo_folio:
             otro = mismo_folio[0]
-            donde_folio = (
-                f"la escritura N° {otro.numero}"
-                if visible(otro.periodo)
-                else "otra escritura del año"
-            )
             controles.append(
                 Control(
                     "FOLIO_REPETIDO",
                     NivelControl.ADVERTENCIA,
-                    f"El folio {c.folio} también figura en {donde_folio}: verificalo en el libro.",
+                    f"El folio {c.folio} también figura en la escritura N° {otro.numero}: "
+                    "verificalo en el libro.",
                 )
             )
         antes = p.max_folio[menores - 1] if menores > 0 else None
@@ -197,16 +214,12 @@ def revisar(
         elif despues is not None and despues.folio is not None and despues.folio < c.folio:
             fuera = despues
         if fuera is not None:
-            detalle = (
-                f": la escritura N° {fuera.numero} está en el folio {fuera.folio}."
-                if visible(fuera.periodo)
-                else " del año."
-            )
             controles.append(
                 Control(
                     "FOLIO_FUERA_DE_ORDEN",
                     NivelControl.ADVERTENCIA,
-                    f"El folio {c.folio} no sigue el orden de la numeración{detalle}",
+                    f"El folio {c.folio} no sigue el orden de la numeración: la escritura "
+                    f"N° {fuera.numero} está en el folio {fuera.folio}.",
                 )
             )
     if c.fecha is not None:
@@ -218,27 +231,23 @@ def revisar(
         elif despues_f is not None and despues_f.fecha < c.fecha:
             fuera_f = despues_f
         if fuera_f is not None:
-            detalle_f = (
-                f": la escritura N° {fuera_f.numero} es del {fuera_f.fecha:%d/%m/%Y}."
-                if visible(fuera_f.periodo)
-                else " del año."
-            )
             controles.append(
                 Control(
                     "FECHA_FUERA_DE_ORDEN",
                     NivelControl.ADVERTENCIA,
-                    f"La fecha no sigue el orden de la numeración{detalle_f}",
+                    "La fecha no sigue el orden de la numeración: la escritura "
+                    f"N° {fuera_f.numero} es del {fuera_f.fecha:%d/%m/%Y}.",
                 )
             )
     return controles
 
 
-def huecos(indice: Indice) -> list[Hueco]:
-    """Números sin declarar entre la primera y la última escritura del año, por protocolo,
-    agrupados en tramos consecutivos ("43 a 100" en vez de 58 números sueltos)."""
+def huecos(vista: Vista) -> list[Hueco]:
+    """Números sin declarar entre la primera y la última escritura del año que quien consulta
+    puede ver, por protocolo, agrupados en tramos consecutivos ("43 a 100")."""
     resultado = []
     for tipo in ("GENERAL", "AUXILIAR"):
-        p = indice.protocolos.get(tipo)
+        p = vista.propio.protocolos.get(tipo)
         if p is None:
             continue
         tramos: list[tuple[int, int]] = []

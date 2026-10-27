@@ -540,11 +540,14 @@ async def agregar_acto(
     await _bloquear_protocolo(session, ddjj.registro_id, anio)
     if len(await list_actos(session, ddjj.id)) >= MAX_ACTOS_POR_DDJJ:
         raise _conflict(f"Una declaración jurada admite hasta {MAX_ACTOS_POR_DDJJ} actos.")
-    indice = protocolo.Indice(await actos_del_anio(session, ddjj.registro_id, anio))
+    vista = protocolo.Vista(
+        await actos_del_anio(session, ddjj.registro_id, anio),
+        await _visible(session, principal, ddjj.registro_id),
+    )
     candidato = protocolo.Candidato(
         data.tipo_protocolo.value, data.numero_escritura, data.folio, data.fecha_acto
     )
-    for control in protocolo.revisar(indice, candidato):
+    for control in protocolo.revisar(vista, candidato):
         if control.nivel is protocolo.NivelControl.BLOQUEANTE:
             raise _conflict(control.mensaje)
     item = Acto(
@@ -635,34 +638,37 @@ async def controles_ddjj(
     session: AsyncSession, principal: Principal, ddjj: DeclaracionJurada, actos: list[Acto]
 ) -> tuple[dict[uuid.UUID, list[protocolo.Control]], list[protocolo.Hueco]]:
     """Controles de cada acto de la DDJJ y números salteados del año del período."""
-    indice = protocolo.Indice(
-        await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4]))
+    vista = protocolo.Vista(
+        await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4])),
+        await _visible(session, principal, ddjj.registro_id),
     )
-    visible = await _visible(session, principal, ddjj.registro_id)
     por_acto: dict[uuid.UUID, list[protocolo.Control]] = {}
     for a in actos:
         candidato = protocolo.Candidato(
             a.tipo_protocolo, a.numero_escritura, a.folio, a.fecha_acto, excluir=a.id
         )
-        controles = protocolo.revisar(indice, candidato, visible)
+        controles = protocolo.revisar(vista, candidato)
         if controles:
             por_acto[a.id] = controles
-    return por_acto, protocolo.huecos(indice)
+    return por_acto, protocolo.huecos(vista)
 
 
 async def _exigir_numeracion_sin_repetidos(
-    session: AsyncSession, ddjj: DeclaracionJurada, actos: list[Acto]
+    session: AsyncSession, principal: Principal, ddjj: DeclaracionJurada, actos: list[Acto]
 ) -> None:
     """Ninguna escritura de la DDJJ puede estar declarada en otra DDJJ del año (red de
     seguridad al presentar, además del control al cargar)."""
     anio = int(ddjj.periodo[:4])
     await _bloquear_protocolo(session, ddjj.registro_id, anio)
-    indice = protocolo.Indice(await actos_del_anio(session, ddjj.registro_id, anio))
+    vista = protocolo.Vista(
+        await actos_del_anio(session, ddjj.registro_id, anio),
+        await _visible(session, principal, ddjj.registro_id),
+    )
     for a in actos:
         candidato = protocolo.Candidato(
             a.tipo_protocolo, a.numero_escritura, a.folio, a.fecha_acto, excluir=a.id
         )
-        for control in protocolo.revisar(indice, candidato):
+        for control in protocolo.revisar(vista, candidato):
             if control.nivel is protocolo.NivelControl.BLOQUEANTE:
                 raise _conflict(f"No se puede presentar: {control.mensaje}")
 
@@ -675,16 +681,20 @@ async def verificar_acto(
     await _exigir_operacion(session, principal, ddjj.registro_id)
     # El año sale del período (no de la fecha que manda el cliente): un acto solo puede tener
     # fecha dentro del período de su DDJJ.
+    desde, hasta = rango_periodo(ddjj.periodo)
+    fecha = data.fecha_acto if data.fecha_acto and desde <= data.fecha_acto <= hasta else None
     controles = protocolo.revisar(
-        protocolo.Indice(await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4]))),
+        protocolo.Vista(
+            await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4])),
+            await _visible(session, principal, ddjj.registro_id),
+        ),
         protocolo.Candidato(
             data.tipo_protocolo.value,
             data.numero_escritura,
             data.folio,
-            data.fecha_acto,
+            fecha,
             excluir=data.excluir_acto_id,
         ),
-        await _visible(session, principal, ddjj.registro_id),
     )
     aporte = None
     if data.categoria is not None:
@@ -989,7 +999,7 @@ async def presentar(
         raise _invalid("La declaración jurada se presenta una vez terminado el período.")
     _validar_fecha_pago(data.fecha_pago)
     actos = await list_actos(session, ddjj.id)
-    await _exigir_numeracion_sin_repetidos(session, ddjj, actos)
+    await _exigir_numeracion_sin_repetidos(session, principal, ddjj, actos)
     pre = await preliquidar(session, ddjj, actos, data.fecha_pago)
     for acto, aporte in zip(actos, pre.liquidacion.aportes, strict=True):
         acto.aporte = aporte.aporte
