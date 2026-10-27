@@ -158,10 +158,10 @@ MONTO_CIFRAS = r"[0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?|[0-9]+(?:,[0-9]{1,2})
 def monto_ar(cifras: str) -> Decimal | None:
     """ "45.000.000,50" → Decimal("45000000.50")."""
     try:
-        valor = Decimal(cifras.replace(".", "").replace(",", "."))
+        return Decimal(cifras.replace(".", "").replace(",", ".")).quantize(Decimal("0.01"))
     except InvalidOperation:
+        # Incluye cifras que exceden la precisión: falla cerrado, sin error.
         return None
-    return valor.quantize(Decimal("0.01"))
 
 
 def monto_en_letras(texto: str) -> Decimal | None:

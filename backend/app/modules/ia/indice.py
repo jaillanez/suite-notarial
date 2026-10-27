@@ -66,16 +66,22 @@ class RespuestaInvalidaError(ValueError):
     pass
 
 
+# Ningún dato de un renglón necesita más (la naturaleza del acto admite 300).
+MAX_CARACTERES_CAMPO = 300
+# Base imponible: hasta 16 enteros y 2 decimales (Numeric(18,2)).
+MAX_CIFRAS_MONTO = 18
+
+
 def _texto(valor: Any) -> str | None:
     if valor is None:
         return None
-    texto = str(valor).strip()
+    texto = str(valor).strip()[:MAX_CARACTERES_CAMPO]
     return texto or None
 
 
 def renglones_de_vision(respuesta: str, foto: int) -> list[Renglon]:
     """Arreglo JSON del modelo → renglones. Tolera el JSON envuelto en un bloque de código.
-    Los números se leen como texto (`parse_float=Decimal`): nunca pasan por float."""
+    Los números se leen como texto: nunca pasan por float."""
     texto = respuesta.strip()
     bloque = re.search(r"```(?:json)?\s*(.*?)```", texto, re.DOTALL)
     if bloque:
@@ -84,8 +90,10 @@ def renglones_de_vision(respuesta: str, foto: int) -> list[Renglon]:
     if inicio == -1 or fin < inicio:
         raise RespuestaInvalidaError("La lectura no devolvió una lista de renglones.")
     try:
-        datos = json.loads(texto[inicio : fin + 1], parse_float=Decimal)
-    except json.JSONDecodeError as exc:
+        # Los números quedan como texto, tal cual se leyeron: sin float ni conversiones que
+        # puedan fallar con cifras desmesuradas.
+        datos = json.loads(texto[inicio : fin + 1], parse_float=str, parse_int=str)
+    except ValueError as exc:
         raise RespuestaInvalidaError("La lectura no devolvió JSON válido.") from exc
     if not isinstance(datos, list):
         raise RespuestaInvalidaError("La lectura no devolvió una lista de renglones.")
@@ -212,6 +220,9 @@ def _monto(r: Renglon, confianza: Decimal) -> Campo:
     cifras = re.sub(r"[^\d.,]", "", r.monto)
     if not re.search(r"\d", cifras):
         return Campo(None, _d("0"), "Sin monto en el índice.", r.monto)
+    entero = re.split(r",", cifras.replace(".", ""), maxsplit=1)[0]
+    if len(entero) > MAX_CIFRAS_MONTO - 2 or len(re.sub(r"\D", "", cifras)) > MAX_CIFRAS_MONTO:
+        return Campo(None, _d("0"), "El monto leído es demasiado largo.", r.monto[:100])
     valor = monto_ar(cifras)
     if valor is None or valor <= 0:
         return Campo(None, _d("0"), "No se pudo leer el monto.", r.monto)

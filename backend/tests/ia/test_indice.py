@@ -266,3 +266,24 @@ async def test_limites_y_permisos(
     )
     assert falsa.status_code in (415, 422)
     assert con_vision == []
+
+
+def test_montos_y_textos_desmesurados_no_rompen_la_lectura() -> None:
+    enorme = "9" * 5000
+    respuesta = f'[{{"numero": "120", "fecha": "14/09/2026", "naturaleza": "{"x" * 5000}", '
+    respuesta += f'"monto": "$ {enorme}"}}, {{"numero": "121", "monto": {enorme}}}]'
+    renglones = indice.renglones_de_vision(respuesta, 1)
+    assert all(len(r.naturaleza or "") <= indice.MAX_CARACTERES_CAMPO for r in renglones)
+    for r in renglones:
+        resultado = indice.a_resultado(r, CTX, confianza=Decimal("0.85"))
+        assert resultado.campos["base_imponible"].valor in (None, "0.00")
+    # 16 enteros entran; 17 no.
+    tope = indice.Renglon(numero="1", monto="9" * 16 + ",50")
+    assert (
+        indice.a_resultado(tope, CTX, confianza=Decimal("0.85")).campos["base_imponible"].valor
+        == "9" * 16 + ".50"
+    )
+    pasado = indice.Renglon(numero="1", monto="9" * 17)
+    assert indice.a_resultado(pasado, CTX, confianza=Decimal("0.85")).campos[
+        "base_imponible"
+    ].valor in (None, "0.00")
