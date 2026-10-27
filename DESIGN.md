@@ -281,6 +281,10 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Los campos de importe aceptan la forma local (`1.234,56`) y se normalizan antes de enviarse.
 - Un valor que no está confirmado como oficial lleva el indicador de atención "A confirmar" junto al valor y un aviso en la página; nunca se presenta igual que uno aprobado.
 
+### Carga de actos (controles del protocolo)
+- Bajo los campos del acto, el aporte estimado en una franja sobre Superficie Hundida (etiqueta a la izquierda, importe tabular a la derecha) y los avisos del libro de protocolo como avisos en línea: rechazo si impide guardar (número repetido, y el botón queda deshabilitado), atención si solo hay que verificar (folio o fecha fuera de orden). Se recalcula tras una breve pausa al tipear; mientras llega, el importe anterior queda atenuado.
+- En la tabla de actos, los avisos de cada acto van bajo su descripción con ícono y texto del tono; los números salteados del año, en un aviso de atención al principio del panel, agrupados en tramos («43 a 100 (58 números)») con la indicación de declararlos «sin efecto».
+
 ### Liquidación (desglose de importes)
 - Lista de pares etiqueta/valor con el importe alineado a la derecha y sin cortes de línea; la aclaración de una fila (cantidad de aportes, días de mora) va junto a la etiqueta en escritorio y debajo en celular.
 - Los subtotales van sobre Superficie Hundida en 600; el total a pagar cierra la lista con borde Línea Firme, en Petróleo Profundo y un paso más grande.

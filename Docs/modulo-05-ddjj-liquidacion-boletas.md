@@ -7,6 +7,9 @@
 
 > **Implementación (Fase 4).** Diferencias con el texto de abajo, que prevalecen (manda `AGENTS.md`):
 >
+> - **Controles del libro de protocolo:** número de escritura único por registro, protocolo y año
+>   (bloquea), folio repetido o fuera de orden y fecha fuera de orden (avisan), números salteados
+>   del año en la ficha. `TODO(negocio)`: confirmar que la numeración se reinicia cada año.
 > - **Una DDJJ por registro notarial y período**, no por escribano: reúne los actos de titular,
 >   adscriptos y escribanos a cargo, como en el sistema en uso. Cada acto guarda el escribano y su
 >   cargo a la fecha del acto.
