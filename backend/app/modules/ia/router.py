@@ -16,6 +16,7 @@ from app.modules.ia.schemas import (
     DescarteIn,
     EscribanoRatificadoOut,
     EstadoIaOut,
+    IndiceOut,
     SugerenciaOut,
 )
 from app.modules.iam.catalog import Perm
@@ -65,6 +66,24 @@ async def analizar_minuta(
         session, ctx, principal, ddjj_id, archivo=archivo, texto=texto
     )
     return SugerenciaOut.de(sugerencia, resultado)
+
+
+@router.post("/indices", response_model=IndiceOut, status_code=201)
+async def analizar_indice(
+    principal: CanOperateDDJJ,
+    session: SessionDep,
+    ctx: RequestContextDep,
+    ddjj_id: Annotated[uuid.UUID, Form()],
+    archivos: Annotated[
+        list[UploadFile], File(description="Fotos del índice del protocolo (PNG o JPG)")
+    ],
+) -> IndiceOut:
+    lectura_indice = await service.analizar_indice(session, ctx, principal, ddjj_id, archivos)
+    return IndiceOut(
+        lote=lectura_indice.lote,
+        motor=lectura_indice.motor,
+        sugerencias=[SugerenciaOut.de(s, r) for s, r in lectura_indice.sugerencias],
+    )
 
 
 @router.post("/dni", response_model=SugerenciaOut, status_code=201)

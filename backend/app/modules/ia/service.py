@@ -10,6 +10,7 @@
 
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from http import HTTPStatus
@@ -27,9 +28,12 @@ from app.modules.ddjj import service as ddjj_service
 from app.modules.ddjj.catalog import EstadoDDJJ
 from app.modules.ddjj.models import Acto, DeclaracionJurada
 from app.modules.ddjj.schemas import ActoIn
-from app.modules.ia import dni, lectura, minutas
+from app.modules.ia import dni, indice, lectura, minutas, vision
 from app.modules.ia.catalog import (
     MOTOR_DNI_VERSION,
+    MOTOR_INDICE_OCR,
+    MOTOR_INDICE_VERSION,
+    MOTOR_INDICE_VISION,
     MOTOR_MINUTA,
     MOTOR_MINUTA_VERSION,
     EstadoSugerencia,
@@ -42,7 +46,7 @@ from app.modules.padron import service as padron_service
 from app.modules.padron.models import Escribano, Persona, RegistroNotarial
 from app.modules.padron.schemas import EscribanoIn
 from app.modules.pagos import storage
-from app.modules.pagos.storage import ArchivoInvalidoError
+from app.modules.pagos.storage import ArchivoInvalidoError, ArchivoValidado
 
 MAX_TEXTO = minutas.MAX_CARACTERES
 
@@ -224,6 +228,144 @@ async def analizar_minuta(
     return sugerencia, resultado
 
 
+# --------------------------------------------------------------------------- índice del protocolo
+
+# Confianza del lector (la visión no informa una por dato). Las reglas derivadas llevan la suya.
+CONFIANZA_VISION = Decimal("0.85")
+CONFIANZA_OCR = Decimal("0.55")
+
+
+@dataclass(frozen=True)
+class LecturaIndice:
+    lote: uuid.UUID
+    motor: str
+    sugerencias: list[tuple[Sugerencia, Resultado]]
+
+
+async def _leer_foto(
+    validado: ArchivoValidado, numero: int
+) -> tuple[list[indice.Renglon], str, dict[str, Any], str | None]:
+    """Renglones de una foto, el motor que los leyó, metadatos y, si hubo, el motivo del
+    respaldo local."""
+    respaldo = None
+    if vision.configurada():
+        try:
+            jpeg = await lectura.foto_para_vision(validado)
+            leido = await vision.transcribir(jpeg)
+            renglones = indice.renglones_de_vision(leido.texto, numero)
+            return (
+                renglones,
+                MOTOR_INDICE_VISION,
+                {"modelo": leido.modelo, "tokens": leido.tokens},
+                None,
+            )
+        except (vision.VisionNoDisponibleError, indice.RespuestaInvalidaError) as exc:
+            respaldo = str(exc)
+    texto = await lectura.ocr_indice(validado)
+    _, idiomas = lectura.estado_ocr()
+    return indice.renglones_de_ocr(texto, numero), MOTOR_INDICE_OCR, {"ocr": idiomas}, respaldo
+
+
+async def analizar_indice(
+    session: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    ddjj_id: uuid.UUID,
+    archivos: list[UploadFile],
+) -> LecturaIndice:
+    """Fotos del índice del protocolo → una sugerencia de acto por renglón. Nada se carga en la
+    DDJJ hasta que la persona ratifica cada renglón (HIC)."""
+    settings = get_settings()
+    if not archivos:
+        raise _invalid("Subí al menos una foto del índice.")
+    if len(archivos) > settings.IA_INDICE_MAX_FOTOS:
+        raise _invalid(f"Subí hasta {settings.IA_INDICE_MAX_FOTOS} fotos por vez.")
+    await _ddjj_operable(session, principal, ddjj_id)
+    # La lectura puede tardar (visión u OCR): no se retiene una conexión mientras tanto.
+    await session.commit()
+    inicio = time.perf_counter_ns()
+    leidos: list[tuple[indice.Renglon, dict[str, Any]]] = []
+    motores: set[str] = set()
+    respaldos: list[str] = []
+    try:
+        for numero, archivo in enumerate(archivos, start=1):
+            validado = await storage.validar(archivo, settings.max_upload_bytes)
+            renglones, motor, extra, respaldo = await _leer_foto(validado, numero)
+            motores.add(motor)
+            if respaldo:
+                respaldos.append(respaldo)
+            meta = {
+                "origen": "indice",
+                "mime_type": validado.mime_type,
+                "bytes": validado.tamano,
+                "sha256": validado.sha256,
+                "foto": numero,
+                "fotos": len(archivos),
+                "motor": motor,
+                **extra,
+            }
+            leidos += [(r, meta) for r in renglones]
+    except ArchivoInvalidoError as exc:
+        raise _archivo_error(exc) from exc
+    except lectura.OcrNoDisponibleError as exc:
+        raise ProblemError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "La lectura de fotos no está disponible en este momento: cargá los actos a mano.",
+        ) from exc
+    except lectura.ColaLlenaError as exc:
+        raise _cola_llena() from exc
+    if not leidos:
+        raise _invalid(
+            "No se encontraron renglones de escrituras en la foto. Probá con una foto más "
+            "nítida, de frente y con buena luz, que muestre el número y la fecha de cada "
+            "escritura."
+        )
+    # Se revalida: la DDJJ pudo presentarse (o el cargo cerrarse) durante la lectura.
+    ddjj = await _ddjj_operable(session, principal, ddjj_id)
+    contexto = await _contexto(session, ddjj)
+    tiempo = _ms(inicio)
+    lote = uuid.uuid4()
+    sugerencias = []
+    for renglon_numero, (renglon, meta) in enumerate(leidos, start=1):
+        motor = meta["motor"]
+        confianza = CONFIANZA_VISION if motor == MOTOR_INDICE_VISION else CONFIANZA_OCR
+        resultado = indice.a_resultado(renglon, contexto, confianza=confianza)
+        entrada = {**meta, "lote": str(lote), "renglon": renglon_numero}
+        sugerencia = _registrar(
+            session,
+            ctx,
+            principal,
+            tipo=TipoSugerencia.EXTRACCION_INDICE,
+            motor=motor,
+            version=MOTOR_INDICE_VERSION,
+            resultado=resultado,
+            entrada=entrada,
+            tiempo_ms=tiempo,
+            ddjj_id=ddjj.id,
+        )
+        sugerencias.append((sugerencia, resultado))
+    # Registro del procesamiento: qué proveedor leyó las fotos (externo o local) y si hubo
+    # respaldo. Sin datos de las fotos.
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.IA_INDICE_LEIDO,
+        actor_user_id=principal.user.id,
+        details={
+            "ddjj_id": str(ddjj.id),
+            "lote": str(lote),
+            "fotos": len(archivos),
+            "renglones": len(sugerencias),
+            "motores": sorted(motores),
+            "procesamiento_externo": ("deepseek" if MOTOR_INDICE_VISION in motores else None),
+            "respaldo_local": respaldos or None,
+        },
+    )
+    await session.commit()
+    motor_lote = MOTOR_INDICE_VISION if MOTOR_INDICE_VISION in motores else MOTOR_INDICE_OCR
+    return LecturaIndice(lote, motor_lote, sugerencias)
+
+
 # --------------------------------------------------------------------------- DNI
 
 
@@ -287,8 +429,9 @@ async def get_sugerencia(
     return sugerencia
 
 
-def _pendiente(sugerencia: Sugerencia, tipo: TipoSugerencia) -> None:
-    if sugerencia.tipo != tipo.value:
+def _pendiente(sugerencia: Sugerencia, tipos: TipoSugerencia | tuple[TipoSugerencia, ...]) -> None:
+    aceptados = (tipos,) if isinstance(tipos, TipoSugerencia) else tipos
+    if sugerencia.tipo not in {t.value for t in aceptados}:
         raise _invalid("La sugerencia no es de este tipo.")
     if sugerencia.estado != EstadoSugerencia.SUGERIDO_POR_IA.value:
         raise ProblemError(HTTPStatus.CONFLICT, "La sugerencia ya fue ratificada o descartada.")
@@ -361,7 +504,7 @@ async def ratificar_acto(
     data: ActoIn,
 ) -> tuple[Sugerencia, Acto]:
     sugerencia = await get_sugerencia(session, principal, sugerencia_id, lock=True)
-    _pendiente(sugerencia, TipoSugerencia.EXTRACCION_MINUTA)
+    _pendiente(sugerencia, (TipoSugerencia.EXTRACCION_MINUTA, TipoSugerencia.EXTRACCION_INDICE))
     assert sugerencia.ddjj_id is not None  # noqa: S101 - CHECK minuta_ddjj
     acto_id = uuid.uuid4()
     sugerencia.acto_id = acto_id

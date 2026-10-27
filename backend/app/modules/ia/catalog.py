@@ -7,6 +7,8 @@ class TipoSugerencia(StrEnum):
     EXTRACCION_MINUTA = "EXTRACCION_MINUTA"
     # Frente o dorso del DNI → datos personales para el alta de un escribano en el padrón.
     OCR_DNI = "OCR_DNI"
+    # Un renglón de la foto del índice del protocolo → acto de una DDJJ en borrador.
+    EXTRACCION_INDICE = "EXTRACCION_INDICE"
 
 
 class EstadoSugerencia(StrEnum):
@@ -29,5 +31,10 @@ MOTOR_MINUTA_VERSION = "1.0"
 MOTOR_DNI_PDF417 = "dni-pdf417"
 MOTOR_DNI_MRZ = "dni-mrz-tesseract"
 MOTOR_DNI_VERSION = "1.0"
+# Índice del protocolo por foto. El de visión es externo (DeepSeek): se usa solo con
+# IA_VISION_PROVEEDOR=deepseek, autorizado por la Caja; el OCR local es el respaldo.
+MOTOR_INDICE_VISION = "indice-vision-deepseek"
+MOTOR_INDICE_OCR = "indice-ocr-tesseract"
+MOTOR_INDICE_VERSION = "1.0"
 
 CONFIANZA_QUANT = Decimal("0.0001")
