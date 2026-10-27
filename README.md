@@ -242,7 +242,9 @@ Ya aplicadas:
 - **Una DDJJ por registro y período** con los actos de todos sus escribanos (titular, adscriptos,
   a cargo). Cada acto lleva protocolo, número de escritura, fecha dentro del período, naturaleza y
   categoría: escritura con valor (porcentaje de la base con mínimo y tope), acta o poder, otro
-  acto (montos fijos) o sin efecto (no aporta). Los actos de un borrador se quitan con motivo.
+  acto (montos fijos), sin efecto (no aporta) o **exento** (no aporta, con motivo obligatorio:
+  convenio con el IPV, acta subsanatoria u otro con detalle; cuenta como acto declarado y el
+  aporte mínimo del mes se cobra igual). Los actos de un borrador se quitan con motivo.
 - **Controles del libro de protocolo** (numeración correlativa por registro, protocolo y año):
   un número de escritura repetido en cualquier DDJJ del año no se puede cargar, salvo como
   **acto múltiple** (otro acto de una escritura ya cargada en la misma DDJJ y con su misma fecha,

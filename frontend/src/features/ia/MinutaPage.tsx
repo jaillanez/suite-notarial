@@ -187,6 +187,8 @@ function formularioDe(ddjj: DeclaracionDetalle, s: Sugerencia): ActoForm {
     naturaleza: v('naturaleza') ?? '',
     base_imponible: base && base !== '0.00' ? formatDecimal(base) : '',
     acto_multiple: false,
+    motivo_exencion: '',
+    detalle_exencion: '',
   }
 }
 

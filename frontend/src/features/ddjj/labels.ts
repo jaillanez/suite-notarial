@@ -1,5 +1,5 @@
 import type { Tone } from '../../components/StatusIndicator'
-import type { CategoriaActo, EstadoBoleta, EstadoDDJJ, TipoProtocolo } from './api'
+import type { CategoriaActo, EstadoBoleta, EstadoDDJJ, MotivoExencion, TipoProtocolo } from './api'
 
 export const ESTADO_DDJJ: Record<EstadoDDJJ, { label: string; tone: Tone }> = {
   BORRADOR: { label: 'Borrador', tone: 'warning' },
@@ -27,6 +27,32 @@ export const CATEGORIA: Record<CategoriaActo, { label: string; ayuda: string }> 
     label: 'Sin efecto',
     ayuda: 'Escritura que quedó sin efecto: se declara para no dejar huecos y no aporta.',
   },
+  EXENTO: {
+    label: 'Exento',
+    ayuda:
+      'Acto que no aporta por un motivo que se indica. Se declara igual y el aporte mínimo del mes se paga de todos modos.',
+  },
+}
+
+export const MOTIVO_EXENCION: Record<MotivoExencion, string> = {
+  CONVENIO_IPV: 'Convenio con el IPV',
+  ACTA_SUBSANATORIA: 'Acta subsanatoria',
+  OTRO: 'Otro motivo',
+}
+
+/** "Exento · Convenio con el IPV", o la categoría sola. */
+export function categoriaDe(a: {
+  categoria: CategoriaActo
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
+}): string {
+  const categoria = CATEGORIA[a.categoria].label
+  if (!a.motivo_exencion) return categoria
+  const motivo =
+    a.motivo_exencion === 'OTRO' && a.detalle_exencion
+      ? a.detalle_exencion
+      : MOTIVO_EXENCION[a.motivo_exencion]
+  return `${categoria} · ${motivo}`
 }
 
 export const PROTOCOLO: Record<TipoProtocolo, string> = {

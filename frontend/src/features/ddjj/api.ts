@@ -4,7 +4,9 @@ import type { EstadoComprobante } from '../pagos/api'
 
 export type EstadoDDJJ = 'BORRADOR' | 'PRESENTADA' | 'RECTIFICADA'
 export type EstadoBoleta = 'PENDIENTE' | 'PAGADA' | 'ANULADA'
-export type CategoriaActo = 'ESCRITURA_CON_VALOR' | 'ACTA_O_PODER' | 'OTRO_ACTO' | 'SIN_EFECTO'
+export type CategoriaActo =
+  'ESCRITURA_CON_VALOR' | 'ACTA_O_PODER' | 'OTRO_ACTO' | 'SIN_EFECTO' | 'EXENTO'
+export type MotivoExencion = 'CONVENIO_IPV' | 'ACTA_SUBSANATORIA' | 'OTRO'
 export type TipoProtocolo = 'GENERAL' | 'AUXILIAR'
 
 export interface RegistroResumen {
@@ -41,6 +43,8 @@ export interface Acto {
   naturaleza: string
   categoria: CategoriaActo
   base_imponible: string
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
   aporte: string | null
   vigencia_id: string | null
 }
@@ -165,6 +169,8 @@ export interface ActoInput {
   categoria: CategoriaActo
   base_imponible: string
   acto_multiple: boolean
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
 }
 
 export interface Verificacion {

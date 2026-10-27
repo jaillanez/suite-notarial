@@ -10,7 +10,13 @@ from app.common.dates import today_local
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
 from app.modules.ddjj import pdf, protocolo, service
-from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ, TipoProtocolo
+from app.modules.ddjj.catalog import (
+    CategoriaActo,
+    EstadoBoleta,
+    EstadoDDJJ,
+    MotivoExencion,
+    TipoProtocolo,
+)
 from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
 from app.modules.ddjj.schemas import (
     ActoIn,
@@ -116,6 +122,8 @@ def acto_out(a: Acto) -> ActoOut:
         naturaleza=a.naturaleza,
         categoria=CategoriaActo(a.categoria),
         base_imponible=a.base_imponible,
+        motivo_exencion=MotivoExencion(a.motivo_exencion) if a.motivo_exencion else None,
+        detalle_exencion=a.detalle_exencion,
         aporte=a.aporte,
         vigencia_id=a.vigencia_id,
     )

@@ -488,6 +488,8 @@ ACTO_FIELDS = (
     "naturaleza",
     "categoria",
     "base_imponible",
+    "motivo_exencion",
+    "detalle_exencion",
 )
 
 
@@ -570,6 +572,8 @@ async def agregar_acto(
         naturaleza=data.naturaleza,
         categoria=data.categoria.value,
         base_imponible=data.base_imponible,
+        motivo_exencion=data.motivo_exencion.value if data.motivo_exencion else None,
+        detalle_exencion=data.detalle_exencion,
         created_by_user_id=principal.user.id,
     )
     session.add(item)
@@ -1220,6 +1224,8 @@ async def rectificar(
                 naturaleza=acto.naturaleza,
                 categoria=acto.categoria,
                 base_imponible=acto.base_imponible,
+                motivo_exencion=acto.motivo_exencion,
+                detalle_exencion=acto.detalle_exencion,
                 created_by_user_id=principal.user.id,
             )
         )

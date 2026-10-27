@@ -5,8 +5,8 @@ import { Select } from '../../components/ui/Select'
 import type { Problem } from '../../lib/api'
 import { CARGO, todayIso } from '../padron/labels'
 import type { ActoForm } from './acto'
-import type { CategoriaActo, DeclaracionDetalle, TipoProtocolo } from './api'
-import { CATEGORIA, PROTOCOLO, rangoPeriodo } from './labels'
+import type { CategoriaActo, DeclaracionDetalle, MotivoExencion, TipoProtocolo } from './api'
+import { CATEGORIA, MOTIVO_EXENCION, PROTOCOLO, rangoPeriodo } from './labels'
 
 type Clave = keyof ActoForm
 
@@ -29,7 +29,13 @@ export function ActoCampos({
   const hoy = todayIso()
   const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
   const bind = (
-    key: 'numero_escritura' | 'folio' | 'fecha_acto' | 'naturaleza' | 'base_imponible',
+    key:
+      | 'numero_escritura'
+      | 'folio'
+      | 'fecha_acto'
+      | 'naturaleza'
+      | 'base_imponible'
+      | 'detalle_exencion',
   ) => ({
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
@@ -75,6 +81,34 @@ export function ActoCampos({
           {pistas.categoria ?? CATEGORIA[form.categoria].ayuda}
         </p>
       </div>
+      {form.categoria === 'EXENTO' && (
+        <>
+          <div className={form.motivo_exencion === 'OTRO' ? '' : 'sm:col-span-2'}>
+            <Select
+              label="Motivo de la exención"
+              value={form.motivo_exencion}
+              onChange={(e) => {
+                onChange({ motivo_exencion: e.target.value as MotivoExencion | '' })
+              }}
+              options={[
+                ...(form.motivo_exencion ? [] : [{ value: '', label: 'Elegí el motivo' }]),
+                ...(Object.keys(MOTIVO_EXENCION) as MotivoExencion[]).map((m) => ({
+                  value: m,
+                  label: MOTIVO_EXENCION[m],
+                })),
+              ]}
+            />
+          </div>
+          {form.motivo_exencion === 'OTRO' && (
+            <Field
+              label="¿Cuál?"
+              maxLength={300}
+              placeholder="Motivo de la exención"
+              {...bind('detalle_exencion')}
+            />
+          )}
+        </>
+      )}
       <div>
         <Select
           label="Protocolo"

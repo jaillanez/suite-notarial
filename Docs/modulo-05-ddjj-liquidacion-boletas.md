@@ -16,6 +16,9 @@
 >   cargo a la fecha del acto.
 > - **Categorías de acto** relevadas del sistema actual: escritura con valor (porcentaje sobre la
 >   base con mínimo y tope), acta o poder y otro acto (montos fijos) y sin efecto (no aporta).
+>   Exento (no aporta): motivo obligatorio (`CONVENIO_IPV`, `ACTA_SUBSANATORIA` u `OTRO` con
+>   detalle); cuenta como acto y el mínimo mensual se cobra igual. `TODO(negocio)`: confirmar
+>   otros motivos frecuentes y si la Caja revisa las exenciones.
 > - **Liquidación** (`app/modules/ddjj/liquidacion.py`, reproduce la boleta 1069 de 09/2026):
 >   excedente = máx(0, protocolos − aporte mínimo mensual); total en término = mínimo + excedente +
 >   aporte médico (uno por titular o adscripto con cargo en el período); interés de mora sobre el

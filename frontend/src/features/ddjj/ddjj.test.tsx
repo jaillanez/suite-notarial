@@ -31,6 +31,8 @@ const ACTO: apiModule.Acto = {
   tipo_protocolo: 'GENERAL',
   numero_escritura: 101,
   orden_en_escritura: 1,
+  motivo_exencion: null,
+  detalle_exencion: null,
   folio: null,
   fecha_acto: '2026-09-15',
   naturaleza: 'Compraventa',

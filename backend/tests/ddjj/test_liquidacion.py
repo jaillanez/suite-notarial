@@ -103,6 +103,7 @@ def test_categorias_minimo_y_tope() -> None:
         ),
         (ActoALiquidar(CategoriaActo.OTRO_ACTO, D(0)), relevado("APORTE_FIJO_OTROS_ACTOS", SEP)),
         (ActoALiquidar(CategoriaActo.SIN_EFECTO, D(0)), None),
+        (ActoALiquidar(CategoriaActo.EXENTO, D(0)), None),
     ]
 
     liq = _liquidar(actos)
@@ -112,6 +113,7 @@ def test_categorias_minimo_y_tope() -> None:
         D("3482672.00"),
         D("9922.00"),
         D("37446.00"),
+        D("0.00"),
         D("0.00"),
     ]
     assert liq.aportes[-1].vigencia is None

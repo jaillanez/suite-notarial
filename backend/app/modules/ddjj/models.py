@@ -112,8 +112,25 @@ class Acto(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "ddjj_actos"
     __table_args__ = (
         CheckConstraint(
-            "categoria IN ('ESCRITURA_CON_VALOR', 'ACTA_O_PODER', 'OTRO_ACTO', 'SIN_EFECTO')",
+            "categoria IN ('ESCRITURA_CON_VALOR', 'ACTA_O_PODER', 'OTRO_ACTO', 'SIN_EFECTO', "
+            "'EXENTO')",
             name="categoria_valida",
+        ),
+        # Un acto exento siempre dice por qué; «otro motivo», con detalle.
+        CheckConstraint(
+            "(categoria = 'EXENTO') = (motivo_exencion IS NOT NULL)", name="exento_con_motivo"
+        ),
+        CheckConstraint(
+            "motivo_exencion IS NULL "
+            "OR motivo_exencion IN ('CONVENIO_IPV', 'ACTA_SUBSANATORIA', 'OTRO')",
+            name="motivo_exencion",
+        ),
+        CheckConstraint(
+            "motivo_exencion IS DISTINCT FROM 'OTRO' OR length(detalle_exencion) >= 3",
+            name="exencion_otro_con_detalle",
+        ),
+        CheckConstraint(
+            "detalle_exencion IS NULL OR motivo_exencion IS NOT NULL", name="detalle_exencion"
         ),
         CheckConstraint("tipo_protocolo IN ('GENERAL', 'AUXILIAR')", name="protocolo"),
         CheckConstraint("numero_escritura > 0", name="numero"),
@@ -156,6 +173,9 @@ class Acto(UUIDMixin, TimestampMixin, Base):
     naturaleza: Mapped[str] = mapped_column(String(300), nullable=False)
     categoria: Mapped[str] = mapped_column(String(30), nullable=False)
     base_imponible: Mapped[Decimal] = mapped_column(BASE, nullable=False, server_default="0")
+    # Solo para la categoría EXENTO.
+    motivo_exencion: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    detalle_exencion: Mapped[str | None] = mapped_column(String(300), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True

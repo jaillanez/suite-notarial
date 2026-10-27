@@ -49,10 +49,10 @@ import { ActoCampos } from './ActoCampos'
 import { useVerificacionActo } from './verificacion'
 import { ResultadoVerificacion } from './VerificacionActo'
 import {
-  CATEGORIA,
   ESTADO_BOLETA,
   ESTADO_DDJJ,
   PROTOCOLO,
+  categoriaDe,
   formatCodigo,
   formatPeriodo,
   registroLabel,
@@ -525,7 +525,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                   </td>
                   <td className="px-3 py-3">
                     <span className="block text-ink">{a.naturaleza}</span>
-                    <span className="block text-ink-muted">{CATEGORIA[a.categoria].label}</span>
+                    <span className="block text-ink-muted">{categoriaDe(a)}</span>
                     <span className="block text-ink-muted">
                       {a.escribano} ({CARGO[a.cargo]})
                     </span>
@@ -567,7 +567,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-ink">
-                  {a.naturaleza} · {CATEGORIA[a.categoria].label}
+                  {a.naturaleza} · {categoriaDe(a)}
                 </p>
                 <p className="text-sm text-ink-muted tabular-nums">
                   {a.escribano} · {formatDate(a.fecha_acto)}
