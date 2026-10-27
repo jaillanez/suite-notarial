@@ -43,6 +43,15 @@ class Cargo(StrEnum):
     SUPLENTE_INTERINO = "SUPLENTE_INTERINO"
 
 
+class EstadoDesignacion(StrEnum):
+    """Designación de un escribano a cargo de un registro."""
+
+    PENDIENTE = "PENDIENTE"  # espera la aprobación de la Caja
+    APROBADA = "APROBADA"  # rige entre sus fechas
+    RECHAZADA = "RECHAZADA"
+    ANULADA = "ANULADA"
+
+
 class EstadoRegistro(StrEnum):
     ACTIVO = "ACTIVO"
     VACANTE = "VACANTE"

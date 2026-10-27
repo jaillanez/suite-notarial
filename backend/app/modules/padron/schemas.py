@@ -4,12 +4,20 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.common.cuit import InvalidCuitError, normalize_cuit
 from app.modules.padron.catalog import (
     DEPARTAMENTOS_SAN_JUAN,
     Cargo,
+    EstadoDesignacion,
     EstadoMatricula,
     EstadoRegistro,
     TipoDocumento,
@@ -257,3 +265,87 @@ class CuentaIn(BaseModel):
     """El operador confirma el correo: debe coincidir con el registrado en el padrón."""
 
     email: EmailStr
+
+
+# --------------------------------------------------------------------------- escribano a cargo
+
+
+class DesignacionIn(BaseModel):
+    registro_id: uuid.UUID
+    escribano_id: uuid.UUID
+    fecha_desde: date
+    fecha_hasta: date
+    motivo: Motivo
+
+    @model_validator(mode="after")
+    def _fechas(self) -> "DesignacionIn":
+        if self.fecha_hasta < self.fecha_desde:
+            raise ValueError("La fecha hasta no puede ser anterior a la fecha desde.")
+        return self
+
+
+class DesignacionBaja(BaseModel):
+    """Rechazo o anulación: siempre con motivo."""
+
+    motivo: Motivo
+
+
+class DesignacionTermino(BaseModel):
+    """Adelanta el fin de una designación aprobada (p. ej. el titular volvió antes)."""
+
+    fecha_hasta: date
+    motivo: Motivo
+
+
+class DesignacionOut(BaseModel):
+    id: uuid.UUID
+    registro_id: uuid.UUID
+    numero_registro: int
+    departamento: str
+    escribano_id: uuid.UUID
+    apellido_nombre: str
+    matricula_numero: int
+    fecha_desde: date
+    fecha_hasta: date
+    motivo: str
+    estado: EstadoDesignacion
+    # Aprobada y con la fecha de hoy dentro del rango.
+    rige_hoy: bool
+    created_at: datetime
+    # Correos de quien cargó y quien resolvió: solo para el personal de la Caja.
+    cargada_por: str | None
+    resuelta_por: str | None
+    resuelta_en: datetime | None
+    motivo_resolucion: str | None
+    # Acciones que puede hacer quien consulta.
+    puede_aprobar: bool
+    puede_anular: bool
+    puede_terminar: bool
+
+
+class AjustesPadronIn(BaseModel):
+    a_cargo_requiere_aprobacion: bool
+
+
+class AjustesPadronOut(BaseModel):
+    a_cargo_requiere_aprobacion: bool
+    updated_at: datetime | None
+    puede_editar: bool
+
+
+class EscribanoElegible(BaseModel):
+    """Escribano activo que puede quedar a cargo (cualquiera de la provincia)."""
+
+    id: uuid.UUID
+    apellido_nombre: str
+    matricula_numero: int
+    numero_registro: int | None
+    departamento: str | None
+
+
+class RegistroGestionable(BaseModel):
+    """Registro en el que quien consulta puede designar un escribano a cargo."""
+
+    id: uuid.UUID
+    numero_registro: int
+    departamento: str

@@ -8,9 +8,11 @@ Reproduce la boleta del sistema en uso (N° 1069, período 09/2026):
     interés               = mora sobre el total en término si se paga después del vencimiento
     total a pagar         = total en término + interés
 
-TODO(negocio): confirmar con la Caja (a) que el aporte mínimo es un piso por registro y no por
-escribano, y (b) que se cobra un aporte médico por cada titular o adscripto del registro (en el
-reporte del sistema actual los actos de escribanos "a cargo" no llevan aporte médico).
+Se cobra un aporte médico por cada titular y cada adscripto del registro; quien está a cargo no
+lo paga por ese registro (confirmado por la Caja el 27/10/2026).
+
+TODO(negocio): confirmar con la Caja que el aporte mínimo es un piso por registro y no por
+escribano.
 """
 
 from collections.abc import Sequence

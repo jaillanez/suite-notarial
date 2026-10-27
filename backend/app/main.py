@@ -22,6 +22,7 @@ from app.modules.iam.router_auth import router as auth_router
 from app.modules.iam.router_users import router as users_router
 from app.modules.migracion.router import router as migracion_router
 from app.modules.padron.router import router as padron_router
+from app.modules.padron.router_a_cargo import router as a_cargo_router
 from app.modules.pagos.router import router as pagos_router
 from app.modules.parametros.router import router as parametros_router
 from app.modules.prestamos.router import router as prestamos_router
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(padron_router, prefix="/api/v1")
+    app.include_router(a_cargo_router, prefix="/api/v1")
     app.include_router(parametros_router, prefix="/api/v1")
     app.include_router(ddjj_router, prefix="/api/v1")
     app.include_router(boletas_public_router, prefix="/api/v1")

@@ -653,6 +653,13 @@ async def assign_cargo(
     escribano_id: uuid.UUID,
     data: CargoAsignacion,
 ) -> Adscripcion:
+    if data.cargo == Cargo.SUPLENTE_INTERINO:
+        # Quien queda a cargo conserva su propio cargo: va como designación con fechas.
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "El escribano a cargo se registra como designación, con fecha desde y hasta "
+            "(Escribano a cargo).",
+        )
     escribano = await get_escribano(session, escribano_id)
     if escribano.estado_matricula != EstadoMatricula.ACTIVO:
         raise _conflict("Solo un escribano con matrícula ACTIVA puede asumir un cargo.")

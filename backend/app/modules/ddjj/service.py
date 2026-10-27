@@ -57,6 +57,7 @@ from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn, Verific
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
+from app.modules.padron import a_cargo
 from app.modules.padron.catalog import Cargo, EstadoRegistro
 from app.modules.padron.models import Adscripcion, Escribano, RegistroNotarial
 from app.modules.pagos.catalog import EstadoComprobante
@@ -123,7 +124,12 @@ async def _registros_del_escribano(
     stmt = select(Adscripcion.registro_id).where(Adscripcion.escribano_id == escribano.id)
     if solo_vigentes:
         stmt = stmt.where(Adscripcion.is_current.is_(True))
-    return set((await session.scalars(stmt)).all())
+    propios = set((await session.scalars(stmt)).all())
+    # A cargo de otro registro: solo entre las fechas de la designación aprobada.
+    designaciones = await a_cargo.del_escribano(
+        session, escribano.id, en=today_local() if solo_vigentes else None
+    )
+    return propios | {d.registro_id for d in designaciones}
 
 
 def _es_staff_lectura(principal: Principal) -> bool:
@@ -181,6 +187,7 @@ async def _alcance_propio(session: AsyncSession, user: User) -> list[Alcance]:
     cargos = await session.scalars(
         select(Adscripcion).where(Adscripcion.escribano_id == escribano.id)
     )
+    designaciones = await a_cargo.del_escribano(session, escribano.id)
     return [
         Alcance(
             c.registro_id,
@@ -188,6 +195,9 @@ async def _alcance_propio(session: AsyncSession, user: User) -> list[Alcance]:
             periodo_de(c.fecha_hasta) if c.fecha_hasta else None,
         )
         for c in cargos.unique()
+    ] + [
+        Alcance(d.registro_id, periodo_de(d.fecha_desde), periodo_de(d.fecha_hasta))
+        for d in designaciones
     ]
 
 
@@ -255,28 +265,49 @@ async def registros_operables(
     return list(result.unique().scalars())
 
 
+@dataclass(frozen=True)
+class CargoEnPeriodo:
+    """Lugar de un escribano en el equipo del registro durante un período: su cargo propio o
+    una designación a cargo aprobada."""
+
+    escribano: Escribano
+    cargo: str
+    fecha_desde: date
+
+    @property
+    def escribano_id(self) -> uuid.UUID:
+        return self.escribano.id
+
+
+# Titular, adscriptos y, al final, quienes estuvieron a cargo.
+_ORDEN_CARGO = {Cargo.TITULAR.value: 0, Cargo.ADSCRIPTO.value: 1}
+
+
 async def cargos_en_periodo(
     session: AsyncSession, registro_id: uuid.UUID, periodo: str
-) -> list[Adscripcion]:
-    """Cargos del registro que estuvieron vigentes en algún día del período."""
+) -> list[CargoEnPeriodo]:
+    """Equipo del registro en algún día del período, incluidos los escribanos a cargo."""
     desde, hasta = rango_periodo(periodo)
     result = await session.execute(
-        select(Adscripcion)
-        .where(
+        select(Adscripcion).where(
             Adscripcion.registro_id == registro_id,
             Adscripcion.fecha_desde <= hasta,
             or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= desde),
         )
-        .order_by(Adscripcion.cargo.desc(), Adscripcion.fecha_desde)
     )
-    return list(result.unique().scalars())
+    cargos = [
+        CargoEnPeriodo(c.escribano, c.cargo, c.fecha_desde) for c in result.unique().scalars()
+    ]
+    cargos += [
+        CargoEnPeriodo(d.escribano, Cargo.SUPLENTE_INTERINO.value, d.fecha_desde)
+        for d in await a_cargo.aprobadas_en(session, registro_id, desde, hasta)
+    ]
+    return sorted(cargos, key=lambda c: (_ORDEN_CARGO.get(c.cargo, 2), c.fecha_desde))
 
 
-def cantidad_aportes_medicos(cargos: list[Adscripcion]) -> int:
-    """Un aporte médico por escribano titular o adscripto del registro en el período.
-
-    TODO(negocio): confirmar con la Caja (ver liquidacion.py).
-    """
+def cantidad_aportes_medicos(cargos: list[CargoEnPeriodo]) -> int:
+    """Un aporte médico por escribano titular o adscripto del registro en el período (lo
+    confirmó la Caja el 27/10/2026; quien está a cargo no lo paga por ese registro)."""
     return len({c.escribano_id for c in cargos if c.cargo in CARGOS_CON_APORTE_MEDICO})
 
 
@@ -526,15 +557,8 @@ async def agregar_acto(
         )
     if data.fecha_acto > today_local():
         raise _invalid("La fecha del acto no puede ser futura.")
-    cargo = await session.scalar(
-        select(Adscripcion)
-        .where(
-            Adscripcion.registro_id == ddjj.registro_id,
-            Adscripcion.escribano_id == data.escribano_id,
-            Adscripcion.fecha_desde <= data.fecha_acto,
-            or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= data.fecha_acto),
-        )
-        .order_by(Adscripcion.fecha_desde.desc())
+    cargo = await a_cargo.habilitacion(
+        session, ddjj.registro_id, data.escribano_id, data.fecha_acto
     )
     if cargo is None:
         raise _invalid("El escribano no tenía cargo en este registro a la fecha del acto.")

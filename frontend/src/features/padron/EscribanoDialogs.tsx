@@ -148,6 +148,9 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
   )
 }
 
+// El escribano a cargo no es un cargo propio: va como designación con fechas.
+const CARGOS_PROPIOS: Cargo[] = ['TITULAR', 'ADSCRIPTO']
+
 export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
   const refresh = useRefresh(escribano.id)
   const registros = useQuery({
@@ -182,7 +185,7 @@ export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
         onClose()
       }}
       title="Asignar cargo en un registro"
-      description="Un registro tiene un solo titular vigente; un escribano, un solo cargo vigente."
+      description="Un registro tiene un solo titular vigente; un escribano, un solo cargo vigente. Quien queda a cargo de otro registro se designa en Escribano a cargo."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -221,7 +224,7 @@ export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
             onChange={(e) => {
               setCargo(e.target.value as Cargo)
             }}
-            options={(Object.keys(CARGO) as Cargo[]).map((c) => ({ value: c, label: CARGO[c] }))}
+            options={CARGOS_PROPIOS.map((c) => ({ value: c, label: CARGO[c] }))}
           />
           <Field
             label="Desde"

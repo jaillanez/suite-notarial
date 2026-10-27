@@ -28,7 +28,9 @@ from app.modules.migracion.models import (
 )
 from app.modules.padron.models import (
     Adscripcion,
+    AjustesPadron,
     Circunscripcion,
+    DesignacionACargo,
     Escribano,
     HistorialEstado,
     Persona,
@@ -41,6 +43,7 @@ from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
 __all__ = [
     "Acto",
     "Adscripcion",
+    "AjustesPadron",
     "AuditSecurityLog",
     "Autoridad",
     "Base",
@@ -53,6 +56,7 @@ __all__ = [
     "Corrida",
     "CuotaPrestamo",
     "DeclaracionJurada",
+    "DesignacionACargo",
     "Documento",
     "DocumentoVersion",
     "Escribano",
