@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Camera,
   Download,
   FilePenLine,
   Paperclip,
@@ -518,6 +519,15 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
       actions={
         editable ? (
           <div className="flex flex-wrap gap-3">
+            {ddjj.escribanos.length > 0 && (
+              <Link
+                to={`/ddjj/${ddjj.id}/indice`}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
+              >
+                <Camera aria-hidden="true" className="size-4" strokeWidth={2.25} />
+                Foto del índice
+              </Link>
+            )}
             {ddjj.escribanos.length > 0 && (
               <Link
                 to={`/ddjj/${ddjj.id}/minuta`}
