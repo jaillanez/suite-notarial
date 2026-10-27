@@ -63,8 +63,10 @@ export function AppShell() {
   const signOut = useMutation({
     mutationFn: logout,
     onSettled: () => {
-      queryClient.clear()
+      // Primero la sesión en null (la observa el SessionProvider): si se borrara la caché antes,
+      // el observador seguiría con el usuario viejo y el ingreso devolvería al inicio.
       queryClient.setQueryData(SESSION_KEY, null)
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] })
       void navigate('/ingresar', { replace: true })
     },
   })
