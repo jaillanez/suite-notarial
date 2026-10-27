@@ -53,7 +53,7 @@ from app.modules.iam.deps import (
     require_permissions,
 )
 from app.modules.padron.catalog import Cargo
-from app.modules.padron.models import Adscripcion, RegistroNotarial
+from app.modules.padron.models import RegistroNotarial
 from app.modules.pagos import service as pagos_service
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.pagos.models import Comprobante
@@ -88,7 +88,7 @@ def registro_resumen(r: RegistroNotarial) -> RegistroResumen:
     )
 
 
-def escribano_resumen(c: Adscripcion) -> EscribanoResumen:
+def escribano_resumen(c: service.CargoEnPeriodo) -> EscribanoResumen:
     persona = c.escribano.persona
     return EscribanoResumen(
         id=c.escribano_id,
@@ -98,7 +98,7 @@ def escribano_resumen(c: Adscripcion) -> EscribanoResumen:
     )
 
 
-def _unicos(cargos: list[Adscripcion]) -> list[EscribanoResumen]:
+def _unicos(cargos: list[service.CargoEnPeriodo]) -> list[EscribanoResumen]:
     vistos: set[uuid.UUID] = set()
     out = []
     for c in cargos:

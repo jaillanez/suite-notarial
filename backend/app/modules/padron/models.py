@@ -196,3 +196,71 @@ class HistorialEstado(UUIDMixin, Base):
     operador_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
     )
+
+
+class DesignacionACargo(UUIDMixin, TimestampMixin, AuthorMixin, Base):
+    """Escribano a cargo de un registro entre dos fechas (licencia o ausencia del titular).
+
+    Convive con el cargo propio del designado: el titular de un registro de Jáchal puede quedar
+    a cargo de uno de Capital. Solo una designación APROBADA habilita a operar el registro, y
+    solo entre `fecha_desde` y `fecha_hasta` (inclusive). Nunca se borra: se anula o se termina
+    antes con motivo.
+    """
+
+    __tablename__ = "padron_designaciones_a_cargo"
+    __table_args__ = (
+        CheckConstraint("fecha_hasta >= fecha_desde", name="fechas"),
+        CheckConstraint(
+            "estado IN ('PENDIENTE', 'APROBADA', 'RECHAZADA', 'ANULADA')", name="estado_valido"
+        ),
+        CheckConstraint(
+            "estado NOT IN ('RECHAZADA', 'ANULADA') OR motivo_resolucion IS NOT NULL",
+            name="baja_con_motivo",
+        ),
+    )
+
+    registro_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_registros_notariales.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    escribano_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_escribanos.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_hasta: Mapped[date] = mapped_column(Date, nullable=False)
+    motivo: Mapped[str] = mapped_column(Text, nullable=False)
+    estado: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Quién aprobó, rechazó o anuló, cuándo y por qué (una aprobación por aviso no lo lleva).
+    resuelta_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    resuelta_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    motivo_resolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    escribano: Mapped[Escribano] = relationship(lazy="joined")
+    registro: Mapped[RegistroNotarial] = relationship(lazy="joined")
+
+
+class AjustesPadron(Base):
+    """Ajustes del padrón que decide la Caja (una sola fila)."""
+
+    __tablename__ = "padron_ajustes"
+    __table_args__ = (CheckConstraint("id = 1", name="fila_unica"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, server_default="1")
+    # Con True, la designación de un escribano a cargo que carga el titular espera la
+    # aprobación de la Caja; con False, rige al cargarla y la Caja queda avisada.
+    a_cargo_requiere_aprobacion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )

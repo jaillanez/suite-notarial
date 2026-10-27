@@ -21,6 +21,11 @@ const NAV: NavItem[] = [
     label: 'Declaraciones juradas',
     permission: ['ddjj:read_own', 'ddjj:read_all', 'ddjj:approve'],
   },
+  {
+    to: '/a-cargo',
+    label: 'Escribano a cargo',
+    permission: ['escribanos:read', 'ddjj:create_own'],
+  },
   { to: '/tesoreria/conciliacion', label: 'Conciliación', permission: 'comprobantes:verify' },
   { to: '/padron/escribanos', label: 'Escribanos', permission: 'escribanos:read' },
   { to: '/padron/registros', label: 'Registros', permission: 'escribanos:read' },

@@ -822,3 +822,27 @@ async def test_soft_delete_preserves_history_dir_04(client: AsyncClient, test_ad
 2. **Historial Inmutable (`DIR-02` / `DIR-04`):** Cada transición de estado genera un registro en `padron_historial_estados` indicando el motivo y el usuario responsable. Quedan bloqueadas las sentencias de eliminación física.
 3. **Desacoplamiento de Entidades (`USR-01`):** Los datos personales residen únicamente en `padron_personas`, eliminando redundancias y discrepancias ortográficas o de domicilio.
 4. **Respuesta Rápida y Adaptabilidad Visual (`REP-03`):** El padrón permite filtros combinados y su representación en la interfaz React elimina cualquier scroll horizontal desmedido.
+
+
+---
+
+### 9. Escribano a cargo (designación con fechas)
+
+Relevado con la Caja el 27/10/2026: cualquier escribano activo de San Juan puede quedar a cargo de
+cualquier registro, aunque sea de otro departamento y tenga su propio registro. Por eso «a cargo»
+no es un cargo propio (`padron_adscripciones`) sino una **designación** en
+`padron_designaciones_a_cargo`, con fecha desde y hasta obligatorias y sin plazo máximo.
+
+* **Quién la carga:** el titular vigente del registro (no antes del inicio de su propio cargo) o
+  el personal de la Caja (`escribanos:write`).
+* **Aprobación (`padron_ajustes.a_cargo_requiere_aprobacion`):** la Caja elige entre *alcanza con
+  avisar* (la del titular rige al cargarla) y *aprueba la Caja* (queda `PENDIENTE` hasta que otra
+  persona la aprueba). La que carga el personal rige siempre. `TODO(negocio)`: la Caja no definió
+  cuál usa; por defecto, aviso.
+* **Efecto:** solo una designación `APROBADA` y solo entre sus fechas habilita al designado a
+  operar las DDJJ del registro; figura en la DDJJ y en la boleta como «A cargo» y no suma aporte
+  médico (lo pagan titulares y adscriptos).
+* **Baja:** se anula o se termina antes, con motivo, siempre que no deje actos declarados sin un
+  cargo que los respalde. Al cerrarse el cargo del titular, las designaciones que él cargó se
+  terminan en esa fecha (o se anulan si no empezaron). Sin borrado físico; todo auditado
+  (`PADRON_A_CARGO_*`, `PADRON_AJUSTES_CAMBIADOS`).
