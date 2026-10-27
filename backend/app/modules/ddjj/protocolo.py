@@ -3,7 +3,8 @@
 En cada registro la numeración de escrituras es correlativa por protocolo (general o auxiliar)
 y por año, y el folio y la fecha acompañan ese orden. Sobre los actos ya declarados en el año:
 
-- número repetido (en cualquier DDJJ del año): bloquea, una escritura se declara una sola vez;
+- número repetido: bloquea si está en otra DDJJ del año; en la misma DDJJ solo se admite como
+  acto múltiple (varios actos de una misma escritura, cada uno en su renglón);
 - folio repetido: advierte, salvo con la escritura inmediata anterior o siguiente (una escritura
   puede empezar en el folio donde terminó la otra);
 - folio o fecha fuera de orden respecto de la numeración: advierte;
@@ -41,6 +42,7 @@ class NivelControl(StrEnum):
 @dataclass(frozen=True)
 class ActoDeclarado:
     id: uuid.UUID
+    ddjj_id: uuid.UUID
     tipo_protocolo: str
     numero: int
     folio: int | None
@@ -54,6 +56,11 @@ class Candidato:
     numero: int | None
     folio: int | None
     fecha: date | None
+    # DDJJ donde se carga o está el acto.
+    ddjj_id: uuid.UUID | None = None
+    # Otro acto de una escritura ya cargada en la misma DDJJ (aporte múltiple). Los actos ya
+    # cargados se revisan como múltiples: sus hermanos de escritura no son un repetido.
+    multiple: bool = False
     # Al revisar un acto ya cargado, se excluye a sí mismo.
     excluir: uuid.UUID | None = None
 
@@ -169,8 +176,10 @@ def revisar(vista: Vista, c: Candidato) -> list[Control]:
     repetidos = (
         [a for a in completo.por_numero.get(c.numero, []) if a.id != c.excluir] if completo else []
     )
-    if repetidos:
-        donde = repetidos[0].periodo
+    en_otra = [a for a in repetidos if a.ddjj_id != c.ddjj_id]
+    en_esta = [a for a in repetidos if a.ddjj_id == c.ddjj_id]
+    if en_otra:
+        donde = en_otra[0].periodo
         controles.append(
             Control(
                 "NUMERO_REPETIDO",
@@ -181,6 +190,15 @@ def revisar(vista: Vista, c: Candidato) -> list[Control]:
                     if vista.visible(donde)
                     else "en otra DDJJ del año."
                 ),
+            )
+        )
+    elif en_esta and not c.multiple:
+        controles.append(
+            Control(
+                "NUMERO_REPETIDO",
+                NivelControl.BLOQUEANTE,
+                f"La escritura N° {c.numero} del protocolo {protocolo} ya está cargada en esta "
+                "declaración. Si es otro acto de la misma escritura, marcalo como acto múltiple.",
             )
         )
     # Folio y fecha: solo contra lo que quien consulta puede ver.

@@ -34,6 +34,8 @@ export interface Acto {
   cargo: Cargo
   tipo_protocolo: TipoProtocolo
   numero_escritura: number
+  /** 1 para el primer acto de la escritura; 2, 3… para los demás (aporte múltiple). */
+  orden_en_escritura: number
   folio: number | null
   fecha_acto: string
   naturaleza: string
@@ -128,6 +130,7 @@ export interface VerificacionActoInput {
   fecha_acto: string | null
   categoria: CategoriaActo | null
   base_imponible: string | null
+  acto_multiple: boolean
   excluir_acto_id?: string | null
 }
 
@@ -161,6 +164,7 @@ export interface ActoInput {
   naturaleza: string
   categoria: CategoriaActo
   base_imponible: string
+  acto_multiple: boolean
 }
 
 export interface Verificacion {

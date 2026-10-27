@@ -482,6 +482,7 @@ ACTO_FIELDS = (
     "cargo",
     "tipo_protocolo",
     "numero_escritura",
+    "orden_en_escritura",
     "folio",
     "fecha_acto",
     "naturaleza",
@@ -545,11 +546,17 @@ async def agregar_acto(
         await _visible(session, principal, ddjj.registro_id),
     )
     candidato = protocolo.Candidato(
-        data.tipo_protocolo.value, data.numero_escritura, data.folio, data.fecha_acto
+        data.tipo_protocolo.value,
+        data.numero_escritura,
+        data.folio,
+        data.fecha_acto,
+        ddjj_id=ddjj.id,
+        multiple=data.acto_multiple,
     )
     for control in protocolo.revisar(vista, candidato):
         if control.nivel is protocolo.NivelControl.BLOQUEANTE:
             raise _conflict(control.mensaje)
+    orden = await _orden_en_escritura(session, ddjj, data)
     item = Acto(
         id=acto_id or uuid.uuid4(),
         ddjj_id=ddjj.id,
@@ -557,6 +564,7 @@ async def agregar_acto(
         cargo=cargo.cargo,
         tipo_protocolo=data.tipo_protocolo.value,
         numero_escritura=data.numero_escritura,
+        orden_en_escritura=orden,
         folio=data.folio,
         fecha_acto=data.fecha_acto,
         naturaleza=data.naturaleza,
@@ -596,6 +604,7 @@ async def actos_del_anio(
     filas = await session.execute(
         select(
             Acto.id,
+            Acto.ddjj_id,
             Acto.tipo_protocolo,
             Acto.numero_escritura,
             Acto.folio,
@@ -612,6 +621,29 @@ async def actos_del_anio(
         )
     )
     return [protocolo.ActoDeclarado(*fila) for fila in filas.all()]
+
+
+async def _orden_en_escritura(session: AsyncSession, ddjj: DeclaracionJurada, data: ActoIn) -> int:
+    """1 para el primer acto de una escritura; para un acto múltiple, el siguiente de su
+    escritura, que tiene que estar cargada en esta DDJJ y con la misma fecha."""
+    hermanos = [
+        a
+        for a in await list_actos(session, ddjj.id)
+        if a.tipo_protocolo == data.tipo_protocolo.value
+        and a.numero_escritura == data.numero_escritura
+    ]
+    if not data.acto_multiple:
+        return 1
+    if not hermanos:
+        raise _invalid(
+            f"La escritura N° {data.numero_escritura} no está cargada en esta declaración: "
+            "cargá primero su primer acto y después los demás como acto múltiple."
+        )
+    if any(a.fecha_acto != data.fecha_acto for a in hermanos):
+        raise _invalid(
+            f"Un acto múltiple lleva la fecha de su escritura ({hermanos[0].fecha_acto:%d/%m/%Y})."
+        )
+    return max(a.orden_en_escritura for a in hermanos) + 1
 
 
 async def _bloquear_protocolo(session: AsyncSession, registro_id: uuid.UUID, anio: int) -> None:
@@ -645,7 +677,13 @@ async def controles_ddjj(
     por_acto: dict[uuid.UUID, list[protocolo.Control]] = {}
     for a in actos:
         candidato = protocolo.Candidato(
-            a.tipo_protocolo, a.numero_escritura, a.folio, a.fecha_acto, excluir=a.id
+            a.tipo_protocolo,
+            a.numero_escritura,
+            a.folio,
+            a.fecha_acto,
+            ddjj_id=a.ddjj_id,
+            multiple=True,
+            excluir=a.id,
         )
         controles = protocolo.revisar(vista, candidato)
         if controles:
@@ -666,7 +704,13 @@ async def _exigir_numeracion_sin_repetidos(
     )
     for a in actos:
         candidato = protocolo.Candidato(
-            a.tipo_protocolo, a.numero_escritura, a.folio, a.fecha_acto, excluir=a.id
+            a.tipo_protocolo,
+            a.numero_escritura,
+            a.folio,
+            a.fecha_acto,
+            ddjj_id=a.ddjj_id,
+            multiple=True,
+            excluir=a.id,
         )
         for control in protocolo.revisar(vista, candidato):
             if control.nivel is protocolo.NivelControl.BLOQUEANTE:
@@ -693,6 +737,8 @@ async def verificar_acto(
             data.numero_escritura,
             data.folio,
             fecha,
+            ddjj_id=ddjj.id,
+            multiple=data.acto_multiple,
             excluir=data.excluir_acto_id,
         ),
     )
@@ -1168,6 +1214,7 @@ async def rectificar(
                 cargo=acto.cargo,
                 tipo_protocolo=acto.tipo_protocolo,
                 numero_escritura=acto.numero_escritura,
+                orden_en_escritura=acto.orden_en_escritura,
                 folio=acto.folio,
                 fecha_acto=acto.fecha_acto,
                 naturaleza=acto.naturaleza,

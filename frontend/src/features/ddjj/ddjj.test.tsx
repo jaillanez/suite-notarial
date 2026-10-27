@@ -30,6 +30,7 @@ const ACTO: apiModule.Acto = {
   cargo: 'TITULAR',
   tipo_protocolo: 'GENERAL',
   numero_escritura: 101,
+  orden_en_escritura: 1,
   folio: null,
   fecha_acto: '2026-09-15',
   naturaleza: 'Compraventa',

@@ -61,6 +61,12 @@ import {
 /** Plazo máximo de una boleta (el backend aplica el mismo límite). */
 const MAX_DIAS_PAGO = 60
 
+/** "N° 48", o "N° 48 · acto 2" para los demás actos de una misma escritura. */
+function numeroDeActo(a: Acto): string {
+  const numero = `N° ${String(a.numero_escritura)}`
+  return a.orden_en_escritura > 1 ? `${numero} · acto ${String(a.orden_en_escritura)}` : numero
+}
+
 function sumarDias(iso: string, dias: number): string {
   const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + dias)
@@ -343,7 +349,7 @@ function BajaDialog({
     <Dialog
       open={acto !== null}
       onClose={onClose}
-      title={`Quitar la escritura N° ${String(acto?.numero_escritura ?? '')}`}
+      title={acto ? `Quitar el acto ${numeroDeActo(acto)}` : 'Quitar el acto'}
       description="El acto deja de figurar en la declaración. Queda registrado quién lo quitó y por qué."
       footer={
         <>
@@ -510,7 +516,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
               {ddjj.actos.map((a) => (
                 <tr key={a.id} className="align-top">
                   <td className="px-6 py-3 whitespace-nowrap tabular-nums">
-                    <span className="block font-semibold text-ink">N° {a.numero_escritura}</span>
+                    <span className="block font-semibold text-ink">{numeroDeActo(a)}</span>
                     <span className="block text-ink-muted">
                       {PROTOCOLO[a.tipo_protocolo]}
                       {a.folio !== null && ` · F. ${String(a.folio)}`}
@@ -535,7 +541,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                     <td className="pr-4 py-1.5">
                       <Button
                         variant="ghost"
-                        aria-label={`Quitar la escritura N° ${String(a.numero_escritura)}`}
+                        aria-label={`Quitar el acto ${numeroDeActo(a)}`}
                         onClick={() => {
                           setQuitando(a)
                         }}
@@ -554,7 +560,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
               <li key={a.id} className="px-5 py-4">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="font-semibold text-ink tabular-nums">
-                    N° {a.numero_escritura} · {PROTOCOLO[a.tipo_protocolo]}
+                    {numeroDeActo(a)} · {PROTOCOLO[a.tipo_protocolo]}
                   </span>
                   <span className="font-semibold text-ink tabular-nums">
                     {formatMoney(aporteDe(a))}

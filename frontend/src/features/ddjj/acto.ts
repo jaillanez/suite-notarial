@@ -12,7 +12,12 @@ export interface ActoForm {
   fecha_acto: string
   naturaleza: string
   base_imponible: string
+  /** Otro acto de una escritura ya cargada en esta DDJJ. */
+  acto_multiple: boolean
 }
+
+/** Campos de texto del acto (los que puede sugerir la lectura de una minuta). */
+export type CampoActo = Exclude<keyof ActoForm, 'acto_multiple'>
 
 export function actoVacio(ddjj: DeclaracionDetalle): ActoForm {
   return {
@@ -24,6 +29,7 @@ export function actoVacio(ddjj: DeclaracionDetalle): ActoForm {
     fecha_acto: rangoPeriodo(ddjj.periodo).desde,
     naturaleza: '',
     base_imponible: '',
+    acto_multiple: false,
   }
 }
 
@@ -38,6 +44,7 @@ export function actoInput(form: ActoForm): ActoInput {
     fecha_acto: form.fecha_acto,
     naturaleza: form.naturaleza.trim(),
     base_imponible: conValor ? normalizeDecimalInput(form.base_imponible) : '0',
+    acto_multiple: form.acto_multiple,
   }
 }
 

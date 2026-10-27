@@ -65,6 +65,8 @@ class ActoIn(BaseModel):
     naturaleza: Naturaleza
     categoria: CategoriaActo
     base_imponible: BaseImponible = Decimal("0.00")
+    # Otro acto de una escritura ya cargada en esta DDJJ (aporte múltiple).
+    acto_multiple: bool = False
 
     @model_validator(mode="after")
     def _base_segun_categoria(self) -> "ActoIn":
@@ -88,6 +90,7 @@ class ActoOut(BaseModel):
     cargo: Cargo
     tipo_protocolo: TipoProtocolo
     numero_escritura: int
+    orden_en_escritura: int
     folio: int | None
     fecha_acto: date
     naturaleza: str
@@ -210,6 +213,7 @@ class VerificacionActoIn(BaseModel):
     fecha_acto: date | None = None
     categoria: CategoriaActo | None = None
     base_imponible: BaseImponible | None = None
+    acto_multiple: bool = False
     # Al editar o revisar un acto ya cargado.
     excluir_acto_id: uuid.UUID | None = None
 

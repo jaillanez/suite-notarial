@@ -114,6 +114,23 @@ export function ActoCampos({
         hint={pistas.folio}
         {...bind('folio')}
       />
+      <label className="flex min-h-11 cursor-pointer items-start gap-3 sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={form.acto_multiple}
+          onChange={(e) => {
+            onChange({ acto_multiple: e.target.checked })
+          }}
+          className="mt-0.5 size-5 shrink-0 cursor-pointer accent-brand-800"
+        />
+        <span className="text-sm">
+          <span className="block font-medium text-ink">Otro acto de la misma escritura</span>
+          <span className="block text-ink-muted">
+            Por ejemplo, compraventa e hipoteca en una sola escritura: cargá primero un acto y
+            después cada uno de los demás con este mismo número. Cada acto lleva su aporte.
+          </span>
+        </span>
+      </label>
       <Field
         className="sm:col-span-2"
         label="Naturaleza del acto"

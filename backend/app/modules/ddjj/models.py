@@ -118,17 +118,20 @@ class Acto(UUIDMixin, TimestampMixin, Base):
         CheckConstraint("tipo_protocolo IN ('GENERAL', 'AUXILIAR')", name="protocolo"),
         CheckConstraint("numero_escritura > 0", name="numero"),
         CheckConstraint("folio IS NULL OR folio > 0", name="folio"),
+        CheckConstraint("orden_en_escritura > 0", name="orden_en_escritura"),
         CheckConstraint("base_imponible >= 0", name="base"),
         CheckConstraint(
             "(categoria = 'ESCRITURA_CON_VALOR') = (base_imponible > 0)",
             name="base_segun_categoria",
         ),
-        # Un número de escritura por protocolo en cada DDJJ (entre los actos vigentes).
+        # Cada acto de una escritura es un renglón (aporte múltiple: varios actos en la misma
+        # escritura, p. ej. venta de lotes a distintos compradores), numerado dentro de ella.
         Index(
             "uq_ddjj_actos_escritura",
             "ddjj_id",
             "tipo_protocolo",
             "numero_escritura",
+            "orden_en_escritura",
             unique=True,
             postgresql_where=text("is_active"),
         ),
@@ -146,6 +149,8 @@ class Acto(UUIDMixin, TimestampMixin, Base):
     cargo: Mapped[str] = mapped_column(String(30), nullable=False)
     tipo_protocolo: Mapped[str] = mapped_column(String(10), nullable=False)
     numero_escritura: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 1 para el primer acto de la escritura; 2, 3… para los demás actos de la misma escritura.
+    orden_en_escritura: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     folio: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fecha_acto: Mapped[date] = mapped_column(Date, nullable=False)
     naturaleza: Mapped[str] = mapped_column(String(300), nullable=False)

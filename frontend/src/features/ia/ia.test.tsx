@@ -175,6 +175,7 @@ describe('carga desde la minuta (Human in Command)', () => {
         fecha_acto: '2026-09-14',
         naturaleza: 'Compraventa',
         base_imponible: '45000000.00',
+        acto_multiple: false,
       })
     })
     expect(await screen.findByText('Ficha de la declaración')).toBeInTheDocument()

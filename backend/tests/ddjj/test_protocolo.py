@@ -1,6 +1,7 @@
 """Controles del libro de protocolo: numeración anual, folios, fechas y números salteados."""
 
 import uuid
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -10,9 +11,13 @@ from app.modules.ddjj import protocolo
 from app.modules.ddjj.protocolo import ActoDeclarado, Candidato, NivelControl
 from tests.ddjj.conftest import Escenario, escritura
 
+SETIEMBRE = uuid.uuid4()  # DDJJ de los actos declarados
 
-def _acto(numero: int, folio: int | None, dia: int, tipo: str = "GENERAL") -> ActoDeclarado:
-    return ActoDeclarado(uuid.uuid4(), tipo, numero, folio, date(2026, 9, dia), "2026-09")
+
+def _acto(
+    numero: int, folio: int | None, dia: int, tipo: str = "GENERAL", ddjj: uuid.UUID = SETIEMBRE
+) -> ActoDeclarado:
+    return ActoDeclarado(uuid.uuid4(), ddjj, tipo, numero, folio, date(2026, 9, dia), "2026-09")
 
 
 DECLARADOS = [_acto(10, 20, 3), _acto(11, 22, 5), _acto(12, 25, 9), _acto(15, 31, 20)]
@@ -30,6 +35,18 @@ def test_numero_repetido_bloquea() -> None:
     assert "DDJJ 09/2026" in controles[0].mensaje
     # El mismo número en el otro protocolo no choca.
     assert _codigos(Candidato("AUXILIAR", 11, 22, date(2026, 9, 5))) == {}
+
+
+def test_acto_multiple_solo_en_la_misma_declaracion() -> None:
+    misma = Candidato("GENERAL", 11, 22, date(2026, 9, 5), ddjj_id=SETIEMBRE)
+    controles = protocolo.revisar(VISTA, misma)
+    assert [c.codigo for c in controles] == ["NUMERO_REPETIDO"]
+    assert "marcalo como acto múltiple" in controles[0].mensaje
+    # Otro acto de la misma escritura: se admite y no se avisa nada del folio compartido.
+    assert protocolo.revisar(VISTA, replace(misma, multiple=True)) == []
+    # En otra DDJJ del año sigue bloqueando aunque se marque como múltiple.
+    otra = replace(misma, ddjj_id=uuid.uuid4(), multiple=True)
+    assert _codigos(otra) == {"NUMERO_REPETIDO": NivelControl.BLOQUEANTE}
 
 
 def test_folio_compartido_con_la_contigua_es_normal() -> None:
@@ -241,3 +258,53 @@ async def test_al_presentar_se_controla_otra_vez_la_numeracion(
     )
     assert response.status_code == 409
     assert "No se puede presentar" in response.json()["detail"]
+
+
+async def test_aporte_multiple_en_la_misma_escritura(
+    notario: AsyncClient, escenario: Escenario
+) -> None:
+    """Varios actos de una escritura van en la misma DDJJ, cada uno con su aporte."""
+    ddjj = await _borrador(notario, escenario, "2026-09")
+    agosto = await _borrador(notario, escenario, "2026-08")
+    primero = await _agregar(notario, ddjj["id"], escritura(escenario.titular, 48, "1000", folio=9))
+    assert primero.status_code == 201, primero.text
+    assert primero.json()["orden_en_escritura"] == 1
+
+    sin_marcar = await _agregar(notario, ddjj["id"], escritura(escenario.titular, 48, "500"))
+    assert sin_marcar.status_code == 409
+    assert "acto múltiple" in sin_marcar.json()["detail"]
+
+    hipoteca = escritura(
+        escenario.titular, 48, "500", folio=9, naturaleza="Hipoteca", acto_multiple=True
+    )
+    segundo = await _agregar(notario, ddjj["id"], hipoteca)
+    assert segundo.status_code == 201, segundo.text
+    assert segundo.json()["orden_en_escritura"] == 2
+    tercero = await _agregar(notario, ddjj["id"], hipoteca)
+    assert tercero.json()["orden_en_escritura"] == 3
+
+    # La escritura tiene una sola fecha.
+    otra_fecha = await _agregar(notario, ddjj["id"], {**hipoteca, "fecha_acto": "2026-09-16"})
+    assert otra_fecha.status_code == 422
+    # Un acto múltiple necesita su primer acto en la misma DDJJ.
+    suelto = await _agregar(notario, ddjj["id"], {**hipoteca, "numero_escritura": 49})
+    assert suelto.status_code == 422
+    assert "cargá primero su primer acto" in suelto.json()["detail"]
+    # Y no se puede repartir la escritura en otra DDJJ.
+    en_agosto = await _agregar(notario, agosto["id"], {**hipoteca, "fecha_acto": "2026-08-20"})
+    assert en_agosto.status_code == 409
+
+    detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
+    assert detalle["controles"] == {}  # los hermanos de escritura no son repetidos
+    assert sorted(a["orden_en_escritura"] for a in detalle["actos"]) == [1, 2, 3]
+
+    url = f"/api/v1/ddjj/declaraciones/{ddjj['id']}/actos/verificacion"
+    vivo = (await notario.post(url, json={"numero_escritura": 48, "acto_multiple": True})).json()
+    assert vivo["controles"] == []
+
+    presentada = await notario.post(
+        f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar", json={"fecha_pago": "2026-10-23"}
+    )
+    assert presentada.status_code == 201, presentada.text
+    rect = (await notario.post(f"/api/v1/ddjj/declaraciones/{ddjj['id']}/rectificar")).json()
+    assert sorted(a["orden_en_escritura"] for a in rect["actos"]) == [1, 2, 3]

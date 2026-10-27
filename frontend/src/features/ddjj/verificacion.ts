@@ -22,6 +22,7 @@ export function datosAVerificar(form: ActoForm, excluir?: string): VerificacionA
     categoria: form.categoria,
     base_imponible:
       form.categoria === 'ESCRITURA_CON_VALOR' && /^\d+(\.\d{1,2})?$/.test(base) ? base : null,
+    acto_multiple: form.acto_multiple,
     excluir_acto_id: excluir ?? null,
   }
 }

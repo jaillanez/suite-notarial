@@ -15,7 +15,7 @@ import {
   formatMoney,
   normalizeDecimalInput,
 } from '../../lib/decimal'
-import { actoCompleto, actoInput, actoVacio, type ActoForm } from '../ddjj/acto'
+import { actoCompleto, actoInput, actoVacio, type ActoForm, type CampoActo } from '../ddjj/acto'
 import { ActoCampos } from '../ddjj/ActoCampos'
 import { useVerificacionActo } from '../ddjj/verificacion'
 import { ResultadoVerificacion } from '../ddjj/VerificacionActo'
@@ -42,7 +42,7 @@ import {
   Respaldo,
 } from './componentes'
 
-const ETIQUETAS: Record<keyof ActoForm, string> = {
+const ETIQUETAS: Record<CampoActo, string> = {
   escribano_id: 'Escribano',
   categoria: 'Tipo de acto',
   tipo_protocolo: 'Protocolo',
@@ -172,7 +172,7 @@ function EntradaMinuta({
 // --------------------------------------------------------------------------- revisión
 
 function formularioDe(ddjj: DeclaracionDetalle, s: Sugerencia): ActoForm {
-  const v = (k: keyof ActoForm) => s.campos[k]?.valor ?? null
+  const v = (k: CampoActo) => s.campos[k]?.valor ?? null
   const vacio = actoVacio(ddjj)
   const escribano = v('escribano_id')
   const base = v('base_imponible')
@@ -186,6 +186,7 @@ function formularioDe(ddjj: DeclaracionDetalle, s: Sugerencia): ActoForm {
     fecha_acto: v('fecha_acto') ?? '',
     naturaleza: v('naturaleza') ?? '',
     base_imponible: base && base !== '0.00' ? formatDecimal(base) : '',
+    acto_multiple: false,
   }
 }
 
@@ -237,7 +238,7 @@ function RevisionMinuta({
         return valor
     }
   }
-  const pista = (campo: keyof ActoForm) => {
+  const pista = (campo: CampoActo) => {
     let actual = form[campo]
     if (campo === 'base_imponible') {
       const normalizado = normalizeDecimalInput(actual)
@@ -256,7 +257,7 @@ function RevisionMinuta({
     )
   }
   const pistas = Object.fromEntries(
-    (Object.keys(ETIQUETAS) as (keyof ActoForm)[]).map((k) => [k, pista(k)]),
+    (Object.keys(ETIQUETAS) as CampoActo[]).map((k) => [k, pista(k)]),
   )
   const advertencias = sugerencia.alertas.filter((a) => a.nivel === 'ADVERTENCIA').length
 

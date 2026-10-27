@@ -110,6 +110,7 @@ def acto_out(a: Acto) -> ActoOut:
         cargo=Cargo(a.cargo),
         tipo_protocolo=TipoProtocolo(a.tipo_protocolo),
         numero_escritura=a.numero_escritura,
+        orden_en_escritura=a.orden_en_escritura,
         folio=a.folio,
         fecha_acto=a.fecha_acto,
         naturaleza=a.naturaleza,
