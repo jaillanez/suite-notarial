@@ -102,6 +102,11 @@ async def _register_failure(
     user: User,
     event: AuditEvent,
 ) -> None:
+    # Se relee la fila bloqueada antes de sumar: intentos en paralelo se serializan y ninguno
+    # pierde su incremento (si no, el bloqueo se podía esquivar con pedidos concurrentes).
+    await session.refresh(
+        user, attribute_names=["failed_login_attempts", "locked_until"], with_for_update=True
+    )
     user.failed_login_attempts += 1
     details: dict[str, object] = {"failed_attempts": user.failed_login_attempts}
     if user.failed_login_attempts >= settings.LOGIN_MAX_ATTEMPTS:

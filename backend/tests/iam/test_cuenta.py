@@ -5,11 +5,12 @@ from datetime import UTC, datetime, timedelta
 import pyotp
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.audit import AuditSecurityLog
+from app.common.audit import AuditEvent, AuditSecurityLog, RequestContext
 from app.core.config import get_settings
+from app.modules.iam import service
 from app.modules.iam.models import User
 from tests.conftest import CSRF_HEADERS, FakeMailer
 from tests.ddjj.conftest import _escribano
@@ -186,3 +187,21 @@ async def test_con_la_cuenta_bloqueada_no_se_cambia_ni_con_la_clave_correcta(
     assert respuesta.status_code == 429
     await db_session.refresh(user)
     assert await _eventos(db_session, user, "PASSWORD_CHANGED") == 0
+
+
+async def test_un_intento_fallido_no_pisa_los_contados_en_paralelo(
+    db_session: AsyncSession,
+) -> None:
+    """El contador se suma sobre la fila bloqueada, no sobre una copia vieja en memoria."""
+    user = await make_user(db_session)
+    # Otro pedido (en paralelo) ya contó tres fallas; este objeto todavía tiene 0.
+    await db_session.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(failed_login_attempts=3)
+        .execution_options(synchronize_session=False)
+    )
+    assert user.failed_login_attempts == 0
+    ctx = RequestContext(ip_address="203.0.113.40", user_agent="test", correlation_id=None)
+    await service._register_failure(db_session, get_settings(), ctx, user, AuditEvent.LOGIN_FAILED)
+    assert user.failed_login_attempts == 4
