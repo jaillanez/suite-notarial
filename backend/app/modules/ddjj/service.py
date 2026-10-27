@@ -42,6 +42,7 @@ from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
     EstadoDDJJ,
+    TipoProtocolo,
 )
 from app.modules.ddjj.liquidacion import (
     ActoALiquidar,
@@ -627,6 +628,18 @@ async def agregar_acto(
 
 
 # --------------------------------------------------------------------------- libro de protocolo
+
+
+async def proximos_numeros(
+    session: AsyncSession, registro_id: uuid.UUID, anio: int
+) -> dict[TipoProtocolo, int]:
+    """Número de escritura que sigue en cada protocolo del registro (la numeración es anual):
+    lo que la carga rápida propone para el próximo acto."""
+    ultimos = {t: 0 for t in TipoProtocolo}
+    for acto in await actos_del_anio(session, registro_id, anio):
+        tipo = TipoProtocolo(acto.tipo_protocolo)
+        ultimos[tipo] = max(ultimos[tipo], acto.numero)
+    return {t: n + 1 for t, n in ultimos.items()}
 
 
 async def actos_del_anio(
