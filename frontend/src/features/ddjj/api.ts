@@ -1,6 +1,7 @@
 import { api } from '../../lib/api'
 import type { Cargo } from '../padron/api'
 import type { EstadoComprobante } from '../pagos/api'
+import type { PeriodoTasa } from '../parametros/api'
 
 export type EstadoDDJJ = 'BORRADOR' | 'PRESENTADA' | 'RECTIFICADA'
 export type EstadoBoleta = 'PENDIENTE' | 'PAGADA' | 'ANULADA'
@@ -49,6 +50,16 @@ export interface Acto {
   vigencia_id: string | null
 }
 
+/** Días de atraso en que rigió una misma tasa (`desde` y `hasta` inclusive). */
+export interface TramoMora {
+  desde: string
+  hasta: string
+  dias: number
+  tasa: string
+  periodo_tasa: PeriodoTasa
+  interes: string
+}
+
 export interface Boleta {
   id: string
   numero: number
@@ -69,6 +80,8 @@ export interface Boleta {
   cantidad_aportes_medicos: number
   total_en_termino: string
   interes_mora: string
+  /** Interés por tasa vigente en cada tramo de días de atraso (vacío en término). */
+  tramos_mora: TramoMora[]
   total_a_pagar: string
   created_at: string
   emitida_por: string | null
@@ -155,6 +168,8 @@ export interface Liquidacion {
   total_en_termino: string
   dias_mora: number
   interes_mora: string
+  /** Interés por tasa vigente en cada tramo de días de atraso (vacío en término). */
+  tramos_mora: TramoMora[]
   total_a_pagar: string
   usa_valores_de_ejemplo: boolean
 }

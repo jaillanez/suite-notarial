@@ -25,6 +25,7 @@
   tr.subtotal td { font-weight: 600; border-bottom: 1pt solid #b4c2ca; }
   tr.total td { font-size: 13pt; font-weight: 700; color: #113347; border-bottom: 2pt solid #113347; padding-top: 6pt; }
   .detalle { color: #4c5c66; font-size: 8.5pt; }
+  tr.tramo td:first-child { padding-left: 4mm; }
   .pago { margin-top: 14pt; border: 0.75pt solid #d3dce2; background: #f7f9fa; padding: 10pt; }
   .pago p { margin: 0 0 3pt; }
   .pago dl { display: flex; flex-wrap: wrap; margin: 6pt 0 0; }
@@ -77,6 +78,11 @@
   <tr><td>Aporte médico asistencial{% if b.cantidad_aportes_medicos != 1 %} <span class="detalle">({{ b.cantidad_aportes_medicos }} aportes)</span>{% endif %}</td><td class="importe num">{{ b.aporte_medico|pesos }}</td></tr>
   <tr class="subtotal"><td>Total a pagar en término</td><td class="importe num">{{ b.total_en_termino|pesos }}</td></tr>
   <tr><td>Interés por fuera de término <span class="detalle num">({{ b.dias_mora }} {{ "día" if b.dias_mora == 1 else "días" }})</span></td><td class="importe num">{{ b.interes_mora|pesos }}</td></tr>
+  {% if b.tramos_mora|length > 1 %}
+  {% for t in b.tramos_mora %}
+  <tr class="tramo"><td class="detalle num">Del {{ t.desde|fecha }} al {{ t.hasta|fecha }}: {{ t.dias }} {{ "día" if t.dias == 1 else "días" }} al {{ t.tasa|tasa(t.periodo_tasa) }}</td><td class="importe num detalle">{{ t.interes|pesos }}</td></tr>
+  {% endfor %}
+  {% endif %}
   <tr class="total"><td>Total a pagar</td><td class="importe num">{{ b.total_a_pagar|pesos }}</td></tr>
 </table>
 

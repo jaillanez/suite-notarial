@@ -24,10 +24,11 @@ import { Panel } from '../../components/ui/Panel'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
-import { formatMoney } from '../../lib/decimal'
+import { formatMoney, formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { CARGO, formatDate, todayIso } from '../padron/labels'
 import { AdjuntarComprobanteDialog } from '../pagos/AdjuntarComprobanteDialog'
+import { PERIODO_TASA } from '../parametros/labels'
 import {
   agregarActo,
   bajaActo,
@@ -127,6 +128,7 @@ type Importes = Pick<
   | 'total_en_termino'
   | 'dias_mora'
   | 'interes_mora'
+  | 'tramos_mora'
   | 'total_a_pagar'
 >
 
@@ -148,6 +150,26 @@ function Desglose({ liq }: { liq: Importes }) {
         hint={`(${String(liq.dias_mora)} ${liq.dias_mora === 1 ? 'día' : 'días'})`}
         value={formatMoney(liq.interes_mora)}
       />
+      {liq.tramos_mora.length > 1 && (
+        <div className="px-5 py-2 sm:px-6">
+          <p className="text-sm text-ink-muted">La tasa cambió durante el atraso:</p>
+          <ul className="mt-1 space-y-1">
+            {liq.tramos_mora.map((t) => (
+              <li
+                key={t.desde}
+                className="flex items-baseline justify-between gap-4 text-sm text-ink-muted tabular-nums"
+              >
+                <span className="min-w-0">
+                  Del {formatDate(t.desde)} al {formatDate(t.hasta)}: {t.dias}{' '}
+                  {t.dias === 1 ? 'día' : 'días'} al {formatPercent(t.tasa)}{' '}
+                  {PERIODO_TASA[t.periodo_tasa]}
+                </span>
+                <span className="shrink-0 whitespace-nowrap">{formatMoney(t.interes)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line-strong px-5 py-4 sm:px-6">
         <dt className="font-semibold text-brand-900">Total a pagar</dt>
         <dd className="text-xl font-semibold text-brand-900 tabular-nums">

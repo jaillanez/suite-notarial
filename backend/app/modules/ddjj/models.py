@@ -281,3 +281,43 @@ class Boleta(UUIDMixin, Base):
     )
     anulada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     motivo_anulacion: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Detalle del interés por tasa vigente (SNAP); vacío si se paga en término.
+    tramos_mora: Mapped[list["BoletaTramoMora"]] = relationship(
+        lazy="selectin", order_by="BoletaTramoMora.orden"
+    )
+
+
+class BoletaTramoMora(UUIDMixin, Base):
+    """Días de atraso de una boleta en que rigió una misma tasa de mora, con su interés.
+
+    Se escribe al emitir la boleta y no se modifica ni se borra (regla INM).
+    """
+
+    __tablename__ = "ddjj_boletas_tramos_mora"
+    __table_args__ = (
+        CheckConstraint("orden > 0", name="orden"),
+        CheckConstraint("hasta >= desde", name="fechas"),
+        CheckConstraint("dias = hasta - desde + 1", name="dias"),
+        CheckConstraint("tasa >= 0", name="tasa"),
+        CheckConstraint("periodo_tasa IN ('MENSUAL', 'ANUAL')", name="periodo_tasa"),
+        CheckConstraint("interes >= 0", name="interes"),
+        Index("uq_ddjj_boletas_tramos_mora_orden", "boleta_id", "orden", unique=True),
+    )
+
+    boleta_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ddjj_boletas.id", ondelete="RESTRICT"), nullable=False
+    )
+    orden: Mapped[int] = mapped_column(Integer, nullable=False)
+    desde: Mapped[date] = mapped_column(Date, nullable=False)
+    hasta: Mapped[date] = mapped_column(Date, nullable=False)
+    dias: Mapped[int] = mapped_column(Integer, nullable=False)
+    vigencia_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("parametros_vigencias.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    # Copia de la tasa aplicada: se lee sin ir a la vigencia y queda en la huella.
+    tasa: Mapped[Decimal] = mapped_column(RATE, nullable=False)
+    periodo_tasa: Mapped[str] = mapped_column(String(10), nullable=False)
+    interes: Mapped[Decimal] = mapped_column(MONEY, nullable=False)

@@ -235,6 +235,10 @@ Ya aplicadas:
   `Decimal` y transmitido como texto (nunca como número de punto flotante).
 - **Mora:** 4,25 % mensual, interés simple, mes de 30 días, contado desde el vencimiento
   (confirmado por la Caja el 27/10/2026; reproduce al centavo una boleta del sistema actual).
+  Si la tasa cambia durante el atraso, **cada tramo de días se calcula con la tasa vigente**; la
+  boleta guarda e imprime el detalle (días, tasa e interés de cada tramo). Se redondea el total
+  una sola vez y el último tramo absorbe la diferencia para que el detalle sume lo impreso
+  (`TODO(negocio)`: confirmar con la Caja si prefiere redondear cada tramo).
 - **Pendiente de negocio (`TODO(negocio)`):** la resolución que respalda cada valor (el sistema
   actual no la muestra).
 

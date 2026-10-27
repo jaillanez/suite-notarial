@@ -4,6 +4,7 @@ import base64
 import io
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import anyio
@@ -32,8 +33,17 @@ def fecha(valor: date) -> str:
     return valor.strftime("%d-%m-%Y")
 
 
+def tasa(valor: Decimal, periodo: str) -> str:
+    """4.2500, MENSUAL → "4,25 % mensual" (al menos dos decimales, sin ceros de más)."""
+    texto = f"{valor:.4f}".rstrip("0")
+    if len(texto.split(".")[1]) < 2:
+        texto = f"{valor:.2f}"
+    return f"{texto.replace('.', ',')} % {periodo.lower()}"
+
+
 _env.filters["pesos"] = format_pesos
 _env.filters["fecha"] = fecha
+_env.filters["tasa"] = tasa
 
 
 def url_verificacion(settings: Settings, codigo: str) -> str:

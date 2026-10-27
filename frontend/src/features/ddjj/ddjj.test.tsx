@@ -51,6 +51,7 @@ const IMPORTES = {
   total_en_termino: '1081699.06',
   dias_mora: 0,
   interes_mora: '0.00',
+  tramos_mora: [],
   total_a_pagar: '1081699.06',
 }
 
@@ -187,6 +188,46 @@ describe('ficha de la DDJJ', () => {
     expect(
       screen.getAllByText('El folio 30 no sigue el orden de la numeración.').length,
     ).toBeGreaterThan(0)
+  })
+
+  it('detalla el interés por tramos cuando la tasa cambió durante el atraso', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
+      ...IMPORTES,
+      dias_mora: 10,
+      interes_mora: '16676.19',
+      tramos_mora: [
+        {
+          desde: '2026-10-29',
+          hasta: '2026-11-02',
+          dias: 5,
+          tasa: '4.2500',
+          periodo_tasa: 'MENSUAL',
+          interes: '7662.04',
+        },
+        {
+          desde: '2026-11-03',
+          hasta: '2026-11-07',
+          dias: 5,
+          tasa: '5.0000',
+          periodo_tasa: 'MENSUAL',
+          interes: '9014.15',
+        },
+      ],
+      total_a_pagar: '1098375.25',
+      aportes: [],
+      vencimiento: '2026-10-28',
+      fecha_pago: '2026-11-07',
+      usa_valores_de_ejemplo: false,
+    })
+
+    renderFicha()
+
+    expect(await screen.findByText('La tasa cambió durante el atraso:')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Del 29\/10\/2026 al 02\/11\/2026: 5 días al 4,25 % mensual/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('$ 9.014,15')).toBeInTheDocument()
   })
 
   it('el alta muestra el aporte en vivo y no deja agregar un número repetido', async () => {

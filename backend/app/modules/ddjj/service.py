@@ -51,7 +51,7 @@ from app.modules.ddjj.liquidacion import (
     liquidar,
     totalizar,
 )
-from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
+from app.modules.ddjj.models import Acto, Boleta, BoletaTramoMora, DeclaracionJurada, Vencimiento
 from app.modules.ddjj.pdf import DatosBoleta, EscribanoBoleta
 from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn, VerificacionActoIn
 from app.modules.iam.catalog import Perm
@@ -809,7 +809,7 @@ class Preliquidacion:
     fecha_pago: date
     minimo: VigenciaSnapshot
     medico: VigenciaSnapshot
-    mora: VigenciaSnapshot | None
+    mora: list[VigenciaSnapshot]
     usa_valores_de_ejemplo: bool
 
 
@@ -823,14 +823,14 @@ async def _hay_ejemplos(session: AsyncSession, ids: set[uuid.UUID]) -> bool:
     )
 
 
-async def _mora_si_corresponde(
+async def _tasas_de_mora(
     session: AsyncSession, vencimiento: date, fecha_pago: date
-) -> VigenciaSnapshot | None:
-    # La tasa que rige es la vigente al vencimiento. TODO(negocio): confirmar con la Caja si
-    # un cambio de tasa durante la mora se aplica por tramos.
+) -> list[VigenciaSnapshot]:
+    """Tasas de mora vigentes del vencimiento a la fecha de pago: cada tramo de días de atraso
+    se calcula con la suya (la Caja lo pidió así)."""
     if fecha_pago <= vencimiento:
-        return None
-    return await parametros.get_vigencia(session, CONCEPTO_MORA, vencimiento)
+        return []
+    return await parametros.vigencias_entre(session, CONCEPTO_MORA, vencimiento, fecha_pago)
 
 
 def _liquidar(
@@ -841,7 +841,7 @@ def _liquidar(
     cantidad_medicos: int,
     vencimiento: date,
     fecha_pago: date,
-    mora: VigenciaSnapshot | None,
+    mora: list[VigenciaSnapshot],
 ) -> Liquidacion:
     try:
         return liquidar(
@@ -876,7 +876,7 @@ async def preliquidar(
         a_liquidar.append((ActoALiquidar(categoria, acto.base_imponible), vigencia))
     minimo = await parametros.get_vigencia(session, CONCEPTO_MINIMO, inicio)
     medico = await parametros.get_vigencia(session, CONCEPTO_MEDICO, inicio)
-    mora = await _mora_si_corresponde(session, vencimiento, fecha_pago)
+    mora = await _tasas_de_mora(session, vencimiento, fecha_pago)
     cargos = await cargos_en_periodo(session, ddjj.registro_id, ddjj.periodo)
     liquidacion = _liquidar(
         a_liquidar,
@@ -888,7 +888,7 @@ async def preliquidar(
         mora=mora,
     )
     usadas = {v.vigencia_id for v in por_concepto.values()} | {minimo.vigencia_id}
-    usadas |= {medico.vigencia_id} | ({mora.vigencia_id} if mora else set())
+    usadas |= {medico.vigencia_id} | {v.vigencia_id for v in mora}
     return Preliquidacion(
         liquidacion=liquidacion,
         vencimiento=vencimiento,
@@ -943,6 +943,20 @@ def checksum_boleta(boleta: Boleta, registro_numero: int) -> str:
             str(boleta.vigencia_mora_id) if boleta.vigencia_mora_id else None,
         ],
     }
+    # Las boletas anteriores al detalle por tramos no lo tienen: su huella no cambia.
+    if boleta.tramos_mora:
+        datos["tramos_mora"] = [
+            {
+                "desde": t.desde.isoformat(),
+                "hasta": t.hasta.isoformat(),
+                "dias": t.dias,
+                "vigencia": str(t.vigencia_id),
+                "tasa": f"{t.tasa:.4f}",
+                "periodo_tasa": t.periodo_tasa,
+                "interes": f"{t.interes:.2f}",
+            }
+            for t in boleta.tramos_mora
+        ]
     canon = json.dumps(datos, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(canon.encode("ascii")).hexdigest()
 
@@ -958,7 +972,6 @@ async def _crear_boleta(
     fecha_pago: date,
     vigencia_minimo_id: uuid.UUID,
     vigencia_medico_id: uuid.UUID,
-    vigencia_mora_id: uuid.UUID | None,
 ) -> Boleta:
     registro = await session.get(RegistroNotarial, ddjj.registro_id)
     assert registro is not None  # noqa: S101 - FK RESTRICT
@@ -985,10 +998,26 @@ async def _crear_boleta(
         total_a_pagar=liquidacion.total_a_pagar,
         vigencia_minimo_id=vigencia_minimo_id,
         vigencia_medico_id=vigencia_medico_id,
-        vigencia_mora_id=vigencia_mora_id,
+        # La tasa vigente al vencimiento; el detalle por tramo, en `tramos_mora`.
+        vigencia_mora_id=(
+            liquidacion.tramos_mora[0].vigencia.vigencia_id if liquidacion.tramos_mora else None
+        ),
         emitida_por_user_id=actor.id,
         checksum_sha256="",
     )
+    boleta.tramos_mora = [
+        BoletaTramoMora(
+            orden=i,
+            desde=t.desde,
+            hasta=t.hasta,
+            dias=t.dias,
+            vigencia_id=t.vigencia.vigencia_id,
+            tasa=t.tasa,
+            periodo_tasa=t.periodo_tasa.value,
+            interes=t.interes,
+        )
+        for i, t in enumerate(liquidacion.tramos_mora, start=1)
+    ]
     boleta.checksum_sha256 = checksum_boleta(boleta, registro.numero_registro)
     session.add(boleta)
     record_audit(
@@ -1091,7 +1120,6 @@ async def presentar(
         fecha_pago=data.fecha_pago,
         vigencia_minimo_id=pre.minimo.vigencia_id,
         vigencia_medico_id=pre.medico.vigencia_id,
-        vigencia_mora_id=pre.mora.vigencia_id if pre.mora else None,
     )
     await session.commit()
     return boleta
@@ -1144,7 +1172,7 @@ async def emitir_boleta(
     )
     if base is None:
         raise _conflict("La declaración jurada no tiene boleta original.")
-    mora = await _mora_si_corresponde(session, base.fecha_vencimiento, fecha_pago)
+    mora = await _tasas_de_mora(session, base.fecha_vencimiento, fecha_pago)
     try:
         liquidacion = totalizar(
             (),
@@ -1172,7 +1200,6 @@ async def emitir_boleta(
         fecha_pago=fecha_pago,
         vigencia_minimo_id=base.vigencia_minimo_id,
         vigencia_medico_id=base.vigencia_medico_id,
-        vigencia_mora_id=mora.vigencia_id if mora else None,
     )
     await session.commit()
     return boleta
