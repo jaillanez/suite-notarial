@@ -132,14 +132,15 @@ CONCEPTOS: tuple[ConceptoRelevado, ...] = (
         "TASA_INTERES_MORA",
         "Tasa de interés por pago fuera de término",
         TipoConcepto.TASA_MORA,
-        "La pantalla muestra «34» sin unidad. Se interpreta como 34 % anual porque un 34 % "
-        "mensual no es verosímil. TODO(negocio): confirmar unidad, base de días y gracia.",
+        "4,25 % mensual, interés simple, mes de 30 días, contado desde el vencimiento y sin días "
+        "de gracia (confirmado por la Caja el 27/10/2026). Reproduce al centavo la boleta sin "
+        "actos 01/2026 del sistema actual: 154.120,00 por 239 días = 52.182,46. El «34» de la "
+        "pantalla no es esta tasa. TODO(negocio): citar la resolución que la fija.",
         (
             Tramo(
                 date(2026, 1, 1),
                 None,
-                {"tasa": D("34.0000"), "periodo_tasa": PeriodoTasa.ANUAL.value, "dias_gracia": 0},
-                a_confirmar=True,
+                {"tasa": D("4.2500"), "periodo_tasa": PeriodoTasa.MENSUAL.value, "dias_gracia": 0},
             ),
         ),
     ),
