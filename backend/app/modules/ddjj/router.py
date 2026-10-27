@@ -213,7 +213,7 @@ async def declaracion_detalle(
     actos = await service.list_actos(session, d.id)
     cargos = await service.cargos_en_periodo(session, d.registro_id, d.periodo)
     boletas = await service.list_boletas(session, d.id)
-    por_acto, huecos = await service.controles_ddjj(session, d, actos)
+    por_acto, huecos = await service.controles_ddjj(session, principal, d, actos)
     return DeclaracionDetalle(
         **base.model_dump(),
         actos=[acto_out(a) for a in actos],

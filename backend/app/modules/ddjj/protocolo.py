@@ -10,13 +10,19 @@ y por año, y el folio y la fecha acompañan ese orden. Sobre los actos ya decla
 - números salteados entre la primera y la última escritura declaradas del año: se listan para
   declararlos «sin efecto» si no se usaron.
 
+Los mensajes citan número, folio y fecha de otra escritura solo si quien consulta puede ver la
+DDJJ donde está (`visible`); si no, dicen lo mismo sin esos datos.
+
 TODO(negocio): confirmar con la Caja que la numeración vuelve a empezar cada año calendario.
 Las funciones de este módulo son puras; la consulta de los actos del año está en el servicio.
 """
 
+import bisect
 import itertools
 import uuid
-from dataclasses import dataclass
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 
@@ -64,6 +70,74 @@ class Hueco:
     total: int  # cuántos números faltan en total
 
 
+def _todo_visible(_periodo: str) -> bool:
+    return True
+
+
+def _por_folio(
+    a: ActoDeclarado | None, b: ActoDeclarado | None, mayor: bool
+) -> ActoDeclarado | None:
+    if a is None or a.folio is None:
+        return b
+    if b is None or b.folio is None:
+        return a
+    return b if (b.folio > a.folio if mayor else b.folio < a.folio) else a
+
+
+def _por_fecha(a: ActoDeclarado, b: ActoDeclarado, mayor: bool) -> ActoDeclarado:
+    return b if (b.fecha > a.fecha if mayor else b.fecha < a.fecha) else a
+
+
+@dataclass
+class _Protocolo:
+    """Índice de un protocolo del año: cada control es O(log n), no un recorrido completo."""
+
+    numeros: list[int] = field(default_factory=list)  # ordenados, sin repetir
+    por_numero: dict[int, list[ActoDeclarado]] = field(default_factory=dict)
+    por_folio: dict[int, list[ActoDeclarado]] = field(default_factory=dict)
+    # Para la posición i de `numeros`: el acto de mayor folio / fecha entre numeros[: i + 1] y
+    # el de menor folio / fecha entre numeros[i:].
+    max_folio: list[ActoDeclarado | None] = field(default_factory=list)
+    min_folio: list[ActoDeclarado | None] = field(default_factory=list)
+    max_fecha: list[ActoDeclarado] = field(default_factory=list)
+    min_fecha: list[ActoDeclarado] = field(default_factory=list)
+
+
+class Indice:
+    """Actos del año de un registro, indexados por protocolo (se arma una vez por consulta)."""
+
+    def __init__(self, declarados: list[ActoDeclarado]) -> None:
+        agrupados: dict[str, list[ActoDeclarado]] = defaultdict(list)
+        for a in declarados:
+            agrupados[a.tipo_protocolo].append(a)
+        self.protocolos: dict[str, _Protocolo] = {}
+        for tipo, actos in agrupados.items():
+            p = _Protocolo()
+            for a in actos:
+                p.por_numero.setdefault(a.numero, []).append(a)
+                if a.folio is not None:
+                    p.por_folio.setdefault(a.folio, []).append(a)
+            p.numeros = sorted(p.por_numero)
+            folios: list[ActoDeclarado | None] = []
+            fechas: list[ActoDeclarado] = []
+            for n in p.numeros:
+                grupo = p.por_numero[n]
+                mejor: ActoDeclarado | None = None
+                for a in grupo:
+                    mejor = _por_folio(mejor, a, mayor=True)
+                folios.append(mejor)
+                fechas.append(max(grupo, key=lambda x: x.fecha))
+            p.max_folio = list(itertools.accumulate(folios, lambda a, b: _por_folio(a, b, True)))
+            p.min_folio = list(
+                itertools.accumulate(reversed(folios), lambda a, b: _por_folio(a, b, False))
+            )[::-1]
+            p.max_fecha = list(itertools.accumulate(fechas, lambda a, b: _por_fecha(a, b, True)))
+            p.min_fecha = list(
+                itertools.accumulate(reversed(fechas), lambda a, b: _por_fecha(a, b, False))
+            )[::-1]
+            self.protocolos[tipo] = p
+
+
 def _protocolo(tipo: str) -> str:
     return "general" if tipo == "GENERAL" else "auxiliar"
 
@@ -72,87 +146,104 @@ def _periodo(periodo: str) -> str:
     return f"{periodo[5:7]}/{periodo[:4]}"
 
 
-def revisar(declarados: list[ActoDeclarado], c: Candidato) -> list[Control]:
+def revisar(
+    indice: Indice, c: Candidato, visible: Callable[[str], bool] = _todo_visible
+) -> list[Control]:
     """Controles de un acto (nuevo o ya cargado) contra los declarados del mismo año."""
-    mismos = [a for a in declarados if a.tipo_protocolo == c.tipo_protocolo and a.id != c.excluir]
+    p = indice.protocolos.get(c.tipo_protocolo)
+    if p is None or c.numero is None:
+        return []
     controles: list[Control] = []
-    if c.numero is None:
-        return controles
     protocolo = _protocolo(c.tipo_protocolo)
-    repetido = next((a for a in mismos if a.numero == c.numero), None)
-    if repetido is not None:
+    repetidos = [a for a in p.por_numero.get(c.numero, []) if a.id != c.excluir]
+    if repetidos:
+        donde = repetidos[0].periodo
         controles.append(
             Control(
                 "NUMERO_REPETIDO",
                 NivelControl.BLOQUEANTE,
-                f"La escritura N° {c.numero} del protocolo {protocolo} ya está declarada en la "
-                f"DDJJ {_periodo(repetido.periodo)}.",
+                f"La escritura N° {c.numero} del protocolo {protocolo} ya está declarada "
+                + (f"en la DDJJ {_periodo(donde)}." if visible(donde) else "en otra DDJJ del año."),
             )
         )
-    otros = [a for a in mismos if a.numero != c.numero]
+    # Los números menores que el candidato son numeros[:menores]; los mayores, numeros[mayores:].
+    menores = bisect.bisect_left(p.numeros, c.numero)
+    mayores = bisect.bisect_right(p.numeros, c.numero)
     if c.folio is not None:
-        mismo_folio = [a for a in otros if a.folio == c.folio and abs(a.numero - c.numero) > 1]
+        mismo_folio = [
+            a
+            for a in p.por_folio.get(c.folio, [])
+            if a.id != c.excluir and abs(a.numero - c.numero) > 1
+        ]
         if mismo_folio:
+            otro = mismo_folio[0]
+            donde_folio = (
+                f"la escritura N° {otro.numero}"
+                if visible(otro.periodo)
+                else "otra escritura del año"
+            )
             controles.append(
                 Control(
                     "FOLIO_REPETIDO",
                     NivelControl.ADVERTENCIA,
-                    f"El folio {c.folio} también figura en la escritura N° "
-                    f"{mismo_folio[0].numero}: verificalo en el libro.",
+                    f"El folio {c.folio} también figura en {donde_folio}: verificalo en el libro.",
                 )
             )
-        desordenado = next(
-            (
-                a
-                for a in otros
-                if a.folio is not None
-                and (
-                    (a.numero < c.numero and a.folio > c.folio)
-                    or (a.numero > c.numero and a.folio < c.folio)
-                )
-            ),
-            None,
-        )
-        if desordenado is not None:
+        antes = p.max_folio[menores - 1] if menores > 0 else None
+        despues = p.min_folio[mayores] if mayores < len(p.numeros) else None
+        fuera: ActoDeclarado | None = None
+        if antes is not None and antes.folio is not None and antes.folio > c.folio:
+            fuera = antes
+        elif despues is not None and despues.folio is not None and despues.folio < c.folio:
+            fuera = despues
+        if fuera is not None:
+            detalle = (
+                f": la escritura N° {fuera.numero} está en el folio {fuera.folio}."
+                if visible(fuera.periodo)
+                else " del año."
+            )
             controles.append(
                 Control(
                     "FOLIO_FUERA_DE_ORDEN",
                     NivelControl.ADVERTENCIA,
-                    f"El folio {c.folio} no sigue el orden de la numeración: la escritura N° "
-                    f"{desordenado.numero} está en el folio {desordenado.folio}.",
+                    f"El folio {c.folio} no sigue el orden de la numeración{detalle}",
                 )
             )
     if c.fecha is not None:
-        desordenada = next(
-            (
-                a
-                for a in otros
-                if (a.numero < c.numero and a.fecha > c.fecha)
-                or (a.numero > c.numero and a.fecha < c.fecha)
-            ),
-            None,
-        )
-        if desordenada is not None:
+        antes_f = p.max_fecha[menores - 1] if menores > 0 else None
+        despues_f = p.min_fecha[mayores] if mayores < len(p.numeros) else None
+        fuera_f: ActoDeclarado | None = None
+        if antes_f is not None and antes_f.fecha > c.fecha:
+            fuera_f = antes_f
+        elif despues_f is not None and despues_f.fecha < c.fecha:
+            fuera_f = despues_f
+        if fuera_f is not None:
+            detalle_f = (
+                f": la escritura N° {fuera_f.numero} es del {fuera_f.fecha:%d/%m/%Y}."
+                if visible(fuera_f.periodo)
+                else " del año."
+            )
             controles.append(
                 Control(
                     "FECHA_FUERA_DE_ORDEN",
                     NivelControl.ADVERTENCIA,
-                    f"La fecha no sigue el orden de la numeración: la escritura N° "
-                    f"{desordenada.numero} es del {desordenada.fecha:%d/%m/%Y}.",
+                    f"La fecha no sigue el orden de la numeración{detalle_f}",
                 )
             )
     return controles
 
 
-def huecos(declarados: list[ActoDeclarado]) -> list[Hueco]:
+def huecos(indice: Indice) -> list[Hueco]:
     """Números sin declarar entre la primera y la última escritura del año, por protocolo,
     agrupados en tramos consecutivos ("43 a 100" en vez de 58 números sueltos)."""
     resultado = []
     for tipo in ("GENERAL", "AUXILIAR"):
-        numeros = sorted({a.numero for a in declarados if a.tipo_protocolo == tipo})
+        p = indice.protocolos.get(tipo)
+        if p is None:
+            continue
         tramos: list[tuple[int, int]] = []
         total = 0
-        for anterior, siguiente in itertools.pairwise(numeros):
+        for anterior, siguiente in itertools.pairwise(p.numeros):
             if siguiente - anterior > 1:
                 tramos.append((anterior + 1, siguiente - 1))
                 total += siguiente - anterior - 1
