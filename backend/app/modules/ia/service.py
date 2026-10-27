@@ -153,10 +153,9 @@ async def _contexto(session: AsyncSession, ddjj: DeclaracionJurada) -> minutas.C
             matricula=escribano.matricula_numero,
             cargo=cargo.cargo,
         )
-    declarados = frozenset(
-        (a.tipo_protocolo, a.numero_escritura)
-        for a in await ddjj_service.list_actos(session, ddjj.id)
-    )
+    # Toda escritura del año del registro (no solo de esta DDJJ): la numeración es anual.
+    del_anio = await ddjj_service.actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4]))
+    declarados = frozenset((a.tipo_protocolo, a.numero) for a in del_anio)
     registro = await session.get(RegistroNotarial, ddjj.registro_id)
     assert registro is not None  # noqa: S101 - FK
     return minutas.ContextoMinuta(

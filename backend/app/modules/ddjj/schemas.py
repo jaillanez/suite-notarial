@@ -9,6 +9,7 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
 from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ, TipoProtocolo
+from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.parametros.schemas import Money
@@ -173,11 +174,50 @@ class DeclaracionOut(BaseModel):
     created_at: datetime
 
 
+class ControlOut(BaseModel):
+    codigo: str
+    nivel: NivelControl
+    mensaje: str
+
+
+class TramoOut(BaseModel):
+    desde: int
+    hasta: int
+
+
+class HuecoOut(BaseModel):
+    tipo_protocolo: TipoProtocolo
+    tramos: list[TramoOut]
+    total: int
+
+
 class DeclaracionDetalle(DeclaracionOut):
     actos: list[ActoOut]
     boletas: list[BoletaOut]
     escribanos: list[EscribanoResumen]
     puede_operar: bool
+    # Controles del libro de protocolo: por acto (solo los que tienen algo) y números salteados.
+    controles: dict[uuid.UUID, list[ControlOut]]
+    huecos: list[HuecoOut]
+
+
+class VerificacionActoIn(BaseModel):
+    """Acto a medio cargar: lo que haya, para ver el aporte y los controles mientras se tipea."""
+
+    tipo_protocolo: TipoProtocolo = TipoProtocolo.GENERAL
+    numero_escritura: int | None = Field(default=None, gt=0, le=1_000_000)
+    folio: int | None = Field(default=None, gt=0, le=1_000_000)
+    fecha_acto: date | None = None
+    categoria: CategoriaActo | None = None
+    base_imponible: BaseImponible | None = None
+    # Al editar o revisar un acto ya cargado.
+    excluir_acto_id: uuid.UUID | None = None
+
+
+class VerificacionActoOut(BaseModel):
+    # Aporte estimado con los parámetros vigentes del período (None si faltan datos).
+    aporte: Money | None
+    controles: list[ControlOut]
 
 
 class PresentarIn(BaseModel):

@@ -32,6 +32,7 @@ from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import today_local
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
+from app.modules.ddjj import protocolo
 from app.modules.ddjj.catalog import (
     CONCEPTO_MEDICO,
     CONCEPTO_MINIMO,
@@ -45,12 +46,13 @@ from app.modules.ddjj.liquidacion import (
     ActoALiquidar,
     Liquidacion,
     LiquidacionError,
+    aporte_de_acto,
     liquidar,
     totalizar,
 )
 from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
 from app.modules.ddjj.pdf import DatosBoleta, EscribanoBoleta
-from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn
+from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn, VerificacionActoIn
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
@@ -530,6 +532,13 @@ async def agregar_acto(
     )
     if cargo is None:
         raise _invalid("El escribano no tenía cargo en este registro a la fecha del acto.")
+    declarados = await actos_del_anio(session, ddjj.registro_id, data.fecha_acto.year)
+    candidato = protocolo.Candidato(
+        data.tipo_protocolo.value, data.numero_escritura, data.folio, data.fecha_acto
+    )
+    for control in protocolo.revisar(declarados, candidato):
+        if control.nivel is protocolo.NivelControl.BLOQUEANTE:
+            raise _conflict(control.mensaje)
     item = Acto(
         id=acto_id or uuid.uuid4(),
         ddjj_id=ddjj.id,
@@ -563,6 +572,87 @@ async def agregar_acto(
         ) from exc
     result = await session.execute(select(Acto).where(Acto.id == item.id))
     return result.unique().scalar_one()
+
+
+# --------------------------------------------------------------------------- libro de protocolo
+
+
+async def actos_del_anio(
+    session: AsyncSession, registro_id: uuid.UUID, anio: int
+) -> list[protocolo.ActoDeclarado]:
+    """Actos vigentes del registro con fecha en el año, en DDJJ no reemplazadas por una
+    rectificativa (los de la rectificada viven en su rectificativa)."""
+    filas = await session.execute(
+        select(
+            Acto.id,
+            Acto.tipo_protocolo,
+            Acto.numero_escritura,
+            Acto.folio,
+            Acto.fecha_acto,
+            DeclaracionJurada.periodo,
+        )
+        .join(DeclaracionJurada, DeclaracionJurada.id == Acto.ddjj_id)
+        .where(
+            DeclaracionJurada.registro_id == registro_id,
+            DeclaracionJurada.estado != EstadoDDJJ.RECTIFICADA.value,
+            Acto.is_active.is_(True),
+            Acto.fecha_acto >= date(anio, 1, 1),
+            Acto.fecha_acto <= date(anio, 12, 31),
+        )
+    )
+    return [protocolo.ActoDeclarado(*fila) for fila in filas.all()]
+
+
+async def controles_ddjj(
+    session: AsyncSession, ddjj: DeclaracionJurada, actos: list[Acto]
+) -> tuple[dict[uuid.UUID, list[protocolo.Control]], list[protocolo.Hueco]]:
+    """Controles de cada acto de la DDJJ y números salteados del año del período."""
+    anios = {a.fecha_acto.year for a in actos} | {int(ddjj.periodo[:4])}
+    por_anio = {anio: await actos_del_anio(session, ddjj.registro_id, anio) for anio in anios}
+    por_acto: dict[uuid.UUID, list[protocolo.Control]] = {}
+    for a in actos:
+        candidato = protocolo.Candidato(
+            a.tipo_protocolo, a.numero_escritura, a.folio, a.fecha_acto, excluir=a.id
+        )
+        controles = protocolo.revisar(por_anio[a.fecha_acto.year], candidato)
+        if controles:
+            por_acto[a.id] = controles
+    return por_acto, protocolo.huecos(por_anio[int(ddjj.periodo[:4])])
+
+
+async def verificar_acto(
+    session: AsyncSession, principal: Principal, ddjj_id: uuid.UUID, data: VerificacionActoIn
+) -> tuple[Decimal | None, list[protocolo.Control]]:
+    """Aporte estimado y controles de un acto a medio cargar (no guarda nada)."""
+    ddjj = await get_declaracion(session, principal, ddjj_id)
+    anio = data.fecha_acto.year if data.fecha_acto else int(ddjj.periodo[:4])
+    controles = protocolo.revisar(
+        await actos_del_anio(session, ddjj.registro_id, anio),
+        protocolo.Candidato(
+            data.tipo_protocolo.value,
+            data.numero_escritura,
+            data.folio,
+            data.fecha_acto,
+            excluir=data.excluir_acto_id,
+        ),
+    )
+    aporte = None
+    if data.categoria is not None:
+        codigo = CONCEPTO_POR_CATEGORIA[data.categoria]
+        vigencia = None
+        if codigo is not None:
+            inicio, _ = rango_periodo(ddjj.periodo)
+            try:
+                vigencia = await parametros.get_vigencia(session, codigo, inicio)
+            except ProblemError:
+                vigencia = None
+        try:
+            aporte = aporte_de_acto(
+                ActoALiquidar(data.categoria, data.base_imponible or Decimal("0")), vigencia
+            ).aporte
+        except LiquidacionError:
+            aporte = None
+    return aporte, controles
 
 
 async def baja_acto(

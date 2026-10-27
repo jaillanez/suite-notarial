@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from app.common.dates import today_local
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
-from app.modules.ddjj import pdf, service
+from app.modules.ddjj import pdf, protocolo, service
 from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ, TipoProtocolo
 from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
 from app.modules.ddjj.schemas import (
@@ -19,18 +19,23 @@ from app.modules.ddjj.schemas import (
     BajaActo,
     BoletaOut,
     ComprobanteResumen,
+    ControlOut,
     DeclaracionDetalle,
     DeclaracionIn,
     DeclaracionOut,
     EmitirBoletaIn,
     EscribanoResumen,
+    HuecoOut,
     LiquidacionOut,
     Periodo,
     PresentarIn,
     RegistroOperable,
     RegistroResumen,
+    TramoOut,
     VencimientoIn,
     VencimientoOut,
+    VerificacionActoIn,
+    VerificacionActoOut,
     VerificacionOut,
 )
 from app.modules.iam.catalog import Perm
@@ -208,13 +213,27 @@ async def declaracion_detalle(
     actos = await service.list_actos(session, d.id)
     cargos = await service.cargos_en_periodo(session, d.registro_id, d.periodo)
     boletas = await service.list_boletas(session, d.id)
+    por_acto, huecos = await service.controles_ddjj(session, d, actos)
     return DeclaracionDetalle(
         **base.model_dump(),
         actos=[acto_out(a) for a in actos],
         boletas=[await boleta_out(session, principal, b) for b in boletas],
         escribanos=_unicos(cargos),
         puede_operar=await service.puede_operar(session, principal, d.registro_id),
+        controles={i: [control_out(c) for c in cs] for i, cs in por_acto.items()},
+        huecos=[
+            HuecoOut(
+                tipo_protocolo=h.tipo_protocolo,
+                tramos=[TramoOut(desde=d, hasta=a) for d, a in h.tramos],
+                total=h.total,
+            )
+            for h in huecos
+        ],
     )
+
+
+def control_out(c: protocolo.Control) -> ControlOut:
+    return ControlOut(codigo=c.codigo, nivel=c.nivel, mensaje=c.mensaje)
 
 
 def vencimiento_out(v: Vencimiento) -> VencimientoOut:
@@ -318,6 +337,15 @@ async def agregar_acto(
     ctx: RequestContextDep,
 ) -> ActoOut:
     return acto_out(await service.agregar_acto(session, ctx, principal, ddjj_id, body))
+
+
+@router.post("/declaraciones/{ddjj_id}/actos/verificacion", response_model=VerificacionActoOut)
+async def verificar_acto(
+    ddjj_id: uuid.UUID, body: VerificacionActoIn, principal: CanOperate, session: SessionDep
+) -> VerificacionActoOut:
+    """Aporte estimado y controles del libro de protocolo mientras se carga un acto."""
+    aporte, controles = await service.verificar_acto(session, principal, ddjj_id, body)
+    return VerificacionActoOut(aporte=aporte, controles=[control_out(c) for c in controles])
 
 
 @router.post("/declaraciones/{ddjj_id}/actos/{acto_id}/baja", status_code=204)
