@@ -669,7 +669,9 @@ async def cerrar_por_cierre_de_titular(
     titular: Adscripcion,
 ) -> None:
     """Al cerrarse el cargo de un titular, las designaciones que él cargó no lo sobreviven: se
-    terminan en la fecha del cierre o se anulan si no llegaron a regir. No confirma: lo hace
+    terminan en la fecha del cierre o se anulan si no llegaron a regir. Si alguna respalda actos
+    posteriores al cierre, el cierre se rechaza (409) y se resuelve antes. Las que cargó la Caja
+    no se tocan: son justamente las que sostienen un registro sin titular. No confirma: lo hace
     quien cierra el cargo, en la misma transacción."""
     usuario = titular.escribano.user_id
     cierre = titular.fecha_hasta
@@ -687,6 +689,15 @@ async def cerrar_por_cierre_de_titular(
     )
     motivo = "Se cerró el cargo del titular que la designó."
     for item in abiertas.unique().scalars():
+        if item.estado == EstadoDesignacion.APROBADA.value:
+            desde = max(item.fecha_desde, cierre + timedelta(days=1))
+            if await _actos_sin_cargo(session, item, desde, item.fecha_hasta):
+                persona = item.escribano.persona
+                raise _conflict(
+                    f"{persona.apellido}, {persona.nombre} declaró actos a cargo del registro "
+                    f"después del {_fecha(cierre)}: terminá antes esa designación (o elegí otra "
+                    "fecha de cierre) antes de cerrar el cargo del titular."
+                )
         antes = _snapshot(item)
         if item.estado == EstadoDesignacion.PENDIENTE.value or item.fecha_desde > cierre:
             item.estado = EstadoDesignacion.ANULADA.value

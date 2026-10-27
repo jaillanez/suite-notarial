@@ -399,3 +399,35 @@ async def test_cerrar_al_titular_termina_sus_designaciones(
     anulada = (await staff.get(f"/api/v1/a-cargo/{futura['id']}")).json()
     assert anulada["estado"] == "ANULADA"
     assert "cargo del titular" in anulada["motivo_resolucion"]
+
+
+async def test_no_se_cierra_al_titular_si_deja_actos_a_cargo_sin_respaldo(
+    notario: AsyncClient,
+    staff: AsyncClient,
+    a_cargo_client: AsyncClient,
+    escenario: Escenario,
+    designado: Designado,
+    db_session: AsyncSession,
+) -> None:
+    creada = (await _designar(notario, _designacion(escenario, designado))).json()
+    ddjj = await _borrador(a_cargo_client, escenario, "2026-10")
+    acto = escritura(designado.escribano, 30, "1000", fecha_acto="2026-10-18")
+    assert (await _agregar(a_cargo_client, ddjj["id"], acto)).status_code == 201
+    cargo_id = await db_session.scalar(
+        select(Adscripcion.id).where(
+            Adscripcion.escribano_id == escenario.titular.id, Adscripcion.is_current.is_(True)
+        )
+    )
+    url = f"/api/v1/padron/cargos/{cargo_id}/cierre"
+    rechazado = await staff.post(url, json={"fecha_hasta": "2026-10-10", "motivo": "Renuncia"})
+    assert rechazado.status_code == 409
+    assert "declaró actos" in rechazado.json()["detail"]
+    # Nada cambió: el titular sigue vigente y la designación intacta.
+    sigue = (await staff.get(f"/api/v1/a-cargo/{creada['id']}")).json()
+    assert sigue["fecha_hasta"] == "2026-10-31"
+    # Con una fecha posterior al último acto, cierra y la designación termina ahí.
+    cerrado = await staff.post(url, json={"fecha_hasta": "2026-10-18", "motivo": "Renuncia"})
+    assert cerrado.status_code == 200, cerrado.text
+    assert (await staff.get(f"/api/v1/a-cargo/{creada['id']}")).json()["fecha_hasta"] == (
+        "2026-10-18"
+    )
