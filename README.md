@@ -233,9 +233,10 @@ Ya aplicadas:
   aplicable o un error explícito; las boletas guardarán su id (SNAP).
 - **Cálculo exacto:** montos `Numeric(15,2)`, tasas `Numeric(18,4)` expresadas en %, todo en
   `Decimal` y transmitido como texto (nunca como número de punto flotante).
-- **Pendiente de negocio (`TODO(negocio)`):** unidad de la tasa de interés («34»: se tomó como
-  anual), interés simple o compuesto y base de días, días de gracia y desde cuándo corre la mora;
-  y la resolución que respalda cada valor (el sistema actual no la muestra).
+- **Mora:** 4,25 % mensual, interés simple, mes de 30 días, contado desde el vencimiento
+  (confirmado por la Caja el 27/10/2026; reproduce al centavo una boleta del sistema actual).
+- **Pendiente de negocio (`TODO(negocio)`):** la resolución que respalda cada valor (el sistema
+  actual no la muestra).
 
 ## DDJJ y boletas (Fase 4)
 

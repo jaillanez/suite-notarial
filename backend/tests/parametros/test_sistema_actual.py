@@ -83,3 +83,28 @@ async def test_reproduce_reporte_y_boleta_del_sistema_actual(db_session: AsyncSe
     marzo = await service.get_vigencia(db_session, "APORTE_ESCRITURA", date(2026, 3, 15))
     assert marzo.monto_minimo == Decimal("52081.00")
     assert VENCIMIENTOS_2026[9] == date(2026, 10, 28)
+
+
+async def test_reproduce_la_mora_de_la_boleta_sin_actos_01_2026(db_session: AsyncSession) -> None:
+    """Boleta sin actos 01/2026 del sistema actual (registro 111), pagada el 27/10/2026:
+    total en término 154.120,00, vencimiento 02/03/2026, 239 días, interés 52.182,46.
+    Tasa confirmada por la Caja: 4,25 % mensual, interés simple, mes de 30 días."""
+    await _cargar(db_session)
+    enero = date(2026, 1, 1)
+    minimo = await service.get_vigencia(db_session, "APORTE_MINIMO_MENSUAL", enero)
+    medico = await service.get_vigencia(db_session, "APORTE_MEDICO_ASISTENCIAL", enero)
+    total_en_termino = motor.aporte_fijo(minimo) + motor.aporte_fijo(medico)
+    assert total_en_termino == Decimal("154120.00")
+
+    vencimiento = VENCIMIENTOS_2026[1]
+    assert vencimiento == date(2026, 3, 2)
+    mora = await service.get_vigencia(db_session, "TASA_INTERES_MORA", vencimiento)
+    dias = motor.dias_de_mora(vencimiento, date(2026, 10, 27), mora)
+    assert dias == 239
+    interes = motor.interes_mora(total_en_termino, dias, mora)
+    assert interes == Decimal("52182.46")
+    assert total_en_termino + interes == Decimal("206302.46")
+    # Es un valor confirmado, no de ejemplo.
+    assert (
+        next(c for c in CONCEPTOS if c.codigo == "TASA_INTERES_MORA").tramos[0].a_confirmar is False
+    )

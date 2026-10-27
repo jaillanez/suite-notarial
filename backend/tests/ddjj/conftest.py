@@ -40,8 +40,14 @@ def hoy(monkeypatch: pytest.MonkeyPatch) -> date:
 
 
 @pytest.fixture
-async def parametros_2026(db_session: AsyncSession) -> dict[str, uuid.UUID]:
-    """Carga los tramos relevados como vigencias aprobadas. Devuelve concepto -> id."""
+async def parametros_2026(
+    db_session: AsyncSession, request: pytest.FixtureRequest
+) -> dict[str, uuid.UUID]:
+    """Carga los tramos relevados como vigencias aprobadas. Devuelve concepto -> id.
+
+    `@pytest.mark.ejemplo("CONCEPTO", ...)` marca esos conceptos como valores de ejemplo."""
+    marca = request.node.get_closest_marker("ejemplo")
+    de_ejemplo = set(marca.args) if marca else set()
     autor = await make_user(db_session, roles=("ROLE_ADMIN",))
     aprobador = await make_user(db_session, roles=("ROLE_ADMIN",))
     ids: dict[str, uuid.UUID] = {}
@@ -59,7 +65,7 @@ async def parametros_2026(db_session: AsyncSession) -> dict[str, uuid.UUID]:
                     fecha_desde=tramo.desde,
                     fecha_hasta=tramo.hasta,
                     **tramo.valores,
-                    es_ejemplo=tramo.a_confirmar,
+                    es_ejemplo=tramo.a_confirmar or relevado.codigo in de_ejemplo,
                     estado="VIGENTE",
                     resolucion_respaldo="Sistema actual",
                     motivo="Carga de prueba",
