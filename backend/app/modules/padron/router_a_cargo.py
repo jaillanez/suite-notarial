@@ -5,6 +5,7 @@ Lo usan el titular del registro (autogestión) y el personal de la Caja. La auto
 """
 
 import uuid
+from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from app.common.dates import today_local
 from app.common.deps import SessionDep
 from app.common.pagination import Page, PageParamsDep
+from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import (
     Principal,
@@ -143,10 +145,17 @@ async def registros(principal: CanManage, session: SessionDep) -> list[RegistroG
 
 @router.get("/elegibles", response_model=list[EscribanoElegible])
 async def elegibles(
-    _: CanManage,
+    principal: CanManage,
     session: SessionDep,
     q: Annotated[str, Query(min_length=2, max_length=100, description="Apellido o matrícula")],
 ) -> list[EscribanoElegible]:
+    """Solo para quien puede designar: el titular de un registro o la Caja."""
+    if not a_cargo.es_personal(principal) and not await a_cargo.registros_del_titular(
+        session, principal
+    ):
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN, "Solo el titular de un registro o la Caja designan a cargo."
+        )
     return [
         EscribanoElegible(
             id=e.id,

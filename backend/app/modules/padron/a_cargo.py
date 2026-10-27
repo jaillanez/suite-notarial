@@ -426,6 +426,23 @@ async def designar(
         raise _conflict("Solo un escribano con matrícula ACTIVA puede quedar a cargo.")
     if data.fecha_desde < escribano.fecha_matriculacion:
         raise _invalid("La designación no puede ser anterior a la matriculación.")
+    personal = es_personal(principal)
+    if not personal:
+        # El titular no delega más de lo que tiene: nada anterior a su propio cargo.
+        inicio = await session.scalar(
+            select(Adscripcion.fecha_desde)
+            .join(Escribano, Escribano.id == Adscripcion.escribano_id)
+            .where(
+                Escribano.user_id == actor.id,
+                Adscripcion.registro_id == registro.id,
+                Adscripcion.cargo == Cargo.TITULAR.value,
+                Adscripcion.is_current.is_(True),
+            )
+        )
+        if inicio is not None and data.fecha_desde < inicio:
+            raise _invalid(
+                f"La designación no puede empezar antes de tu cargo de titular ({_fecha(inicio)})."
+            )
     titular = await session.scalar(
         select(Adscripcion.id).where(
             Adscripcion.registro_id == registro.id,
@@ -453,7 +470,6 @@ async def designar(
             f"{_fecha(choque.fecha_desde)} al {_fecha(choque.fecha_hasta)}"
             + (" (pendiente de aprobación)." if choque.estado != "APROBADA" else ".")
         )
-    personal = es_personal(principal)
     espera = not personal and await requiere_aprobacion(session)
     ahora = datetime.now(UTC)
     item = DesignacionACargo(
@@ -644,3 +660,50 @@ async def terminar(
     )
     await session.commit()
     return await get(session, item.id)
+
+
+async def cerrar_por_cierre_de_titular(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    titular: Adscripcion,
+) -> None:
+    """Al cerrarse el cargo de un titular, las designaciones que él cargó no lo sobreviven: se
+    terminan en la fecha del cierre o se anulan si no llegaron a regir. No confirma: lo hace
+    quien cierra el cargo, en la misma transacción."""
+    usuario = titular.escribano.user_id
+    cierre = titular.fecha_hasta
+    if usuario is None or cierre is None:
+        return
+    abiertas = await session.execute(
+        select(DesignacionACargo)
+        .where(
+            DesignacionACargo.registro_id == titular.registro_id,
+            DesignacionACargo.created_by_user_id == usuario,
+            DesignacionACargo.estado.in_(ABIERTAS),
+            DesignacionACargo.fecha_hasta > cierre,
+        )
+        .with_for_update(of=DesignacionACargo)
+    )
+    motivo = "Se cerró el cargo del titular que la designó."
+    for item in abiertas.unique().scalars():
+        antes = _snapshot(item)
+        if item.estado == EstadoDesignacion.PENDIENTE.value or item.fecha_desde > cierre:
+            item.estado = EstadoDesignacion.ANULADA.value
+            item.resuelta_por_user_id = actor.id
+            item.resuelta_en = datetime.now(UTC)
+            item.motivo_resolucion = motivo
+            evento = AuditEvent.PADRON_A_CARGO_ANULADO
+        else:
+            item.fecha_hasta = cierre
+            evento = AuditEvent.PADRON_A_CARGO_TERMINADO
+        record_audit(
+            session,
+            ctx,
+            evento,
+            severity=Severity.WARNING,
+            actor_user_id=actor.id,
+            old_value=antes,
+            new_value=_snapshot(item),
+            details={"designacion_id": str(item.id), "motivo": motivo},
+        )

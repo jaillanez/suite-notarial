@@ -19,6 +19,7 @@ from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.iam.service import revoke_all_user_sessions
+from app.modules.padron import a_cargo
 from app.modules.padron.catalog import (
     ESTADOS_DEFINITIVOS,
     REQUIERE_RESOLUCION,
@@ -737,6 +738,8 @@ async def close_cargo(
     old_estado = registro.estado
     if item.cargo == Cargo.TITULAR and registro.estado == EstadoRegistro.ACTIVO:
         registro.estado = EstadoRegistro.VACANTE.value
+    if item.cargo == Cargo.TITULAR:
+        await a_cargo.cerrar_por_cierre_de_titular(session, ctx, actor, item)
     record_audit(
         session,
         ctx,

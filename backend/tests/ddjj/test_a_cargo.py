@@ -345,3 +345,57 @@ async def test_el_padron_ya_no_asigna_a_cargo_sin_fechas(
     )
     assert response.status_code == 422
     assert "designación" in response.json()["detail"]
+
+
+async def test_buscar_elegibles_solo_quien_designa(
+    app: FastAPI, escenario: Escenario, db_session: AsyncSession
+) -> None:
+    sin_registro = await make_user(db_session)
+    await _escribano(db_session, "SinRegistro", sin_registro)
+    await db_session.commit()
+    async with await _client(app) as cliente:
+        await login(cliente, sin_registro)
+        respuesta = await cliente.get("/api/v1/a-cargo/elegibles", params={"q": "Titular"})
+        assert respuesta.status_code == 403
+
+
+async def test_el_titular_no_designa_antes_de_su_propio_cargo(
+    notario: AsyncClient, staff: AsyncClient, escenario: Escenario, designado: Designado
+) -> None:
+    # El titular del escenario lo es desde el 01/01/2020.
+    previa = _designacion(escenario, designado, "2019-12-01", "2020-01-31")
+    respuesta = await _designar(notario, previa)
+    assert respuesta.status_code == 422
+    assert "antes de tu cargo de titular" in respuesta.json()["detail"]
+    # La Caja sí puede registrar una designación histórica.
+    assert (await _designar(staff, previa)).status_code == 201
+
+
+async def test_cerrar_al_titular_termina_sus_designaciones(
+    notario: AsyncClient,
+    staff: AsyncClient,
+    escenario: Escenario,
+    designado: Designado,
+    db_session: AsyncSession,
+) -> None:
+    vigente = (await _designar(notario, _designacion(escenario, designado))).json()
+    futura = (
+        await _designar(notario, _designacion(escenario, designado, "2026-11-01", "2026-11-30"))
+    ).json()
+    cargo_id = await db_session.scalar(
+        select(Adscripcion.id).where(
+            Adscripcion.escribano_id == escenario.titular.id, Adscripcion.is_current.is_(True)
+        )
+    )
+    cierre = await staff.post(
+        f"/api/v1/padron/cargos/{cargo_id}/cierre",
+        json={"fecha_hasta": "2026-10-20", "motivo": "Renuncia del titular"},
+    )
+    assert cierre.status_code == 200, cierre.text
+
+    terminada = (await staff.get(f"/api/v1/a-cargo/{vigente['id']}")).json()
+    assert terminada["estado"] == "APROBADA"
+    assert terminada["fecha_hasta"] == "2026-10-20"
+    anulada = (await staff.get(f"/api/v1/a-cargo/{futura['id']}")).json()
+    assert anulada["estado"] == "ANULADA"
+    assert "cargo del titular" in anulada["motivo_resolucion"]
