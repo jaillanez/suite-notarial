@@ -631,12 +631,16 @@ async def agregar_acto(
 
 
 async def proximos_numeros(
-    session: AsyncSession, registro_id: uuid.UUID, anio: int
+    session: AsyncSession, principal: Principal, registro_id: uuid.UUID, anio: int
 ) -> dict[TipoProtocolo, int]:
     """Número de escritura que sigue en cada protocolo del registro (la numeración es anual):
-    lo que la carga rápida propone para el próximo acto."""
+    lo que la carga rápida propone para el próximo acto. Solo cuenta los meses que quien
+    consulta puede ver, como los demás controles del libro."""
+    visible = await _visible(session, principal, registro_id)
     ultimos = {t: 0 for t in TipoProtocolo}
     for acto in await actos_del_anio(session, registro_id, anio):
+        if not visible(acto.periodo):
+            continue
         tipo = TipoProtocolo(acto.tipo_protocolo)
         ultimos[tipo] = max(ultimos[tipo], acto.numero)
     return {t: n + 1 for t, n in ultimos.items()}
