@@ -363,9 +363,22 @@ Ya aplicadas:
   futura, número ya declarado, CUIT inválidos, moneda extranjera, menor sin representación,
   registro distinto y cargo distinto. El autorizante se busca en el equipo del registro
   (titular, adscriptos y a cargo) por matrícula, apellido o el cargo con que se presenta.
+- **Foto del índice → varios actos** (`/ddjj/:id/indice`): el escribano saca una o más fotos
+  del índice del protocolo (hasta 6) desde el celular. Cada renglón es una sugerencia de acto
+  con las mismas reglas que la minuta (naturaleza, categoría, monto) y los controles de la DDJJ
+  (fecha fuera del período, número ya declarado). Se revisan en una lista, se corrigen y se
+  cargan juntos; los destildados quedan descartados. El escribano propuesto es el del último
+  acto cargado (el índice no lo dice).
+  - **Lectura:** con `IA_VISION_PROVEEDOR=deepseek` y `DEEPSEEK_API_KEY` en `backend/.env`, el
+    modelo de visión de DeepSeek transcribe los renglones (lee letra manuscrita y columnas). La
+    foto sale enderezada, reducida y **sin metadatos** (EXIF, GPS); las partes no se guardan.
+    La Caja autorizó este procesamiento externo el 27/10/2026. Cada lectura queda en la
+    auditoría (`IA_INDICE_LEIDO`) con el proveedor y si hubo respaldo. Sin clave, o si DeepSeek
+    no responde, se usa el OCR local (Tesseract), que lee bien solo texto impreso.
 - **DNI → alta en el padrón** (Nuevo escribano): código PDF417 del frente o MRZ del dorso con sus
   cuatro dígitos de control. El CUIL se propone con el algoritmo de AFIP y confianza baja.
-- **Datos:** todo corre en el servidor (Tesseract y zxing locales). El documento no se guarda.
+- **Datos:** minuta y DNI corren en el servidor (Tesseract y zxing locales); el índice, según
+  `IA_VISION_PROVEEDOR` (ver arriba). El documento no se guarda.
   La tabla `ia_sugerencias` no se borra ni se modifica (trigger) y guarda solo regla, confianza y
   una huella HMAC de cada valor, sin datos personales ni texto de la minuta; alcanza para
   auditar qué propuso el motor y qué corrigió la persona (reporte «Sugerencias de IA»).

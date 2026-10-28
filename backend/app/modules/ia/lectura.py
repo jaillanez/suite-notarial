@@ -350,3 +350,52 @@ def metadatos_texto(texto: str) -> dict[str, Any]:
         "caracteres": len(texto),
         "sha256": hashlib.sha256(texto.encode("utf-8")).hexdigest(),
     }
+
+
+# --------------------------------------------------------------------------- índice del protocolo
+
+# Lado mayor de la foto que se envía al modelo de visión: alcanza para leer un índice y achica
+# lo que viaja.
+LADO_MAXIMO_VISION = 2000
+
+
+def _exigir_imagen(archivo: ArchivoValidado) -> None:
+    if not archivo.mime_type.startswith("image/"):
+        raise ArchivoInvalidoError("Subí fotos del índice (PNG o JPG), no PDF.", status=415)
+
+
+def _foto_para_vision(archivo: ArchivoValidado) -> bytes:
+    """La foto, enderezada, reducida y reencodificada en JPEG: sin metadatos (ni EXIF ni GPS)
+    antes de salir del servidor."""
+    _exigir_imagen(archivo)
+    try:
+        imagen = Image.open(io.BytesIO(archivo.contenido))
+        ancho, alto = imagen.size
+        if ancho * alto > MAX_PIXELES:
+            raise ArchivoInvalidoError(
+                "La imagen es demasiado grande: reducí su resolución.", status=413
+            )
+        imagen.load()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise ArchivoInvalidoError(
+            "La imagen está dañada o no se puede abrir.", status=422
+        ) from exc
+    enderezada = ImageOps.exif_transpose(imagen).convert("RGB")
+    enderezada.thumbnail((LADO_MAXIMO_VISION, LADO_MAXIMO_VISION))
+    salida = io.BytesIO()
+    enderezada.save(salida, "JPEG", quality=85)
+    return salida.getvalue()
+
+
+async def foto_para_vision(archivo: ArchivoValidado) -> bytes:
+    return await en_hilo(_foto_para_vision, archivo)
+
+
+def _ocr_indice(archivo: ArchivoValidado) -> str:
+    _exigir_imagen(archivo)
+    # psm 6: un bloque de texto uniforme, que conserva los renglones de una tabla.
+    return _tesseract(_abrir_imagen(archivo.contenido), ["--psm", "6"])
+
+
+async def ocr_indice(archivo: ArchivoValidado) -> str:
+    return await en_hilo(_ocr_indice, archivo)

@@ -38,6 +38,10 @@ class EntradaOut(BaseModel):
     caracteres: int | None = None
     paginas: int | None = None
     ocr: str | None = None
+    # Índice del protocolo por foto: lote de la lectura, foto y renglón de esta sugerencia.
+    lote: uuid.UUID | None = None
+    foto: int | None = None
+    renglon: int | None = None
 
 
 class SugerenciaOut(BaseModel):
@@ -100,3 +104,11 @@ class EstadoIaOut(BaseModel):
     ocr_disponible: bool
     idiomas_ocr: str | None
     max_mb: int
+
+
+class IndiceOut(BaseModel):
+    """Lectura de las fotos del índice: una sugerencia de acto por renglón, en orden."""
+
+    lote: uuid.UUID
+    motor: str
+    sugerencias: list[SugerenciaOut]

@@ -21,13 +21,15 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 class Sugerencia(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "ia_sugerencias"
     __table_args__ = (
-        CheckConstraint("tipo IN ('EXTRACCION_MINUTA', 'OCR_DNI')", name="tipo_valido"),
+        CheckConstraint(
+            "tipo IN ('EXTRACCION_MINUTA', 'OCR_DNI', 'EXTRACCION_INDICE')", name="tipo_valido"
+        ),
         CheckConstraint(
             "estado IN ('SUGERIDO_POR_IA', 'RATIFICADA', 'DESCARTADA')", name="estado_valido"
         ),
         CheckConstraint("confianza >= 0 AND confianza <= 1", name="confianza_rango"),
         CheckConstraint("tiempo_ms >= 0", name="tiempo"),
-        CheckConstraint("tipo <> 'EXTRACCION_MINUTA' OR ddjj_id IS NOT NULL", name="minuta_ddjj"),
+        CheckConstraint("tipo = 'OCR_DNI' OR ddjj_id IS NOT NULL", name="minuta_ddjj"),
         CheckConstraint(
             "(estado = 'SUGERIDO_POR_IA') = (resuelto_por_user_id IS NULL AND resuelto_en IS NULL)",
             name="resolucion",
@@ -45,7 +47,10 @@ class Sugerencia(UUIDMixin, TimestampMixin, Base):
             "AND datos_confirmados IS NULL)",
             name="destino_solo_ratificada",
         ),
-        CheckConstraint("tipo = 'EXTRACCION_MINUTA' OR acto_id IS NULL", name="acto_de_minuta"),
+        CheckConstraint(
+            "tipo IN ('EXTRACCION_MINUTA', 'EXTRACCION_INDICE') OR acto_id IS NULL",
+            name="acto_de_minuta",
+        ),
         CheckConstraint("tipo = 'OCR_DNI' OR escribano_id IS NULL", name="escribano_de_dni"),
         Index("ix_ia_sugerencias_tipo_fecha", "tipo", "created_at"),
         Index("ix_ia_sugerencias_solicitante", "solicitado_por_user_id", "created_at"),
