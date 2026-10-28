@@ -5,24 +5,35 @@
 #
 # Parte de la configuración que el Caddy tiene EN EJECUCIÓN (puede ser más nueva que el archivo del
 # disco si alguien lo editó con un método que reemplaza el archivo), guarda una copia, agrega solo
-# el bloque de la Suite, lo valida y recién entonces lo aplica. Deja el archivo del disco igual al
-# que está en ejecución, para que un reinicio del Caddy no pierda nada. Si la validación falla, no
-# cambia nada.
+# el bloque de la Suite, lo valida y aplica exactamente el archivo validado. Deja el archivo del
+# disco igual al que está en ejecución, para que un reinicio del Caddy no pierda nada. Si la
+# validación falla, no cambia nada.
 set -euo pipefail
+umask 077
 DOMINIO="${1:?Uso: bash agregar-a-caddy.sh DOMINIO}"
+if [[ ! "$DOMINIO" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+  echo "Dominio inválido: $DOMINIO"
+  exit 1
+fi
 CONT=suite-turnos-caddy-1
 F=/opt/suite-turnos/infra/caddy/Caddyfile
-T=$(date +%Y%m%d-%H%M)
+T=$(date +%Y%m%d-%H%M%S)
 
-docker exec "$CONT" cat /etc/caddy/Caddyfile > /tmp/caddy-live
-cp /tmp/caddy-live "$F.bak-$T-en-ejecucion"
-if grep -q "^$DOMINIO " /tmp/caddy-live; then
+# Archivos de trabajo en un directorio privado (0700) que se borra al salir.
+TMPD=$(mktemp -d)
+trap 'rm -rf "$TMPD"; docker exec "$CONT" rm -f /tmp/Caddyfile.nuevo >/dev/null 2>&1 || true' EXIT
+LIVE="$TMPD/caddy-live"
+NUEVO="$TMPD/caddy-nuevo"
+
+docker exec "$CONT" cat /etc/caddy/Caddyfile > "$LIVE"
+install -m 600 "$LIVE" "$F.bak-$T-en-ejecucion"
+if grep -q "^$DOMINIO " "$LIVE"; then
   echo "El dominio ya está en el Caddy: no hay nada que hacer."
   exit 0
 fi
 
-cp /tmp/caddy-live /tmp/caddy-nuevo
-cat >> /tmp/caddy-nuevo <<C
+cp "$LIVE" "$NUEVO"
+cat >> "$NUEVO" <<C
 
 # Suite Notarial (Caja Notarial de San Juan) — proyecto aparte en /opt/suite-notarial.
 $DOMINIO {
@@ -31,16 +42,16 @@ $DOMINIO {
 }
 C
 
-docker cp /tmp/caddy-nuevo "$CONT":/tmp/Caddyfile.nuevo
+# Se valida y se aplica la misma copia dentro del contenedor (lo validado es lo aplicado).
+docker cp "$NUEVO" "$CONT":/tmp/Caddyfile.nuevo
 if ! docker exec "$CONT" caddy validate --config /tmp/Caddyfile.nuevo --adapter caddyfile \
-  > /tmp/caddy-validacion.log 2>&1; then
+  >/dev/null 2>&1; then
   echo "La configuración nueva no es válida: no se cambió nada."
-  tail -5 /tmp/caddy-validacion.log
   exit 1
 fi
-
 # Se escribe sobre el mismo archivo que usa el contenedor (no se reemplaza) y en el disco.
-docker exec -i "$CONT" sh -c 'cat > /etc/caddy/Caddyfile' < /tmp/caddy-nuevo
-cat /tmp/caddy-nuevo > "$F"
-docker exec "$CONT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec "$CONT" sh -c 'cat /tmp/Caddyfile.nuevo > /etc/caddy/Caddyfile'
+docker exec "$CONT" cat /etc/caddy/Caddyfile > "$NUEVO"
+cat "$NUEVO" > "$F"
+docker exec "$CONT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
 echo "Listo: $DOMINIO agregado. Copia de la configuración anterior: $F.bak-$T-en-ejecucion"
