@@ -44,9 +44,11 @@ BASE="$TMPD/caddy-base"
 NUEVO="$TMPD/caddy-nuevo"
 
 normalizar() { python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
+# Si no se puede leer alguna de las dos configuraciones, se corta acá (set -e + pipefail).
+set -o pipefail
 
 # 1. Lo que el Caddy tiene cargado ahora (JSON de su API de administración).
-docker exec "$CONT" wget -qO- http://localhost:2019/config/ | normalizar > "$TMPD/en-ejecucion.json"
+docker exec "$CONT" wget -qO- http://127.0.0.1:2019/config/ | normalizar > "$TMPD/en-ejecucion.json"
 
 # 2. Lo que produce el Caddyfile del disco.
 cat "$F" > "$BASE"
