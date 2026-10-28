@@ -162,6 +162,31 @@ async def rechazar_vigencia(
     return vigencia_out(item, await _emails_for(session, [item]))
 
 
+@router.put("/vigencias/{vigencia_id}", response_model=VigenciaOut)
+async def corregir_vigencia(
+    vigencia_id: uuid.UUID,
+    body: VigenciaIn,
+    principal: CanWrite,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> VigenciaOut:
+    """Corrige una propuesta pendiente: la retira y deja una versión nueva para aprobar."""
+    item = await service.corregir_vigencia(session, ctx, principal.user, vigencia_id, body)
+    return vigencia_out(item, await _emails_for(session, [item]))
+
+
+@router.post("/vigencias/{vigencia_id}/retirar", response_model=VigenciaOut)
+async def retirar_vigencia(
+    vigencia_id: uuid.UUID,
+    body: Rechazo,
+    principal: CanWrite,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> VigenciaOut:
+    item = await service.retirar_vigencia(session, ctx, principal.user, vigencia_id, body.motivo)
+    return vigencia_out(item, await _emails_for(session, [item]))
+
+
 @router.post("/simulacion", response_model=SimulacionOut)
 async def simular(body: SimulacionIn, _: CanRead, session: SessionDep) -> SimulacionOut:
     """Calcula con la vigencia aplicable a la fecha, sin guardar nada."""

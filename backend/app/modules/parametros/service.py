@@ -328,12 +328,18 @@ async def proponer_vigencia(
     data: VigenciaIn,
     *,
     es_ejemplo: bool = False,
+    reemplaza: Vigencia | None = None,
 ) -> Vigencia:
     concepto = await get_concepto(session, concepto_id)
     if not concepto.is_active:
         raise ProblemError(HTTPStatus.CONFLICT, "El concepto está inactivo.")
     _validate_values(TipoConcepto(concepto.tipo), data)
-    existentes = await _active_for_concept(session, concepto.id, lock=True)
+    existentes = [
+        v
+        for v in await _active_for_concept(session, concepto.id, lock=True)
+        # La propuesta que se corrige se retira en la misma transacción: no compite.
+        if reemplaza is None or v.id != reemplaza.id
+    ]
     _, conflictos = _conflicts(data.fecha_desde, data.fecha_hasta, existentes)
     if conflictos:
         raise _conflict_error(conflictos)
@@ -368,6 +374,7 @@ async def proponer_vigencia(
             "version": version,
             "vigencia_id": str(item.id),
             "motivo": data.motivo,
+            **({"corrige": str(reemplaza.id)} if reemplaza else {}),
         },
     )
     await session.commit()
@@ -473,6 +480,58 @@ async def rechazar_vigencia(
     )
     await session.commit()
     return item
+
+
+def _retirar(
+    session: AsyncSession, ctx: RequestContext, actor: User, item: Vigencia, motivo: str
+) -> None:
+    item.estado = EstadoVigencia.RETIRADA.value
+    # Mismas columnas que el rechazo: quién la sacó de circulación y por qué.
+    item.rechazada_por_user_id = actor.id
+    item.motivo_rechazo = motivo
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PARAMETRO_VIGENCIA_RETIRADA,
+        actor_user_id=actor.id,
+        old_value={"estado": EstadoVigencia.PENDIENTE_APROBACION.value},
+        new_value={"estado": EstadoVigencia.RETIRADA.value},
+        details={
+            "concepto": item.concepto.codigo,
+            "version": item.version,
+            "vigencia_id": str(item.id),
+            "motivo": motivo,
+        },
+    )
+
+
+async def retirar_vigencia(
+    session: AsyncSession, ctx: RequestContext, actor: User, vigencia_id: uuid.UUID, motivo: str
+) -> Vigencia:
+    """Saca de circulación una propuesta que todavía no se aprobó (nada se borra)."""
+    item = await _get_pending(session, vigencia_id)
+    _retirar(session, ctx, actor, item, motivo)
+    await session.commit()
+    return item
+
+
+async def corregir_vigencia(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    vigencia_id: uuid.UUID,
+    data: VigenciaIn,
+) -> Vigencia:
+    """Corrige una propuesta pendiente sin tocar sus valores (son inmutables): la retira y
+    propone una versión nueva con los datos corregidos, todo en una sola transacción."""
+    item = await _get_pending(session, vigencia_id)
+    _retirar(
+        session, ctx, actor, item, f"Corregida: la reemplaza una propuesta nueva. {data.motivo}"
+    )
+    await session.flush()
+    return await proponer_vigencia(
+        session, ctx, actor, item.concepto_id, data, es_ejemplo=item.es_ejemplo, reemplaza=item
+    )
 
 
 async def user_emails(session: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:

@@ -283,3 +283,106 @@ async def test_simulation_uses_vigencia_at_date(
     assert sim.status_code == 200
     assert sim.json()["resultado"] == "500.00"
     assert none.status_code == 422
+
+
+async def test_retirar_una_propuesta_pendiente(
+    proponente: AsyncClient, aprobador: AsyncClient, db_session: AsyncSession
+) -> None:
+    c = await concepto(proponente)
+    vid = (await proponer(proponente, c["id"], fecha_desde="2026-01-01", porcentaje="1")).json()[
+        "id"
+    ]
+
+    retirada = await proponente.post(
+        f"/api/v1/parametros/vigencias/{vid}/retirar", json={"motivo": "Cargué mal el valor"}
+    )
+    assert retirada.status_code == 200, retirada.text
+    assert retirada.json()["estado"] == "RETIRADA"
+    assert retirada.json()["motivo_rechazo"] == "Cargué mal el valor"
+    # Retirada no se aprueba ni se vuelve a retirar, y no bloquea sus fechas.
+    assert (await aprobador.post(f"/api/v1/parametros/vigencias/{vid}/aprobar")).status_code == 409
+    otra = await proponer(proponente, c["id"], fecha_desde="2026-01-01", porcentaje="1.1")
+    assert otra.status_code == 201
+    eventos = (await db_session.scalars(select(AuditSecurityLog.event_type))).all()
+    assert "PARAMETRO_VIGENCIA_RETIRADA" in eventos
+
+
+async def test_corregir_deja_una_version_nueva_y_conserva_la_anterior(
+    proponente: AsyncClient, aprobador: AsyncClient
+) -> None:
+    c = await concepto(proponente)
+    original = (
+        await proponer(proponente, c["id"], fecha_desde="2026-01-01", porcentaje="1")
+    ).json()
+
+    corregida = await proponente.put(
+        f"/api/v1/parametros/vigencias/{original['id']}",
+        json={
+            "fecha_desde": "2026-02-01",
+            "porcentaje": "1.25",
+            "resolucion_respaldo": "Res. de prueba 2/2026",
+            "motivo": "Corrijo porcentaje y fecha",
+        },
+    )
+    assert corregida.status_code == 200, corregida.text
+    nueva = corregida.json()
+    assert nueva["id"] != original["id"]
+    assert nueva["version"] == original["version"] + 1
+    assert (nueva["estado"], nueva["porcentaje"], nueva["fecha_desde"]) == (
+        "PENDIENTE_APROBACION",
+        "1.2500",
+        "2026-02-01",
+    )
+    vigencias = {
+        v["id"]: v
+        for v in (await proponente.get(f"/api/v1/parametros/conceptos/{c['id']}/vigencias")).json()
+    }
+    # La original no se modificó: quedó retirada con sus valores intactos.
+    assert vigencias[original["id"]]["estado"] == "RETIRADA"
+    assert vigencias[original["id"]]["porcentaje"] == "1.0000"
+    aprobada = await aprobador.post(f"/api/v1/parametros/vigencias/{nueva['id']}/aprobar")
+    assert aprobada.json()["estado"] == "VIGENTE"
+
+
+async def test_solo_se_corrige_o_retira_lo_pendiente(
+    proponente: AsyncClient, aprobador: AsyncClient
+) -> None:
+    c = await concepto(proponente)
+    v = await vigente(proponente, aprobador, c["id"], fecha_desde="2026-01-01", porcentaje="1")
+
+    retirar = await proponente.post(
+        f"/api/v1/parametros/vigencias/{v['id']}/retirar", json={"motivo": "Quiero cambiarla"}
+    )
+    corregir = await proponente.put(
+        f"/api/v1/parametros/vigencias/{v['id']}",
+        json={
+            "fecha_desde": "2026-01-01",
+            "porcentaje": "2",
+            "resolucion_respaldo": "Res. de prueba",
+            "motivo": "Cambiar lo aprobado",
+        },
+    )
+    assert retirar.status_code == 409
+    assert corregir.status_code == 409
+
+
+async def test_corregir_y_retirar_exigen_permiso(
+    client: AsyncClient, proponente: AsyncClient, db_session: AsyncSession
+) -> None:
+    import pyotp
+
+    from tests.iam.factories import make_user
+    from tests.iam.test_rbac import login
+
+    c = await concepto(proponente)
+    vid = (await proponer(proponente, c["id"], fecha_desde="2026-01-01", porcentaje="1")).json()[
+        "id"
+    ]
+    secret = pyotp.random_base32()
+    caja = await make_user(db_session, roles=("ROLE_CAJA",), totp_secret=secret)
+    await login(client, caja, secret)
+
+    retirar = await client.post(
+        f"/api/v1/parametros/vigencias/{vid}/retirar", json={"motivo": "Sin permiso"}
+    )
+    assert retirar.status_code == 403

@@ -56,7 +56,8 @@ class Vigencia(UUIDMixin, Base):
     __table_args__ = (
         CheckConstraint("fecha_hasta IS NULL OR fecha_hasta >= fecha_desde", name="rango_valido"),
         CheckConstraint(
-            "estado IN ('PENDIENTE_APROBACION', 'VIGENTE', 'RECHAZADA')", name="estado_valido"
+            "estado IN ('PENDIENTE_APROBACION', 'VIGENTE', 'RECHAZADA', 'RETIRADA')",
+            name="estado_valido",
         ),
         CheckConstraint("regla_redondeo IN ('HALF_UP', 'FLOOR', 'CEILING')", name="redondeo"),
         CheckConstraint(

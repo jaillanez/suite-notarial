@@ -26,6 +26,9 @@ class EstadoVigencia(StrEnum):
     PENDIENTE_APROBACION = "PENDIENTE_APROBACION"
     VIGENTE = "VIGENTE"
     RECHAZADA = "RECHAZADA"
+    # Quien la propuso (u otra persona que puede proponer) la retiró antes de que se aprobara,
+    # para descartarla o para reemplazarla por una corregida.
+    RETIRADA = "RETIRADA"
 
 
 class ReglaRedondeo(StrEnum):
