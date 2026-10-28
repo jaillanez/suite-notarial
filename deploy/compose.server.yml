@@ -1,0 +1,103 @@
+# Suite Notarial en el servidor compartido (junto a suite-turnos, suite-auto y suite-juviar).
+# Independiente del resto: proyecto, base, volúmenes, red y claves propios. Lo único
+# compartido es el Caddy de suite-turnos, que publica el dominio y pone el HTTPS: el
+# contenedor web se une a su red `edge` y Caddy le pasa el tráfico por nombre.
+#
+# Uso (desde /opt/suite-notarial):  ./deploy/deploy.sh
+name: suite-notarial
+
+x-api-env: &api-env
+  env_file:
+    - .env.server
+  environment:
+    # Las URLs de la base se arman acá con las contraseñas del .env.server (sin repetirlas).
+    DATABASE_URL: postgresql+asyncpg://suite_app:${SUITE_APP_PASSWORD}@postgres:5432/suite_notarial
+    MIGRATIONS_DATABASE_URL: postgresql+asyncpg://suite_owner:${SUITE_OWNER_PASSWORD}@postgres:5432/suite_notarial
+    UPLOAD_DIR: /data/uploads
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?falta en .env.server}
+      SUITE_DB: suite_notarial
+      SUITE_OWNER_PASSWORD: ${SUITE_OWNER_PASSWORD:?falta en .env.server}
+      SUITE_APP_PASSWORD: ${SUITE_APP_PASSWORD:?falta en .env.server}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-suite.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d suite_notarial"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 512m
+    cpus: 1.0
+    networks: [interna]
+
+  # Migraciones con el rol dueño; corre y termina antes de que arranque la API.
+  migrate:
+    <<: *api-env
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    image: suite-notarial-api:latest
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [interna]
+
+  api:
+    <<: *api-env
+    image: suite-notarial-api:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - uploads:/data/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if b'\"up\"' in urllib.request.urlopen('http://127.0.0.1:8000/api/health').read() else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    mem_limit: 1g
+    cpus: 1.5
+    # Sin puertos publicados: solo la alcanza el nginx de la Suite. Necesita salida a internet
+    # (correo, Mercado Pago, DeepSeek), por eso la red no es `internal`.
+    networks: [interna]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: suite-notarial-web:latest
+    container_name: suite-notarial-web
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    networks: [interna, edge]
+    # Solo en localhost, para verificar desde el propio servidor.
+    ports:
+      - "127.0.0.1:${WEB_BIND_PORT:-8686}:80"
+
+networks:
+  interna:
+  # Red del Caddy compartido (suite-turnos). Debe existir ya.
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:-suite-turnos_edge}
+
+volumes:
+  postgres_data:
+  uploads:

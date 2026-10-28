@@ -41,3 +41,6 @@ backend/var/
 
 # Material de referencia con datos reales (capturas del sistema actual): nunca al repositorio
 Docs/privado/
+
+# Plantilla de configuración del servidor (sin secretos)
+!.env.server.example
