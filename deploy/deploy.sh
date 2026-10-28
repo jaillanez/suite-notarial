@@ -16,6 +16,12 @@ fi
 EDGE_SUBNET=$(docker network inspect "$EDGE" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null) \
   || { echo "No existe la red del Caddy compartido ($EDGE)."; exit 1; }
 export EDGE_SUBNET
+# Se guarda en .env.server para que los comandos manuales (seed-dev, create-admin) también lo tengan.
+if grep -q "^EDGE_SUBNET=" deploy/.env.server; then
+  sed -i "s|^EDGE_SUBNET=.*|EDGE_SUBNET=$EDGE_SUBNET|" deploy/.env.server
+else
+  echo "EDGE_SUBNET=$EDGE_SUBNET" >> deploy/.env.server
+fi
 
 echo "== 1/5  git pull =="
 git pull --ff-only
