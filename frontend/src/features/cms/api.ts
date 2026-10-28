@@ -2,6 +2,9 @@ import { api } from '../../lib/api'
 
 export type EstadoPublicacion = 'BORRADOR' | 'PUBLICADO' | 'ARCHIVADO'
 export type TipoDocumento = 'ESTADO_CONTABLE' | 'MEMORIA_ANUAL' | 'RESOLUCION' | 'OTRO'
+export type SeccionNovedad = 'NOVEDADES' | 'COMUNICADOS' | 'APORTES' | 'INSTITUCIONAL'
+export type GrupoPagina = 'CAJA' | 'NORMATIVA'
+export type Distribucion = '4' | '3+1' | '2+2' | '2+1+1' | '1+1+1+1'
 
 export interface Autoridad {
   id: string
@@ -28,8 +31,11 @@ export interface Novedad {
   titulo: string
   resumen: string | null
   contenido: string
+  seccion: SeccionNovedad
   estado: EstadoPublicacion
   fecha_publicacion: string | null
+  imagen_url: string | null
+  imagen_alt: string | null
   autor: string | null
   created_at: string
   updated_at: string
@@ -38,6 +44,7 @@ export interface Novedad {
 export interface NovedadInput {
   titulo: string
   resumen: string | null
+  seccion: SeccionNovedad
   contenido: string
   slug: string | null
 }
@@ -160,7 +167,11 @@ export interface NovedadResumen {
   slug: string
   titulo: string
   resumen: string | null
+  seccion: SeccionNovedad
+  seccion_texto: string
   fecha_publicacion: string
+  imagen_url: string | null
+  imagen_alt: string | null
 }
 
 export interface NovedadPublica extends NovedadResumen {
@@ -196,7 +207,34 @@ export interface DocumentoPublico {
   versiones_anteriores: VersionPublica[]
 }
 
+export interface FilaPublica {
+  distribucion: Distribucion
+  notas: NovedadResumen[]
+}
+
+export interface PaginaMenu {
+  slug: string
+  grupo: GrupoPagina
+  titulo: string
+}
+
+export interface PaginaPublica extends PaginaMenu {
+  grupo_texto: string
+  contenido: string
+  updated_at: string
+}
+
+export interface Contacto {
+  nombre: string
+  domicilio: string | null
+  telefono: string | null
+  email: string | null
+}
+
 export interface Sitio {
+  portada: { destacadas: NovedadResumen[]; filas: FilaPublica[] }
+  menu: PaginaMenu[]
+  contacto: Contacto
   autoridades: Autoridad[]
   novedades: NovedadResumen[]
   documentos: DocumentoPublico[]
@@ -206,14 +244,92 @@ export async function fetchSitio(): Promise<Sitio> {
   return (await api.get<Sitio>('/v1/publico/sitio')).data
 }
 
-export async function fetchNovedadesPublicas(page: number): Promise<Page<NovedadResumen>> {
+export async function fetchNovedadesPublicas(
+  page: number,
+  seccion: SeccionNovedad | null = null,
+): Promise<Page<NovedadResumen>> {
   return (
     await api.get<Page<NovedadResumen>>('/v1/publico/novedades', {
-      params: { page, page_size: 10 },
+      params: { page, page_size: 12, ...(seccion ? { seccion } : {}) },
     })
   ).data
 }
 
+export async function fetchPaginaPublica(slug: string): Promise<PaginaPublica> {
+  return (await api.get<PaginaPublica>(`/v1/publico/paginas/${encodeURIComponent(slug)}`)).data
+}
+
 export async function fetchNovedadPublica(slug: string): Promise<NovedadPublica> {
   return (await api.get<NovedadPublica>(`/v1/publico/novedades/${encodeURIComponent(slug)}`)).data
+}
+
+// --------------------------------------------------------------------------- imagen, páginas y portada
+
+export async function subirImagen(id: string, archivo: File, alt: string): Promise<Novedad> {
+  const form = new FormData()
+  form.append('alt', alt)
+  form.append('archivo', archivo)
+  return (await api.post<Novedad>(`${P}/novedades/${id}/imagen`, form)).data
+}
+
+export async function quitarImagen(id: string): Promise<Novedad> {
+  return (await api.post<Novedad>(`${P}/novedades/${id}/imagen/quitar`)).data
+}
+
+export interface Pagina {
+  id: string
+  slug: string
+  grupo: GrupoPagina
+  titulo: string
+  contenido: string
+  orden: number
+  estado: EstadoPublicacion
+  updated_at: string
+}
+
+export interface PaginaInput {
+  grupo: GrupoPagina
+  titulo: string
+  contenido: string
+  orden: number
+  slug: string | null
+}
+
+export async function fetchPaginas(): Promise<Pagina[]> {
+  return (await api.get<Pagina[]>(`${P}/paginas`)).data
+}
+
+export async function crearPagina(data: PaginaInput): Promise<Pagina> {
+  return (await api.post<Pagina>(`${P}/paginas`, data)).data
+}
+
+export async function actualizarPagina(id: string, data: PaginaInput): Promise<Pagina> {
+  return (await api.put<Pagina>(`${P}/paginas/${id}`, data)).data
+}
+
+export async function estadoPagina(id: string, estado: EstadoPublicacion): Promise<Pagina> {
+  return (await api.post<Pagina>(`${P}/paginas/${id}/estado`, { estado })).data
+}
+
+export interface FilaPortada {
+  distribucion: Distribucion
+  /** Una nota por espacio; null deja el espacio libre. */
+  notas: (string | null)[]
+}
+
+export interface Portada {
+  destacadas: string[]
+  filas: FilaPortada[]
+  actualizada: string | null
+  actualizada_por: string | null
+}
+
+export async function fetchPortada(): Promise<Portada> {
+  return (await api.get<Portada>(`${P}/portada`)).data
+}
+
+export async function guardarPortada(
+  data: Pick<Portada, 'destacadas' | 'filas'>,
+): Promise<Portada> {
+  return (await api.put<Portada>(`${P}/portada`, data)).data
 }

@@ -1,5 +1,11 @@
 import type { Tone } from '../../components/StatusIndicator'
-import type { EstadoPublicacion, TipoDocumento } from './api'
+import type {
+  Distribucion,
+  EstadoPublicacion,
+  GrupoPagina,
+  SeccionNovedad,
+  TipoDocumento,
+} from './api'
 
 export const ESTADO_PUBLICACION: Record<EstadoPublicacion, { label: string; tone: Tone }> = {
   BORRADOR: { label: 'Borrador', tone: 'warning' },
@@ -12,6 +18,35 @@ export const TIPO_DOCUMENTO: Record<TipoDocumento, string> = {
   MEMORIA_ANUAL: 'Memoria anual',
   RESOLUCION: 'Resoluciones',
   OTRO: 'Otros documentos',
+}
+
+export const SECCION_NOVEDAD: Record<SeccionNovedad, string> = {
+  NOVEDADES: 'Novedades',
+  COMUNICADOS: 'Comunicados de la Caja',
+  APORTES: 'Aportes',
+  INSTITUCIONAL: 'Institucional',
+}
+
+export const GRUPO_PAGINA: Record<GrupoPagina, string> = {
+  CAJA: 'Caja',
+  NORMATIVA: 'Normativa',
+}
+
+/** Ancho de cada nota (en columnas de 4) según la distribución de la fila. */
+export const ANCHOS: Record<Distribucion, number[]> = {
+  '4': [4],
+  '3+1': [3, 1],
+  '2+2': [2, 2],
+  '2+1+1': [2, 1, 1],
+  '1+1+1+1': [1, 1, 1, 1],
+}
+
+export const DISTRIBUCION: Record<Distribucion, string> = {
+  '4': 'Una nota a todo el ancho',
+  '3+1': 'Una grande y una chica',
+  '2+2': 'Dos iguales',
+  '2+1+1': 'Una mediana y dos chicas',
+  '1+1+1+1': 'Cuatro iguales',
 }
 
 /** Fecha y hora larga en castellano, en hora de San Juan: "25 de octubre de 2026". */

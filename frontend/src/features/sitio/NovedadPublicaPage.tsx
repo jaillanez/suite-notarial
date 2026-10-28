@@ -42,11 +42,34 @@ export function NovedadPublicaPage() {
       )}
       {n && (
         <>
-          <p className="mt-6 text-sm text-ink-muted">{fechaLarga(n.fecha_publicacion)}</p>
+          <p className="mt-6 text-sm text-ink-muted">
+            <Link
+              to={`/sitio/novedades?seccion=${n.seccion}`}
+              className="font-medium text-brand-800 no-underline hover:underline"
+            >
+              {n.seccion_texto}
+            </Link>
+            <span aria-hidden="true"> · </span>
+            <time dateTime={n.fecha_publicacion} className="tabular-nums">
+              {fechaLarga(n.fecha_publicacion)}
+            </time>
+          </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-balance text-brand-900 sm:text-[2rem]">
             {n.titulo}
           </h1>
           {n.resumen && <p className="mt-3 text-lg text-ink-muted">{n.resumen}</p>}
+          {n.imagen_url && (
+            <figure className="mt-8">
+              <img
+                src={n.imagen_url}
+                alt={n.imagen_alt ?? ''}
+                className="aspect-[16/9] w-full rounded-panel object-cover"
+              />
+              {n.imagen_alt && (
+                <figcaption className="mt-2 text-sm text-ink-muted">{n.imagen_alt}</figcaption>
+              )}
+            </figure>
+          )}
           <div className="mt-8 grid gap-4 text-lg leading-relaxed text-ink">
             {/* Texto plano: React lo escapa; nunca se interpreta como HTML. */}
             {parrafos(n.contenido).map((p, i) => (
