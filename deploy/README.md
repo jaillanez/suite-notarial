@@ -39,11 +39,15 @@ docker compose --env-file deploy/.env.server -f deploy/compose.server.yml \
 En el servidor, como root:
 
 ```bash
+bash /opt/suite-notarial/deploy/agregar-a-caddy.sh --verificar   # solo compara, no cambia nada
 bash /opt/suite-notarial/deploy/agregar-a-caddy.sh DOMINIO
 ```
 
-El script parte de la configuración que el Caddy tiene **en ejecución**, guarda una copia, agrega
-solo el bloque de la Suite, lo valida y recién entonces lo aplica. No hay que editar el Caddyfile a
+La autoridad es la configuración que el Caddy tiene **en ejecución** (se la pide a su API de
+administración). Antes de cambiar algo, el script verifica que el Caddyfile del disco produzca
+exactamente esa configuración; si difieren, se detiene sin tocar nada y hay que reconciliarlos a
+mano. Si coinciden, guarda copias (Caddyfile y configuración en ejecución), agrega solo el bloque de
+la Suite, lo valida, lo carga en caliente y lo guarda en el disco. No hay que editar el Caddyfile a
 mano: un editor que reemplaza el archivo deja al contenedor leyendo una copia vieja.
 
 ## Actualizar
