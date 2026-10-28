@@ -308,8 +308,23 @@ Ya aplicadas:
   motivo y avisa por correo al escribano.
 - **Asientos inmutables** en `pagos_conciliaciones`; la aplicación no puede modificarlos ni
   borrarlos. Mientras un comprobante está en revisión, la boleta no se reemite ni se rectifica.
+- **Pago con Mercado Pago** (Checkout Pro), con `MERCADOPAGO_ACCESS_TOKEN` de la cuenta de la
+  Caja en `backend/.env` (sin token, el botón no aparece):
+  - La boleta pendiente ofrece «Pagar con Mercado Pago»: se cobra el **total exacto** (la
+    comisión la absorbe la Caja) y el cobro vence con la fecha de pago de la boleta.
+  - La Suite **consulta el pago a la API de Mercado Pago** al volver del pago
+    (`/pagos/mercadopago/retorno`) o al recibir la notificación firmada
+    (`/api/v1/pagos/mercadopago/notificaciones`, con `MERCADOPAGO_WEBHOOK_SECRET`, solo con la
+    Suite publicada en HTTPS). Nunca toma el estado de la dirección ni de la notificación.
+  - Cada pago queda en `pagos_mercadopago` (sin borrado), con estado, comisión y neto. Un pago
+    aprobado entra a la mesa como comprobante «Mercado Pago» (sin archivo): **Tesorería lo
+    confirma** contra la liquidación de Mercado Pago y recién ahí la boleta pasa a pagada.
+  - Pago doble, devolución o contracargo, importe distinto, pago ajeno y firma inválida quedan
+    auditados. En la mesa se ve el registro completo de pagos con Mercado Pago.
+  - Pruebas: credenciales de prueba de Mercado Pago (`TEST-…`) y sus tarjetas de prueba.
 - **Pendiente de negocio (`TODO(negocio)`):** pagos parciales o con diferencia, mora por
-  acreditación tardía, rectificación de una DDJJ paga y más de una cuenta recaudadora.
+  acreditación tardía, rectificación de una DDJJ paga, más de una cuenta recaudadora y qué
+  hacer ante una devolución o un contracargo de Mercado Pago ya confirmado.
 
 ## Reportes (Fase 6)
 

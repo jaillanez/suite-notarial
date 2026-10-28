@@ -55,7 +55,7 @@ from app.modules.iam.deps import (
 from app.modules.padron.catalog import Cargo
 from app.modules.padron.models import RegistroNotarial
 from app.modules.pagos import service as pagos_service
-from app.modules.pagos.catalog import EstadoComprobante
+from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
 from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
 from app.modules.parametros.catalog import PeriodoTasa
@@ -150,6 +150,7 @@ def _comprobante_resumen(c: Comprobante | None) -> ComprobanteResumen | None:
         return None
     return ComprobanteResumen(
         id=c.id,
+        origen=OrigenComprobante(c.origen),
         estado=EstadoComprobante(c.estado),
         importe_declarado=c.importe_declarado,
         motivo_rechazo=c.motivo_rechazo,

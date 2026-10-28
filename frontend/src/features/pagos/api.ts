@@ -16,9 +16,11 @@ export interface Comprobante {
     fecha_pago: string
     total_a_pagar: string
   }
-  nombre_original: string
-  mime_type: string
-  tamano_bytes: number
+  origen: OrigenComprobante
+  /** Vacíos en un comprobante de Mercado Pago (no tiene archivo). */
+  nombre_original: string | null
+  mime_type: string | null
+  tamano_bytes: number | null
   fecha_transferencia: string
   banco_origen: string | null
   numero_operacion: string
@@ -38,6 +40,39 @@ export interface Comprobante {
     operador: string | null
     created_at: string
   } | null
+  /** Solo en un comprobante de Mercado Pago. */
+  mercado_pago: PagoMercadoPago | null
+}
+
+export type OrigenComprobante = 'ARCHIVO' | 'MERCADO_PAGO'
+
+export type EstadoPagoMP =
+  | 'CREADO'
+  | 'pending'
+  | 'authorized'
+  | 'in_process'
+  | 'in_mediation'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'refunded'
+  | 'charged_back'
+
+/** Lo que informó Mercado Pago (la Suite lo consulta a su API). Importes como texto. */
+export interface PagoMercadoPago {
+  id: string
+  boleta_id: string
+  estado: EstadoPagoMP
+  estado_detalle: string | null
+  mp_payment_id: string | null
+  medio_pago: string | null
+  importe_boleta: string
+  importe_pagado: string | null
+  comision: string | null
+  importe_neto: string | null
+  aprobado_en: string | null
+  comprobante_id: string | null
+  created_at: string
 }
 
 interface Page<T> {
@@ -112,4 +147,30 @@ export async function aprobarComprobante(
 
 export async function rechazarComprobante(id: string, motivo: string): Promise<Comprobante> {
   return (await api.post<Comprobante>(`${P}/comprobantes/${id}/rechazar`, { motivo })).data
+}
+
+// --------------------------------------------------------------------------- Mercado Pago
+
+export async function fetchMercadoPagoHabilitado(): Promise<boolean> {
+  return (await api.get<{ habilitado: boolean }>(`${P}/mercadopago/estado`)).data.habilitado
+}
+
+/** Arma el cobro en Mercado Pago y devuelve la dirección a la que hay que ir a pagar. */
+export async function pagarConMercadoPago(boletaId: string): Promise<string> {
+  return (
+    await api.post<{ url_pago: string }>(`${P}/boletas/${encodeURIComponent(boletaId)}/mercadopago`)
+  ).data.url_pago
+}
+
+/** Al volver de Mercado Pago: la Suite consulta el pago y lo registra. */
+export async function sincronizarPagoMP(pagoId: string): Promise<PagoMercadoPago> {
+  return (
+    await api.post<PagoMercadoPago>(`${P}/mercadopago/${encodeURIComponent(pagoId)}/sincronizar`)
+  ).data
+}
+
+export async function fetchRegistroMP(page: number): Promise<Page<PagoMercadoPago>> {
+  return (
+    await api.get<Page<PagoMercadoPago>>(`${P}/mercadopago`, { params: { page, page_size: 25 } })
+  ).data
 }

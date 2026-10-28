@@ -8,7 +8,12 @@ from typing import Annotated
 from pydantic import BaseModel, PlainSerializer, StringConstraints
 
 from app.modules.ddjj.schemas import RegistroResumen
-from app.modules.pagos.catalog import EstadoComprobante, ResultadoConciliacion
+from app.modules.pagos.catalog import (
+    EstadoComprobante,
+    EstadoPagoMP,
+    OrigenComprobante,
+    ResultadoConciliacion,
+)
 from app.modules.parametros.schemas import Money
 
 Motivo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1000)]
@@ -59,12 +64,32 @@ class BoletaResumen(BaseModel):
     total_a_pagar: Money
 
 
+class PagoMercadoPagoOut(BaseModel):
+    """Lo que informó Mercado Pago del pago (consultado a su API, no al navegador)."""
+
+    id: uuid.UUID
+    boleta_id: uuid.UUID
+    estado: EstadoPagoMP
+    estado_detalle: str | None
+    mp_payment_id: str | None
+    medio_pago: str | None
+    importe_boleta: Money
+    importe_pagado: Money | None
+    comision: Money | None
+    importe_neto: Money | None
+    aprobado_en: datetime | None
+    comprobante_id: uuid.UUID | None
+    created_at: datetime
+
+
 class ComprobanteOut(BaseModel):
     id: uuid.UUID
     boleta: BoletaResumen
-    nombre_original: str
-    mime_type: str
-    tamano_bytes: int
+    origen: OrigenComprobante
+    # Vacíos en un comprobante de Mercado Pago (no tiene archivo).
+    nombre_original: str | None
+    mime_type: str | None
+    tamano_bytes: int | None
     fecha_transferencia: date
     banco_origen: str | None
     numero_operacion: str
@@ -77,3 +102,15 @@ class ComprobanteOut(BaseModel):
     created_at: datetime
     revisado_en: datetime | None
     conciliacion: ConciliacionOut | None
+    # Solo en un comprobante de Mercado Pago.
+    mercado_pago: PagoMercadoPagoOut | None = None
+
+
+class MercadoPagoEstadoOut(BaseModel):
+    habilitado: bool
+
+
+class InicioPagoMPOut(BaseModel):
+    """Dirección de Mercado Pago a la que se lleva al escribano para pagar."""
+
+    url_pago: str

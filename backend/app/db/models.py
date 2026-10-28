@@ -36,7 +36,7 @@ from app.modules.padron.models import (
     Persona,
     RegistroNotarial,
 )
-from app.modules.pagos.models import Comprobante, Conciliacion
+from app.modules.pagos.models import Comprobante, Conciliacion, PagoMercadoPago
 from app.modules.parametros.models import Concepto, Vigencia
 from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
 
@@ -67,6 +67,7 @@ __all__ = [
     "Mapeo",
     "Novedad",
     "ObservacionMigracion",
+    "PagoMercadoPago",
     "PasswordResetToken",
     "Permission",
     "Persona",

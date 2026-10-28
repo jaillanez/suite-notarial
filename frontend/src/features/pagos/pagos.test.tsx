@@ -30,6 +30,8 @@ const COMPROBANTE: apiModule.Comprobante = {
     fecha_pago: '2026-10-23',
     total_a_pagar: '1081699.06',
   },
+  origen: 'ARCHIVO',
+  mercado_pago: null,
   nombre_original: 'transferencia.pdf',
   mime_type: 'application/pdf',
   tamano_bytes: 2048,

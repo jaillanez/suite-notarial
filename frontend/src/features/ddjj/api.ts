@@ -90,6 +90,8 @@ export interface Boleta {
   /** Último comprobante adjuntado (adjuntar no es pagar: lo confirma Tesorería). */
   comprobante: {
     id: string
+    /** ARCHIVO: lo adjuntó el escribano. MERCADO_PAGO: lo informó Mercado Pago. */
+    origen: 'ARCHIVO' | 'MERCADO_PAGO'
     estado: EstadoComprobante
     importe_declarado: string
     motivo_rechazo: string | null
@@ -302,4 +304,8 @@ export async function descargarBoleta(boleta: Boleta): Promise<void> {
 
 export async function verificarBoleta(codigo: string): Promise<Verificacion> {
   return (await api.get<Verificacion>(`/v1/boletas/verificar/${encodeURIComponent(codigo)}`)).data
+}
+
+export async function fetchBoleta(id: string): Promise<Boleta> {
+  return (await api.get<Boleta>(`/v1/ddjj/boletas/${encodeURIComponent(id)}`)).data
 }
