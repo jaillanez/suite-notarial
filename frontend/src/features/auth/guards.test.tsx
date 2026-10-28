@@ -10,9 +10,11 @@ function protectedTree(child: string) {
   return (
     <Routes>
       <Route element={<RequireAuth />}>
+        <Route path="/" element={<p>Inicio de la Suite</p>} />
         <Route path="/usuarios" element={<p>{child}</p>} />
       </Route>
       <Route path="/ingresar" element={<p>Pantalla de ingreso</p>} />
+      <Route path="/sitio" element={<p>Portada del sitio</p>} />
       <Route path="/cuenta/seguridad" element={<p>Seguridad</p>} />
     </Routes>
   )
@@ -22,6 +24,18 @@ describe('guards', () => {
   it('sin sesión lleva al ingreso', () => {
     renderWithProviders(protectedTree('Usuarios'), { path: '/usuarios', user: null, raw: true })
     expect(screen.getByText('Pantalla de ingreso')).toBeInTheDocument()
+  })
+
+  it('la dirección principal sin sesión muestra el sitio; con sesión, el inicio', () => {
+    const { unmount } = renderWithProviders(protectedTree('x'), {
+      path: '/',
+      user: null,
+      raw: true,
+    })
+    expect(screen.getByText('Portada del sitio')).toBeInTheDocument()
+    unmount()
+    renderWithProviders(protectedTree('x'), { path: '/', user: ESCRIBANO, raw: true })
+    expect(screen.getByText('Inicio de la Suite')).toBeInTheDocument()
   })
 
   it('un rol que exige 2FA sin verificar solo puede ir a Seguridad', () => {
