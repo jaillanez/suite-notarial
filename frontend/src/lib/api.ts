@@ -12,20 +12,28 @@ export const api = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest' },
 })
 
-/** Ruta con un segmento `.` o `..` (también codificado). Los ids que llegan de la URL de la
- * página (parámetros de ruta o de búsqueda) se interpolan en las rutas de la API: uno armado a
- * propósito podría redirigir el pedido a otro endpoint con la sesión del usuario. */
+/** Dirección de la API armada con un id inválido. Los ids que llegan de la URL de la página
+ * (parámetros de ruta o de búsqueda) se interpolan en las rutas de la API: uno armado a propósito
+ * podría redirigir el pedido a otro endpoint con la sesión del usuario. Los parámetros de búsqueda
+ * van siempre en `params`, así que la ruta nunca lleva `?` ni `#`; se decodifica hasta tres veces
+ * para atrapar la doble codificación (`%252e%252e`). */
 export function rutaInsegura(url: string): boolean {
-  const ruta = url.split('?')[0] ?? ''
-  return ruta.split('/').some((segmento) => {
-    let valor: string
+  let valor = url
+  for (let i = 0; i < 3; i++) {
+    if (/[?#\\]/.test(valor)) return true
+    if (valor.split('/').some((segmento) => segmento === '.' || segmento === '..')) return true
+    let decodificado: string
     try {
-      valor = decodeURIComponent(segmento)
+      decodificado = decodeURIComponent(valor)
     } catch {
       return true
     }
-    return valor === '.' || valor === '..' || valor.includes('/') || valor.includes('\\')
-  })
+    if (decodificado === valor) return false
+    // Una barra que aparece al decodificar estaba escondida dentro de un id.
+    if (decodificado.split('/').length !== valor.split('/').length) return true
+    valor = decodificado
+  }
+  return true
 }
 
 api.interceptors.request.use((config) => {

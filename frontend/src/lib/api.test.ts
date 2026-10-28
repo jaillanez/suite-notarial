@@ -40,10 +40,19 @@ describe('rutaInsegura', () => {
     expect(rutaInsegura('/v1/ddjj/boletas/%E0%A4%A')).toBe(true)
   })
 
+  it('rechaza ? y # dentro de la ruta (cortan la dirección) y la doble codificación', () => {
+    expect(rutaInsegura('/v1/ddjj/declaraciones/x#/presentar')).toBe(true)
+    expect(rutaInsegura('/v1/pagos/mercadopago/x?/sincronizar')).toBe(true)
+    expect(rutaInsegura('/v1/pagos/mercadopago/x%23/sincronizar')).toBe(true)
+    expect(rutaInsegura('/v1/pagos/mercadopago/%252e%252e/aprobar')).toBe(true)
+    expect(rutaInsegura('/v1/pagos/a%5Cb/x')).toBe(true)
+  })
+
   it('deja pasar las rutas normales, con o sin parámetros', () => {
     expect(
       rutaInsegura('/v1/pagos/mercadopago/3f1c2b9a-7d4e-4a51-9c3b-2e8f6a1d0b7c/sincronizar'),
     ).toBe(false)
-    expect(rutaInsegura('/v1/cms/novedades?page=1&estado=PUBLICADO')).toBe(false)
+    expect(rutaInsegura('/v1/publico/novedades/aporte-medico-asistencial')).toBe(false)
+    expect(rutaInsegura('/v1/padron/escribanos/Juan%20P%C3%A9rez')).toBe(false)
   })
 })
