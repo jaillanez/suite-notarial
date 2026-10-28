@@ -19,8 +19,10 @@ CONT=suite-turnos-caddy-1
 F=/opt/suite-turnos/infra/caddy/Caddyfile
 T=$(date +%Y%m%d-%H%M%S)
 
-# Una sola ejecución a la vez.
-exec 9>/var/lock/agregar-a-caddy.lock
+# Una sola ejecución a la vez. El candado vive en un directorio solo de root (no en /var/lock,
+# donde cualquiera podría dejar un enlace que redirija la escritura).
+install -d -m 700 /run/agregar-a-caddy
+exec 9>/run/agregar-a-caddy/lock
 flock -n 9 || { echo "Otra ejecución está en curso."; exit 1; }
 
 # Archivos de trabajo en un directorio privado (0700) que se borra al salir, y un nombre único
