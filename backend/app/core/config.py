@@ -154,10 +154,15 @@ class Settings(BaseSettings):
             and self.SMTP_SECURITY == "none"
         ):
             raise ValueError("SMTP_SECURITY debe ser 'starttls' o 'tls' fuera de desarrollo")
-        # En producción el 2FA del personal es obligatorio siempre. En el servidor de prueba
-        # (staging, datos ficticios) se puede dejar como recomendación.
-        if not self.MFA_ENFORCED and self.ENVIRONMENT is Environment.PRODUCTION:
-            raise ValueError("MFA_ENFORCED=false no se admite en producción")
+        # El 2FA del personal es obligatorio salvo en una lista cerrada de entornos sin datos
+        # reales: desarrollo, tests y el servidor de prueba (staging), donde queda como
+        # recomendación. Cualquier otro entorno (producción o uno nuevo) lo exige.
+        if not self.MFA_ENFORCED and self.ENVIRONMENT not in (
+            Environment.DEVELOPMENT,
+            Environment.TEST,
+            Environment.STAGING,
+        ):
+            raise ValueError("MFA_ENFORCED=false solo se admite en development, test o staging")
         if self.SMTP_USER and self.SMTP_SECURITY == "none":
             raise ValueError(
                 "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"
