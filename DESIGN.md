@@ -308,10 +308,19 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Exportar a Excel y CSV como botones secundarios en la cabecera del panel; el pie recuerda que cada exportación queda auditada y si el reporte tiene datos sensibles.
 
 ### Sitio institucional (público)
-- Misma identidad que la Suite, en modo lectura: cabecera con logo y navegación corta (Inicio, Novedades, Verificar boleta, Ingresar), columna de 64rem y pie con la nota de integridad.
-- Secciones separadas por una línea fina y un título en Petróleo Profundo, sin tarjetas: la información se lee como un registro.
+- Diario institucional en modo lectura, con la misma identidad que la Suite y columna de 72rem (más ancha que la app, para las filas de noticias). Una sola familia (Public Sans) y techo de peso 600, como en toda la Suite.
+- Franja superior en Petróleo Profundo con la fecha del día (estilo diario) y el teléfono y correo de la Caja; cabecera blanca fija con logo, el menú del sitio de siempre de la Caja (Novedades, Caja, Normativa, Servicios online, Contacto; los grupos como desplegables) y «Acceso afiliados» como botón primario. En celular, menú desplegable que se desplaza dentro de la pantalla.
+- Destacadas: una nota a la vez, imagen 16:10 a la izquierda y sección · fecha, título (hasta 2.5rem), resumen y «Leer la nota» a la derecha; flechas y marcadores debajo, sin avance automático. Sin imagen, se usa la foto institucional. El cambio de nota es el único movimiento de la portada (aparece en 420ms).
+- Servicios online: un panel con los trámites del afiliado (ícono, nombre y detalle) en 7 columnas en escritorio y como lista compacta en celular.
+- Filas de noticias en 4 columnas: el ancho de cada nota (1 a 4) define el tamaño de su imagen (16:9 o 3:2) y del título. Las filas se separan con una línea fina; una nota sin imagen es solo texto (nunca se repite una foto). Debajo del título, la sección (enlace en Petróleo) y la fecha; sin etiquetas sobre el título.
+- Cierre en dos columnas: autoridades y estados contables; pie con el mapa del sitio, contacto y la nota de integridad.
 - Documentos agrupados por tipo; el ejercicio encabeza cada fila en cifras grandes y tabulares, con «Descargar PDF» como botón secundario. Huella y versiones anteriores en un desplegable con chevron.
-- Novedades en una columna de 65ch, cuerpo en 1.125rem y párrafos separados; el texto se muestra tal cual se cargó (escapado).
+- Novedades y páginas en una columna de 65ch, cuerpo en 1.125rem y párrafos separados; el texto se muestra tal cual se cargó (escapado). El listado filtra por sección.
+
+### Armado de portada (gestor)
+- Dos paneles: «Destacadas» (lista numerada de selectores con subir, bajar y quitar) y «Filas de noticias» (por fila: distribución elegida con botones que dibujan el reparto de las 4 columnas, y un selector por espacio con su ancho).
+- Una nota usada ya no se puede elegir en otro espacio; las notas no publicadas se marcan en el selector y un aviso de atención dice que no se verán hasta publicarlas.
+- Barra fija abajo con el estado («Hay cambios sin guardar…» o «Guardada el … por …»), «Ver el sitio» y «Guardar portada» (primario).
 
 ### Cuadro de amortización
 - Tabla de cuotas con cabecera y totales fijos (capital, intereses y total), cifras tabulares y la cuota en 600; en celular, una tarjeta por cuota. En préstamos vigentes, una columna de estado (pagada, pendiente, vencida) y la fila vencida con tinte de rechazo.
