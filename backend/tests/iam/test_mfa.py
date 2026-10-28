@@ -202,7 +202,7 @@ async def test_failed_codes_in_session_lock_account(
     assert (await client.get("/api/v1/auth/me")).status_code == 401
 
 
-async def test_mfa_enforcement_can_be_disabled_only_in_development(
+async def test_mfa_enforcement_can_be_disabled_only_outside_production(
     client: AsyncClient, db_session: AsyncSession, app: object
 ) -> None:
     import pytest as _pytest
@@ -219,6 +219,8 @@ async def test_mfa_enforcement_can_be_disabled_only_in_development(
 
     me = await client.get("/api/v1/auth/me")
     assert me.json()["mfa_required"] is False
+    # Sin exigencia, al personal se le recomienda activarlo (no bloquea).
+    assert me.json()["mfa_sugerido"] is True
     assert (await client.get("/api/v1/users")).status_code == 200
 
     with _pytest.raises(ValueError, match="MFA_ENFORCED"):
@@ -228,3 +230,11 @@ async def test_mfa_enforcement_can_be_disabled_only_in_development(
             SMTP_SECURITY="tls",
             MFA_ENFORCED=False,
         )
+    # En el servidor de prueba (staging) sí se puede dejar como recomendación.
+    prueba = Settings(
+        ENVIRONMENT=Environment.STAGING,
+        PUBLIC_WEB_URL="https://suitenotarial.duckdns.org",
+        SMTP_SECURITY="tls",
+        MFA_ENFORCED=False,
+    )
+    assert prueba.MFA_ENFORCED is False

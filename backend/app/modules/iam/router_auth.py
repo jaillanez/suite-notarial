@@ -26,6 +26,7 @@ from app.modules.iam.deps import (
     RequestContextDep,
     effective_permissions,
     mfa_required_for,
+    mfa_sugerido_for,
 )
 from app.modules.iam.mails import password_changed_mail, password_reset_mail
 from app.modules.iam.models import User
@@ -64,7 +65,12 @@ MailerDep = Annotated[Mailer, Depends(get_mailer)]
 
 
 def session_user(
-    user: User, *, mfa_verified: bool, permissions: frozenset[str], mfa_required: bool
+    user: User,
+    *,
+    mfa_verified: bool,
+    permissions: frozenset[str],
+    mfa_required: bool,
+    mfa_sugerido: bool = False,
 ) -> SessionUser:
     return SessionUser(
         id=user.id,
@@ -76,6 +82,7 @@ def session_user(
         mfa_enabled=user.totp_enabled,
         mfa_required=mfa_required,
         mfa_verified=mfa_verified,
+        mfa_sugerido=mfa_sugerido,
     )
 
 
@@ -103,6 +110,7 @@ async def login(
             mfa_verified=False,
             permissions=permissions,
             mfa_required=mfa_required_for(settings, step.user),
+            mfa_sugerido=mfa_sugerido_for(settings, step.user),
         ),
     )
 
@@ -138,6 +146,7 @@ async def login_mfa(
             mfa_verified=True,
             permissions=permissions,
             mfa_required=mfa_required_for(settings, user),
+            mfa_sugerido=mfa_sugerido_for(settings, user),
         ),
     )
 
@@ -169,6 +178,7 @@ async def refresh(
             mfa_verified=issued.session.mfa_verified,
             permissions=await effective_permissions(session, user),
             mfa_required=mfa_required_for(settings, user),
+            mfa_sugerido=mfa_sugerido_for(settings, user),
         ),
     )
 
@@ -193,6 +203,7 @@ async def me(principal: PrincipalDep, settings: SettingsDep) -> SessionUser:
         mfa_verified=principal.mfa_verified,
         permissions=principal.permissions,
         mfa_required=mfa_required_for(settings, principal.user),
+        mfa_sugerido=mfa_sugerido_for(settings, principal.user),
     )
 
 

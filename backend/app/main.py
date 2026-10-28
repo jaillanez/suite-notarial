@@ -40,7 +40,7 @@ def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     if not settings.MFA_ENFORCED:
         logging.getLogger(__name__).warning(
-            "2FA obligatorio DESACTIVADO (MFA_ENFORCED=false): solo para desarrollo local."
+            "2FA obligatorio DESACTIVADO (MFA_ENFORCED=false): queda como recomendación."
         )
 
     app = FastAPI(

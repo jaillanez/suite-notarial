@@ -10,6 +10,8 @@ export interface SessionUser {
   mfa_enabled: boolean
   mfa_required: boolean
   mfa_verified: boolean
+  /** El rol lo exigiría, pero en este entorno es una recomendación (no bloquea). */
+  mfa_sugerido?: boolean
 }
 
 export interface LoginResult {
