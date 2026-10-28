@@ -6,7 +6,15 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-from app.modules.cms.catalog import EstadoPublicacion, TipoDocumento
+from app.modules.cms.catalog import (
+    MAX_DESTACADAS,
+    MAX_FILAS,
+    Distribucion,
+    EstadoPublicacion,
+    GrupoPagina,
+    SeccionNovedad,
+    TipoDocumento,
+)
 
 Slug = Annotated[
     str,
@@ -61,6 +69,7 @@ class AutoridadOut(BaseModel):
 class NovedadIn(BaseModel):
     titulo: Titulo
     resumen: Resumen | None = None
+    seccion: SeccionNovedad = SeccionNovedad.NOVEDADES
     contenido: Contenido
     # Si falta, se arma a partir del título.
     slug: Slug | None = None
@@ -76,8 +85,12 @@ class NovedadOut(BaseModel):
     titulo: str
     resumen: str | None
     contenido: str
+    seccion: SeccionNovedad
     estado: EstadoPublicacion
     fecha_publicacion: datetime | None
+    # Ruta de la imagen para la vista de administración (también en borrador).
+    imagen_url: str | None
+    imagen_alt: str | None
     autor: str | None
     created_at: datetime
     updated_at: datetime
@@ -87,7 +100,11 @@ class NovedadResumen(BaseModel):
     slug: str
     titulo: str
     resumen: str | None
+    seccion: SeccionNovedad
+    seccion_texto: str
     fecha_publicacion: datetime
+    imagen_url: str | None
+    imagen_alt: str | None
 
 
 class NovedadPublica(NovedadResumen):
@@ -169,7 +186,80 @@ class DocumentoPublico(BaseModel):
     versiones_anteriores: list[VersionPublica]
 
 
+# --------------------------------------------------------------------------- páginas
+
+
+class PaginaIn(BaseModel):
+    grupo: GrupoPagina
+    titulo: Titulo
+    contenido: Contenido
+    orden: int = Field(default=0, ge=0, le=999)
+    slug: Slug | None = None
+
+
+class PaginaOut(BaseModel):
+    id: uuid.UUID
+    slug: str
+    grupo: GrupoPagina
+    titulo: str
+    contenido: str
+    orden: int
+    estado: EstadoPublicacion
+    updated_at: datetime
+
+
+class PaginaMenu(BaseModel):
+    slug: str
+    grupo: GrupoPagina
+    titulo: str
+
+
+class PaginaPublica(PaginaMenu):
+    grupo_texto: str
+    contenido: str
+    updated_at: datetime
+
+
+# --------------------------------------------------------------------------- portada
+
+
+class FilaIn(BaseModel):
+    distribucion: Distribucion
+    # Una nota por espacio de la distribución; None deja el espacio para completar después.
+    notas: list[uuid.UUID | None]
+
+
+class PortadaIn(BaseModel):
+    destacadas: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_DESTACADAS)
+    filas: list[FilaIn] = Field(default_factory=list, max_length=MAX_FILAS)
+
+
+class PortadaOut(PortadaIn):
+    actualizada: datetime | None
+    actualizada_por: str | None
+
+
+class FilaPublica(BaseModel):
+    distribucion: Distribucion
+    notas: list[NovedadResumen]
+
+
+class PortadaPublica(BaseModel):
+    destacadas: list[NovedadResumen]
+    filas: list[FilaPublica]
+
+
+class Contacto(BaseModel):
+    nombre: str
+    domicilio: str | None
+    telefono: str | None
+    email: str | None
+
+
 class SitioPublico(BaseModel):
+    portada: PortadaPublica
+    menu: list[PaginaMenu]
+    contacto: Contacto
     autoridades: list[AutoridadOut]
     novedades: list[NovedadResumen]
     documentos: list[DocumentoPublico]

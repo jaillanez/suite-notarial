@@ -31,3 +31,54 @@ TRANSICIONES: dict[EstadoPublicacion, frozenset[EstadoPublicacion]] = {
     EstadoPublicacion.PUBLICADO: frozenset({EstadoPublicacion.ARCHIVADO}),
     EstadoPublicacion.ARCHIVADO: frozenset({EstadoPublicacion.PUBLICADO}),
 }
+
+
+class SeccionNovedad(StrEnum):
+    """Secciones de las notas, como en el sitio original de la Caja."""
+
+    NOVEDADES = "NOVEDADES"
+    COMUNICADOS = "COMUNICADOS"
+    APORTES = "APORTES"
+    INSTITUCIONAL = "INSTITUCIONAL"
+
+
+SECCION_NOVEDAD_TEXTO: dict[SeccionNovedad, str] = {
+    SeccionNovedad.NOVEDADES: "Novedades",
+    SeccionNovedad.COMUNICADOS: "Comunicados de la Caja",
+    SeccionNovedad.APORTES: "Aportes",
+    SeccionNovedad.INSTITUCIONAL: "Institucional",
+}
+
+
+class GrupoPagina(StrEnum):
+    """Menú del sitio en el que aparece una página institucional."""
+
+    CAJA = "CAJA"
+    NORMATIVA = "NORMATIVA"
+
+
+GRUPO_PAGINA_TEXTO: dict[GrupoPagina, str] = {
+    GrupoPagina.CAJA: "Caja",
+    GrupoPagina.NORMATIVA: "Normativa",
+}
+
+
+class Distribucion(StrEnum):
+    """Cómo se reparte una fila de la portada en 4 columnas (ancho de cada nota)."""
+
+    UNA = "4"
+    TRES_UNA = "3+1"
+    DOS_DOS = "2+2"
+    DOS_UNA_UNA = "2+1+1"
+    CUATRO = "1+1+1+1"
+
+
+ANCHOS: dict[Distribucion, tuple[int, ...]] = {
+    d: tuple(int(x) for x in d.value.split("+")) for d in Distribucion
+}
+
+# Imágenes de las notas: tipo real por magic bytes (nunca por la extensión).
+MIME_IMAGEN: dict[str, str] = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+MAX_IMAGEN_MB = 5
+MAX_DESTACADAS = 5
+MAX_FILAS = 8

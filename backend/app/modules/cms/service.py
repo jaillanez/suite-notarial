@@ -21,8 +21,8 @@ from app.common.dates import today_local
 from app.common.pagination import PageParams
 from app.core.config import Settings
 from app.core.errors import ProblemError
-from app.modules.cms.catalog import TRANSICIONES, EstadoPublicacion
-from app.modules.cms.models import Autoridad, Documento, DocumentoVersion, Novedad
+from app.modules.cms.catalog import TRANSICIONES, EstadoPublicacion, SeccionNovedad
+from app.modules.cms.models import Autoridad, Documento, DocumentoVersion, Novedad, Pagina
 from app.modules.cms.schemas import (
     AutoridadIn,
     AutoridadUpdate,
@@ -53,7 +53,7 @@ def slugify(texto: str) -> str:
 
 
 async def _slug_libre(
-    session: AsyncSession, model: type[Novedad] | type[Documento], base: str
+    session: AsyncSession, model: type[Novedad] | type[Documento] | type[Pagina], base: str
 ) -> str:
     slug, n = base, 1
     while await session.scalar(select(model.id).where(model.slug == slug)):
@@ -138,15 +138,20 @@ async def actualizar_autoridad(
 
 # --------------------------------------------------------------------------- novedades
 
-NOVEDAD_CAMPOS = ("slug", "titulo", "resumen", "contenido")
+NOVEDAD_CAMPOS = ("slug", "titulo", "resumen", "seccion", "contenido")
 
 
 async def list_novedades(
-    session: AsyncSession, estado: EstadoPublicacion | None, page: PageParams
+    session: AsyncSession,
+    estado: EstadoPublicacion | None,
+    page: PageParams,
+    seccion: SeccionNovedad | None = None,
 ) -> tuple[list[Novedad], int]:
     stmt = select(Novedad)
     if estado is not None:
         stmt = stmt.where(Novedad.estado == estado.value)
+    if seccion is not None:
+        stmt = stmt.where(Novedad.seccion == seccion.value)
     total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
     result = await session.scalars(
         stmt.order_by(
@@ -176,6 +181,7 @@ async def crear_novedad(
         slug=slug,
         titulo=data.titulo,
         resumen=data.resumen,
+        seccion=data.seccion.value,
         contenido=data.contenido,
         estado=EstadoPublicacion.BORRADOR.value,
         autor_user_id=actor.id,
@@ -209,6 +215,7 @@ async def actualizar_novedad(
         item.slug = data.slug
     item.titulo = data.titulo
     item.resumen = data.resumen
+    item.seccion = data.seccion.value
     item.contenido = data.contenido
     despues = _valores(item, NOVEDAD_CAMPOS)
     cambios = [c for c in NOVEDAD_CAMPOS if antes[c] != despues[c]]
@@ -262,9 +269,9 @@ async def estado_novedad(
 
 
 async def novedades_publicadas(
-    session: AsyncSession, page: PageParams
+    session: AsyncSession, page: PageParams, seccion: SeccionNovedad | None = None
 ) -> tuple[list[Novedad], int]:
-    return await list_novedades(session, EstadoPublicacion.PUBLICADO, page)
+    return await list_novedades(session, EstadoPublicacion.PUBLICADO, page, seccion)
 
 
 async def novedad_publicada(session: AsyncSession, slug: str) -> Novedad:
