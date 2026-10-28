@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pyotp
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, update
@@ -205,3 +206,14 @@ async def test_un_intento_fallido_no_pisa_los_contados_en_paralelo(
     ctx = RequestContext(ip_address="203.0.113.40", user_agent="test", correlation_id=None)
     await service._register_failure(db_session, get_settings(), ctx, user, AuditEvent.LOGIN_FAILED)
     assert user.failed_login_attempts == 4
+
+
+async def test_seed_dev_nunca_en_produccion(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import Environment
+    from app.modules.iam import cli
+
+    class _Prod:
+        ENVIRONMENT = Environment.PRODUCTION
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _Prod())
+    assert await cli.seed_dev() == 1

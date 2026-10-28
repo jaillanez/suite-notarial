@@ -20,6 +20,8 @@ generadores = {
     "SUITE_APP_PASSWORD": lambda: secrets.token_hex(24),
     "JWT_SECRET": lambda: secrets.token_urlsafe(48),
     "DATA_ENCRYPTION_KEY": lambda: base64.b64encode(os.urandom(32)).decode(),
+    # Cumple la política (mayúscula, minúscula, número y símbolo).
+    "DEV_SEED_PASSWORD": lambda: "Demo-" + secrets.token_urlsafe(18) + "-9a!",
 }
 with open(ruta) as f:
     lineas = f.read().splitlines()

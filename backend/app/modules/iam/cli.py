@@ -114,8 +114,10 @@ async def create_admin(email: str, cuit: str, full_name: str) -> int:
 
 async def seed_dev() -> int:
     settings = get_settings()
-    if settings.ENVIRONMENT is not Environment.DEVELOPMENT:
-        _out("seed-dev solo se ejecuta con ENVIRONMENT=development.")
+    # También en el servidor de prueba (staging), que trabaja con datos de demostración. Nunca
+    # en producción: ahí los datos reales entran por la migración (Fase 10).
+    if settings.ENVIRONMENT not in (Environment.DEVELOPMENT, Environment.STAGING):
+        _out("seed-dev solo se ejecuta con ENVIRONMENT=development o staging.")
         return 1
     if settings.DEV_SEED_PASSWORD is None:
         _out("Definí DEV_SEED_PASSWORD en backend/.env (ver .env.example).")
@@ -379,7 +381,9 @@ def main(argv: list[str] | None = None) -> int:
     admin.add_argument("--email", required=True)
     admin.add_argument("--cuit", required=True)
     admin.add_argument("--name", required=True)
-    sub.add_parser("seed-dev", help="Crea usuarios de demostración (solo desarrollo)")
+    sub.add_parser(
+        "seed-dev", help="Carga los datos de demostración (desarrollo y servidor de prueba)"
+    )
     args = parser.parse_args(argv)
 
     async def run() -> int:
