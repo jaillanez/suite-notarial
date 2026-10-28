@@ -5,8 +5,8 @@
 #
 # Parte de la configuración que el Caddy tiene EN EJECUCIÓN (puede ser más nueva que el archivo del
 # disco si alguien lo editó con un método que reemplaza el archivo), guarda una copia, agrega solo
-# el bloque de la Suite, lo valida y aplica exactamente el archivo validado. Deja el archivo del
-# disco igual al que está en ejecución, para que un reinicio del Caddy no pierda nada. Si la
+# el bloque de la Suite, lo valida y carga en caliente exactamente el archivo validado. Deja el
+# archivo del disco igual a lo cargado, para que un reinicio del Caddy no pierda nada. Si la
 # validación falla, no cambia nada.
 set -euo pipefail
 umask 077
@@ -57,15 +57,15 @@ if ! docker exec "$CONT" caddy validate --config "$REMOTO" --adapter caddyfile >
   echo "La configuración nueva no es válida: no se cambió nada."
   exit 1
 fi
-# Se escribe sobre el mismo archivo que usa el contenedor, sin reemplazarlo: un `mv` cambiaría el
-# archivo y el contenedor seguiría leyendo el anterior (justamente lo que dejó al disco desfasado).
-docker exec "$CONT" sh -c 'cat "$1" > /etc/caddy/Caddyfile' _ "$REMOTO"
-docker exec "$CONT" cat /etc/caddy/Caddyfile > "$NUEVO"
-if [[ "$(sha256sum < "$NUEVO" | cut -d" " -f1)" != "$HUELLA" ]]; then
-  echo "Lo aplicado no coincide con lo validado: se vuelve a la copia anterior."
-  docker exec -i "$CONT" sh -c 'cat > /etc/caddy/Caddyfile' < "$LIVE"
+# El Caddyfile está montado en solo lectura dentro del contenedor: se carga en caliente la copia
+# validada (la misma, sin volver a leerla) y se guarda esa versión en el disco, que es lo que el
+# contenedor monta al reiniciarse.
+docker exec "$CONT" caddy reload --config "$REMOTO" --adapter caddyfile >/dev/null 2>&1
+cat "$NUEVO" > "$F"
+if [[ "$(sha256sum < "$F" | cut -d" " -f1)" != "$HUELLA" ]]; then
+  echo "El archivo del disco no quedó igual a lo validado: revisar $F (la copia está en $F.bak-$T-en-ejecucion)."
   exit 1
 fi
-cat "$NUEVO" > "$F"
-docker exec "$CONT" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
 echo "Listo: $DOMINIO agregado. Copia de la configuración anterior: $F.bak-$T-en-ejecucion"
+echo "El contenedor del Caddy todavía monta una versión vieja del archivo: en un momento tranquilo,"
+echo "'docker restart $CONT' (unos segundos sin los sitios) lo pone a leer el archivo actualizado."
