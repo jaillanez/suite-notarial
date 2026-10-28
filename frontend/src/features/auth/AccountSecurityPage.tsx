@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
+import { ArrowRight, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
 import { useState, type SyntheticEvent } from 'react'
 import { useNavigate } from 'react-router'
 
@@ -13,7 +13,13 @@ import { toProblem } from '../../lib/api'
 import { disableMfa, enableMfa, regenerateRecoveryCodes, startMfaSetup, type MfaSetup } from './api'
 import { ContrasenaPanel, PerfilPanel } from './CuentaPaneles'
 import { RecoveryCodes } from './RecoveryCodes'
-import { SESSION_KEY, needsMfaEnrollment, useSession } from './session'
+import {
+  SESSION_KEY,
+  mfaSugeridoPendiente,
+  needsMfaEnrollment,
+  omitirMfaSugerido,
+  useSession,
+} from './session'
 
 function groupSecret(secret: string): string {
   return secret.replace(/(.{4})/g, '$1 ').trim()
@@ -219,6 +225,7 @@ export function AccountSecurityPage() {
   if (!user) return null
 
   const forced = needsMfaEnrollment(user)
+  const sugerido = !forced && mfaSugeridoPendiente(user)
   const finishCodes = async () => {
     setCodes(null)
     await queryClient.invalidateQueries({ queryKey: SESSION_KEY })
@@ -236,6 +243,29 @@ export function AccountSecurityPage() {
           <Alert tone="warning" title="Activá la verificación en dos pasos para continuar">
             Tu rol tiene acceso a información sensible de la Caja. Hasta que la actives, el resto de
             la Suite queda bloqueado para esta cuenta.
+          </Alert>
+        </div>
+      )}
+      {sugerido && !codes && (
+        <div className="mb-6">
+          <Alert
+            tone="info"
+            title="Te recomendamos activar la verificación en dos pasos"
+            action={
+              <Button
+                icon={ArrowRight}
+                onClick={() => {
+                  omitirMfaSugerido(user)
+                  void navigate('/', { replace: true })
+                }}
+              >
+                Ingresar igual
+              </Button>
+            }
+          >
+            Tu rol tiene acceso a información sensible de la Caja. Con este paso, aunque alguien
+            conozca tu contraseña no puede entrar sin tu teléfono. Podés activarlo ahora o más tarde
+            desde Mi cuenta.
           </Alert>
         </div>
       )}

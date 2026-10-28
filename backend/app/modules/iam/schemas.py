@@ -34,6 +34,8 @@ class SessionUser(BaseModel):
     mfa_enabled: bool
     mfa_required: bool
     mfa_verified: bool
+    # El rol lo exigiría pero la exigencia está apagada: se recomienda activarlo (no bloquea).
+    mfa_sugerido: bool = False
 
 
 class LoginResponse(BaseModel):

@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 
-import { needsMfaEnrollment, useSession } from './session'
+import { mfaSugeridoPendiente, needsMfaEnrollment, useSession } from './session'
 
 function FullPageLoading() {
   return (
@@ -10,7 +10,8 @@ function FullPageLoading() {
   )
 }
 
-/** Exige sesión. Si el rol pide 2FA y falta, solo deja entrar a Mi cuenta (verificación en dos pasos). */
+/** Exige sesión. Si el rol pide 2FA y falta, solo deja entrar a Mi cuenta (verificación en dos
+ * pasos). Donde es solo una recomendación, se ofrece una vez por pestaña con «Ingresar igual». */
 export function RequireAuth() {
   const { user, isLoading } = useSession()
   const location = useLocation()
@@ -21,7 +22,8 @@ export function RequireAuth() {
     if (location.pathname === '/') return <Navigate to="/sitio" replace />
     return <Navigate to="/ingresar" replace state={{ from: location.pathname }} />
   }
-  if (needsMfaEnrollment(user) && location.pathname !== '/cuenta/seguridad') {
+  const ofrecer2fa = needsMfaEnrollment(user) || mfaSugeridoPendiente(user)
+  if (ofrecer2fa && location.pathname !== '/cuenta/seguridad') {
     return <Navigate to="/cuenta/seguridad" replace />
   }
   return <Outlet />
