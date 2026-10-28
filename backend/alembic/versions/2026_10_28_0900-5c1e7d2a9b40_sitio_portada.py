@@ -1,7 +1,7 @@
 """sitio_portada: secciones e imagen de las notas, páginas institucionales y portada
 
 Revision ID: 5c1e7d2a9b40
-Revises: 8f715a287255
+Revises: 1093a02ce864
 Create Date: 2026-10-28 09:00:00
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "5c1e7d2a9b40"
-down_revision: Union[str, Sequence[str], None] = "8f715a287255"
+down_revision: Union[str, Sequence[str], None] = "1093a02ce864"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
