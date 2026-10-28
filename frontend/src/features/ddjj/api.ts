@@ -307,5 +307,5 @@ export async function verificarBoleta(codigo: string): Promise<Verificacion> {
 }
 
 export async function fetchBoleta(id: string): Promise<Boleta> {
-  return (await api.get<Boleta>(`/v1/ddjj/boletas/${id}`)).data
+  return (await api.get<Boleta>(`/v1/ddjj/boletas/${encodeURIComponent(id)}`)).data
 }

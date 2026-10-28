@@ -12,6 +12,29 @@ export const api = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest' },
 })
 
+/** Ruta con un segmento `.` o `..` (también codificado). Los ids que llegan de la URL de la
+ * página (parámetros de ruta o de búsqueda) se interpolan en las rutas de la API: uno armado a
+ * propósito podría redirigir el pedido a otro endpoint con la sesión del usuario. */
+export function rutaInsegura(url: string): boolean {
+  const ruta = url.split('?')[0] ?? ''
+  return ruta.split('/').some((segmento) => {
+    let valor: string
+    try {
+      valor = decodeURIComponent(segmento)
+    } catch {
+      return true
+    }
+    return valor === '.' || valor === '..' || valor.includes('/') || valor.includes('\\')
+  })
+}
+
+api.interceptors.request.use((config) => {
+  if (rutaInsegura(config.url ?? '')) {
+    throw new Error('Pedido rechazado: la dirección tiene un identificador inválido.')
+  }
+  return config
+})
+
 type RetriableConfig = AxiosRequestConfig & { _retried?: boolean }
 
 const AUTH_PATHS_WITHOUT_REFRESH = ['/v1/auth/login', '/v1/auth/refresh', '/v1/auth/password-reset']

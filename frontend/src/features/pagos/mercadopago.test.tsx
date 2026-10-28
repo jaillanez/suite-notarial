@@ -162,21 +162,33 @@ describe('vuelta desde Mercado Pago', () => {
     vi.mocked(ddjjApi.fetchBoleta).mockResolvedValue(BOLETA)
   })
 
-  function renderRetorno() {
+  const PAGO_ID = '3f1c2b9a-7d4e-4a51-9c3b-2e8f6a1d0b7c'
+
+  function renderRetorno(pago: string = PAGO_ID) {
     return renderWithProviders(
       <Routes>
         <Route path="/pagos/mercadopago/retorno" element={<RetornoMercadoPagoPage />} />
       </Routes>,
-      { path: '/pagos/mercadopago/retorno?pago=p1&status=approved', user: NOTARIO, raw: true },
+      {
+        path: `/pagos/mercadopago/retorno?pago=${encodeURIComponent(pago)}&status=approved`,
+        user: NOTARIO,
+        raw: true,
+      },
     )
   }
+
+  it('con un identificador que no es UUID no consulta nada (no se arma otra ruta)', async () => {
+    renderRetorno('../../comprobantes/x/aprobar')
+    expect(await screen.findByText(/no tiene un identificador de pago válido/)).toBeInTheDocument()
+    expect(pagosApi.sincronizarPagoMP).not.toHaveBeenCalled()
+  })
 
   it('consulta el pago a la Suite (no a la dirección) y explica que lo confirma Tesorería', async () => {
     vi.mocked(pagosApi.sincronizarPagoMP).mockResolvedValue(PAGO)
     renderRetorno()
     expect(await screen.findByText('Mercado Pago aprobó tu pago')).toBeInTheDocument()
     expect(screen.getByText(/Tesorería lo confirma/)).toBeInTheDocument()
-    expect(pagosApi.sincronizarPagoMP).toHaveBeenCalledWith('p1')
+    expect(pagosApi.sincronizarPagoMP).toHaveBeenCalledWith(PAGO_ID)
     expect(await screen.findByRole('link', { name: /Volver a la declaración/ })).toHaveAttribute(
       'href',
       '/ddjj/d1',

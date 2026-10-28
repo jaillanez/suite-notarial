@@ -10,6 +10,7 @@ import { formatMoney } from '../../lib/decimal'
 import { fetchBoleta } from '../ddjj/api'
 import { sincronizarPagoMP, type PagoMercadoPago } from './api'
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EN_CURSO = new Set(['CREADO', 'pending', 'authorized', 'in_process', 'in_mediation'])
 
 function Resultado({ pago }: { pago: PagoMercadoPago }) {
@@ -47,7 +48,9 @@ function Resultado({ pago }: { pago: PagoMercadoPago }) {
 /** Vuelta desde Mercado Pago: la Suite consulta el pago a Mercado Pago (no a la dirección). */
 export function RetornoMercadoPagoPage() {
   const [params] = useSearchParams()
-  const pagoId = params.get('pago') ?? ''
+  // Solo un UUID: el valor viene de la URL de vuelta y termina en la ruta de un POST.
+  const crudo = params.get('pago') ?? ''
+  const pagoId = UUID.test(crudo) ? crudo : ''
   const consulta = useQuery({
     queryKey: ['pagos', 'mercadopago', 'retorno', pagoId],
     queryFn: () => sincronizarPagoMP(pagoId),
@@ -69,7 +72,11 @@ export function RetornoMercadoPagoPage() {
       />
       <Panel>
         <div className="grid gap-5 px-5 py-6 sm:px-6">
-          {!pagoId && <Alert tone="danger">Falta el identificador del pago.</Alert>}
+          {!pagoId && (
+            <Alert tone="danger">
+              El enlace de vuelta no tiene un identificador de pago válido.
+            </Alert>
+          )}
           {consulta.isPending && pagoId && (
             <p className="text-ink-muted" aria-live="polite" aria-busy="true">
               Consultando el pago a Mercado Pago…

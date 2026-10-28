@@ -157,13 +157,16 @@ export async function fetchMercadoPagoHabilitado(): Promise<boolean> {
 
 /** Arma el cobro en Mercado Pago y devuelve la dirección a la que hay que ir a pagar. */
 export async function pagarConMercadoPago(boletaId: string): Promise<string> {
-  return (await api.post<{ url_pago: string }>(`${P}/boletas/${boletaId}/mercadopago`)).data
-    .url_pago
+  return (
+    await api.post<{ url_pago: string }>(`${P}/boletas/${encodeURIComponent(boletaId)}/mercadopago`)
+  ).data.url_pago
 }
 
 /** Al volver de Mercado Pago: la Suite consulta el pago y lo registra. */
 export async function sincronizarPagoMP(pagoId: string): Promise<PagoMercadoPago> {
-  return (await api.post<PagoMercadoPago>(`${P}/mercadopago/${pagoId}/sincronizar`)).data
+  return (
+    await api.post<PagoMercadoPago>(`${P}/mercadopago/${encodeURIComponent(pagoId)}/sincronizar`)
+  ).data
 }
 
 export async function fetchRegistroMP(page: number): Promise<Page<PagoMercadoPago>> {
