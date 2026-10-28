@@ -16,6 +16,9 @@ export function RequireAuth() {
   const location = useLocation()
   if (isLoading) return <FullPageLoading />
   if (!user) {
+    // La dirección principal es la puerta de entrada de la Caja: sin sesión muestra el sitio
+    // institucional (con «Acceso afiliados»); cualquier otra pantalla pide ingresar.
+    if (location.pathname === '/') return <Navigate to="/sitio" replace />
     return <Navigate to="/ingresar" replace state={{ from: location.pathname }} />
   }
   if (needsMfaEnrollment(user) && location.pathname !== '/cuenta/seguridad') {
