@@ -7,6 +7,7 @@ mismo parser que las respuestas reales."""
 import hashlib
 import hmac
 import json
+import time
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -19,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
-from app.core.config import get_settings
+from app.core.config import Environment, Settings, get_settings
 from app.modules.pagos import mercadopago, mercadopago_service
 from app.modules.pagos.models import Comprobante, PagoMercadoPago
 from tests.ddjj.conftest import HOY, Escenario, _client, _escribano
@@ -123,18 +124,44 @@ def test_el_pago_se_lee_sin_flotantes() -> None:
 
 
 def test_firma_de_la_notificacion() -> None:
-    manifiesto = "id:123;request-id:req-1;ts:1700000000;"
+    ahora = 1792724400
+    manifiesto = f"id:123;request-id:req-1;ts:{ahora};"
     v1 = hmac.new(b"secreto", manifiesto.encode(), hashlib.sha256).hexdigest()
-    firma = f"ts=1700000000,v1={v1}"
-    assert mercadopago.firma_valida(
-        firma=firma, request_id="req-1", data_id="123", secreto="secreto"
-    )
-    assert not mercadopago.firma_valida(
-        firma=firma, request_id="req-1", data_id="124", secreto="secreto"
-    )
-    assert not mercadopago.firma_valida(
-        firma=None, request_id="req-1", data_id="123", secreto="secreto"
-    )
+    firma = f"ts={ahora},v1={v1}"
+
+    def valida(**cambios: Any) -> bool:
+        datos: dict[str, Any] = {
+            "firma": firma,
+            "request_id": "req-1",
+            "data_id": "123",
+            "secreto": "secreto",
+            "ahora": ahora + 30,
+        }
+        return mercadopago.firma_valida(**(datos | cambios))
+
+    assert valida()
+    assert not valida(data_id="124")
+    assert not valida(firma=None)
+    # Sin x-request-id no se acepta, y una notificación vieja tampoco (repetición).
+    assert not valida(request_id=None)
+    assert not valida(ahora=ahora + mercadopago.VENTANA_FIRMA_S + 1)
+    # Mercado Pago puede informar el momento en milisegundos.
+    ms = f"{ahora}000"
+    v1_ms = hmac.new(
+        b"secreto", f"id:123;request-id:req-1;ts:{ms};".encode(), hashlib.sha256
+    ).hexdigest()
+    assert valida(firma=f"ts={ms},v1={v1_ms}")
+
+
+@pytest.mark.parametrize("env", [Environment.STAGING, Environment.PRODUCTION])
+def test_fuera_de_desarrollo_la_clave_de_notificaciones_es_obligatoria(env: Environment) -> None:
+    with pytest.raises(ValueError, match="MERCADOPAGO_WEBHOOK_SECRET"):
+        Settings(
+            ENVIRONMENT=env,
+            PUBLIC_WEB_URL="https://suite.cajanotarial-sj.com.ar",
+            SMTP_SECURITY="tls",
+            MERCADOPAGO_ACCESS_TOKEN="APP_USR-token",
+        )
 
 
 # --------------------------------------------------------------------------- flujo
@@ -178,7 +205,9 @@ async def test_pagar_registra_y_tesoreria_confirma(
     sincronizado = await notario.post(f"/api/v1/pagos/mercadopago/{registro.id}/sincronizar")
     assert sincronizado.status_code == 200, sincronizado.text
     assert sincronizado.json()["estado"] == "approved"
-    assert sincronizado.json()["comision"] == "1234.56"
+    # Comisión y neto son datos internos de la Caja: el escribano no los ve.
+    assert sincronizado.json()["comision"] is None
+    assert sincronizado.json()["importe_neto"] is None
 
     # El pago queda en la mesa de Tesorería; la boleta todavía no está pagada.
     comprobante = await db_session.scalar(
@@ -201,6 +230,7 @@ async def test_pagar_registra_y_tesoreria_confirma(
     visto = (await tesoreria.get(f"/api/v1/pagos/comprobantes/{comprobante.id}")).json()
     assert visto["origen"] == "MERCADO_PAGO"
     assert visto["mercado_pago"]["mp_payment_id"] == str(mp.pagos[str(registro.id)][0]["id"])
+    assert visto["mercado_pago"]["comision"] == "1234.56"
     assert visto["diferencia"] == "0.00"
     sin_archivo = await tesoreria.get(f"/api/v1/pagos/comprobantes/{comprobante.id}/archivo")
     assert sin_archivo.status_code == 404
@@ -286,12 +316,11 @@ async def test_notificacion_firmada_sin_sesion(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "MERCADOPAGO_WEBHOOK_SECRET", SecretStr("secreto-mp"))
     await _pagar(notario, boleta["id"])
     registro = await _pago_mp(db_session, boleta["id"])
     pago = mp.informar(str(registro.id), transaction_amount=Decimal(boleta["total_a_pagar"]))
     data_id = str(pago["id"])
-    ts = "1792724400"
+    ts = str(int(time.time()))
     v1 = hmac.new(
         b"secreto-mp", f"id:{data_id};request-id:req-9;ts:{ts};".encode(), hashlib.sha256
     ).hexdigest()
@@ -300,6 +329,12 @@ async def test_notificacion_firmada_sin_sesion(
         transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
     ) as externo:
         url = f"/api/v1/pagos/mercadopago/notificaciones?type=payment&data.id={data_id}"
+        # Sin clave secreta configurada no se atiende ninguna notificación.
+        sin_clave = await externo.post(
+            url, headers={"x-signature": f"ts={ts},v1={v1}", "x-request-id": "req-9"}
+        )
+        assert sin_clave.status_code == 401
+        monkeypatch.setattr(get_settings(), "MERCADOPAGO_WEBHOOK_SECRET", SecretStr("secreto-mp"))
         falsa = await externo.post(
             url, headers={"x-signature": f"ts={ts},v1=00", "x-request-id": "req-9"}
         )
@@ -319,7 +354,7 @@ async def test_notificacion_firmada_sin_sesion(
         )
         assert desconocido.status_code == 200
     assert len((await db_session.scalars(select(Comprobante))).all()) == 1
-    assert len(await _eventos(db_session, "PAGO_MP_FIRMA_INVALIDA")) == 1
+    assert len(await _eventos(db_session, "PAGO_MP_FIRMA_INVALIDA")) == 2
     assert len(await _eventos(db_session, "PAGO_MP_DESCONOCIDO")) == 1
 
 

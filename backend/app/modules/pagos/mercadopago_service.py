@@ -335,13 +335,14 @@ async def notificacion(
     firma: str | None,
     request_id: str | None,
 ) -> None:
-    """Notificación de Mercado Pago (webhook). Si hay clave secreta configurada, se exige la
-    firma; en cualquier caso el pago se consulta a la API (la notificación no se cree)."""
+    """Notificación de Mercado Pago (webhook). Se exige la firma con la clave secreta (sin clave
+    configurada no se atiende ninguna); además el pago se consulta a la API: el contenido de la
+    notificación nunca se toma como cierto."""
     if tipo != "payment" or not data_id or not data_id.isdigit():
         return
     configurada = get_settings().MERCADOPAGO_WEBHOOK_SECRET
     secreto = configurada.get_secret_value().strip() if configurada is not None else ""
-    if secreto and not mercadopago.firma_valida(
+    if not secreto or not mercadopago.firma_valida(
         firma=firma, request_id=request_id, data_id=data_id, secreto=secreto
     ):
         record_audit(

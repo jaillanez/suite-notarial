@@ -10,6 +10,7 @@
 import hashlib
 import hmac
 import json
+import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -192,18 +193,31 @@ async def pagos_de(referencia: str) -> list[Pago]:
     return [pago_desde(r) for r in resultados or []]
 
 
-def firma_valida(*, firma: str | None, request_id: str | None, data_id: str, secreto: str) -> bool:
+# Antigüedad máxima de una notificación (contra repeticiones de una ya enviada).
+VENTANA_FIRMA_S = 600
+
+
+def firma_valida(
+    *,
+    firma: str | None,
+    request_id: str | None,
+    data_id: str,
+    secreto: str,
+    ahora: int | None = None,
+) -> bool:
     """Verifica la cabecera `x-signature` de una notificación (HMAC-SHA256 de Mercado Pago):
-    `ts=...,v1=...` sobre `id:{data.id};request-id:{x-request-id};ts:{ts};`."""
-    if not firma:
+    `ts=...,v1=...` sobre `id:{data.id};request-id:{x-request-id};ts:{ts};`. Exige el
+    `x-request-id` y rechaza notificaciones de más de 10 minutos."""
+    if not firma or not request_id:
         return False
     partes = dict(p.split("=", 1) for p in firma.split(",") if "=" in p)
     ts, v1 = partes.get("ts", "").strip(), partes.get("v1", "").strip()
-    if not ts or not v1:
+    if not ts.isdigit() or not v1:
         return False
-    manifiesto = f"id:{data_id.lower()};"
-    if request_id:
-        manifiesto += f"request-id:{request_id};"
-    manifiesto += f"ts:{ts};"
+    # Mercado Pago informa el momento en segundos o en milisegundos.
+    segundos = int(ts) // 1000 if len(ts) > 11 else int(ts)
+    if abs((int(time.time()) if ahora is None else ahora) - segundos) > VENTANA_FIRMA_S:
+        return False
+    manifiesto = f"id:{data_id.lower()};request-id:{request_id};ts:{ts};"
     esperada = hmac.new(secreto.encode(), manifiesto.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(esperada, v1)

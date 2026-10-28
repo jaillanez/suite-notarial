@@ -121,13 +121,14 @@ async def comprobante_out(
         )
         if conciliacion
         else None,
-        mercado_pago=pago_mp_out(mp)
+        mercado_pago=pago_mp_out(mp, interno=service.es_tesoreria(principal))
         if (mp := await mercadopago_service.de_comprobante(session, c.id))
         else None,
     )
 
 
-def pago_mp_out(p: PagoMercadoPago) -> PagoMercadoPagoOut:
+def pago_mp_out(p: PagoMercadoPago, *, interno: bool) -> PagoMercadoPagoOut:
+    """`interno`: comisión y neto son datos de la Caja; solo los ve Tesorería."""
     return PagoMercadoPagoOut(
         id=p.id,
         boleta_id=p.boleta_id,
@@ -137,8 +138,8 @@ def pago_mp_out(p: PagoMercadoPago) -> PagoMercadoPagoOut:
         medio_pago=p.medio_pago,
         importe_boleta=p.importe_boleta,
         importe_pagado=p.importe_pagado,
-        comision=p.comision,
-        importe_neto=p.importe_neto,
+        comision=p.comision if interno else None,
+        importe_neto=p.importe_neto if interno else None,
         aprobado_en=p.aprobado_en,
         comprobante_id=p.comprobante_id,
         created_at=p.created_at,
@@ -166,7 +167,8 @@ async def pagos_mp_de_boleta(
     boleta_id: uuid.UUID, principal: CanRead, session: SessionDep
 ) -> list[PagoMercadoPagoOut]:
     return [
-        pago_mp_out(p) for p in await mercadopago_service.de_boleta(session, principal, boleta_id)
+        pago_mp_out(p, interno=service.es_tesoreria(principal))
+        for p in await mercadopago_service.de_boleta(session, principal, boleta_id)
     ]
 
 
@@ -175,7 +177,8 @@ async def sincronizar_pago_mp(
     pago_id: uuid.UUID, principal: CanRead, session: SessionDep, ctx: RequestContextDep
 ) -> PagoMercadoPagoOut:
     """Al volver de Mercado Pago: la Suite consulta el pago a Mercado Pago y lo registra."""
-    return pago_mp_out(await mercadopago_service.sincronizar(session, ctx, principal, pago_id))
+    pago = await mercadopago_service.sincronizar(session, ctx, principal, pago_id)
+    return pago_mp_out(pago, interno=service.es_tesoreria(principal))
 
 
 @router.get("/mercadopago", response_model=Page[PagoMercadoPagoOut])
@@ -184,7 +187,7 @@ async def registro_pagos_mp(
 ) -> Page[PagoMercadoPagoOut]:
     items, total = await mercadopago_service.registro(session, page)
     return Page(
-        items=[pago_mp_out(p) for p in items],
+        items=[pago_mp_out(p, interno=True) for p in items],
         total=total,
         page=page.page,
         page_size=page.page_size,

@@ -160,6 +160,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"
             )
+        mp_token = self.MERCADOPAGO_ACCESS_TOKEN
+        mp_secret = self.MERCADOPAGO_WEBHOOK_SECRET
+        if (
+            self.ENVIRONMENT in (Environment.STAGING, Environment.PRODUCTION)
+            and mp_token is not None
+            and mp_token.get_secret_value().strip()
+            and not (mp_secret and mp_secret.get_secret_value().strip())
+        ):
+            raise ValueError(
+                "Con Mercado Pago habilitado fuera de desarrollo, MERCADOPAGO_WEBHOOK_SECRET es "
+                "obligatorio (las notificaciones se verifican por firma)"
+            )
         return self
 
     @property
