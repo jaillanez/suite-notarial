@@ -22,7 +22,7 @@ import {
   rechazarComprobante,
   type Comprobante,
 } from './api'
-import { ESTADO_COMPROBANTE, MOTIVOS_FRECUENTES, formatTamano } from './labels'
+import { ESTADO_COMPROBANTE, ESTADO_PAGO_MP, MOTIVOS_FRECUENTES, formatTamano } from './labels'
 
 function Par({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -54,7 +54,7 @@ function Visor({ comprobante }: { comprobante: Comprobante }) {
   return (
     <Panel
       title="Comprobante"
-      description={`${comprobante.nombre_original} · ${formatTamano(comprobante.tamano_bytes)}`}
+      description={`${comprobante.nombre_original ?? ''} · ${formatTamano(comprobante.tamano_bytes ?? 0)}`}
       actions={
         url ? (
           <a
@@ -82,18 +82,56 @@ function Visor({ comprobante }: { comprobante: Comprobante }) {
         {url && esPdf && (
           <iframe
             src={url}
-            title={`Comprobante ${comprobante.nombre_original}`}
+            title={`Comprobante ${comprobante.nombre_original ?? ''}`}
             className="block h-[32rem] w-full lg:h-[44rem]"
           />
         )}
         {url && !esPdf && (
           <img
             src={url}
-            alt={`Comprobante ${comprobante.nombre_original}`}
+            alt={`Comprobante ${comprobante.nombre_original ?? ''}`}
             className="mx-auto block max-h-[44rem] w-auto max-w-full object-contain"
           />
         )}
       </div>
+    </Panel>
+  )
+}
+
+/** Pago informado por Mercado Pago: no hay archivo, sino lo que la Suite consultó a su API. */
+function PagoMercadoPagoPanel({ c }: { c: Comprobante }) {
+  const mp = c.mercado_pago
+  return (
+    <Panel
+      title="Pago con Mercado Pago"
+      description="Datos consultados a Mercado Pago. Confirmá el pago contra la liquidación de Mercado Pago antes de aprobarlo."
+    >
+      {mp ? (
+        <dl className="divide-y divide-line">
+          <Par label="Estado en Mercado Pago">{ESTADO_PAGO_MP[mp.estado]}</Par>
+          <Par label="N° de operación">{mp.mp_payment_id ?? '—'}</Par>
+          <Par label="Medio de pago">{mp.medio_pago ?? '—'}</Par>
+          <Par label="Aprobado">
+            {mp.aprobado_en ? formatLocalDateTime(new Date(mp.aprobado_en)) : '—'}
+          </Par>
+          <Par label="Importe pagado">{formatMoney(mp.importe_pagado)}</Par>
+          <Par label="Comisión de Mercado Pago (la absorbe la Caja)">
+            {formatMoney(mp.comision)}
+          </Par>
+          <Par label="Neto a acreditar">{formatMoney(mp.importe_neto)}</Par>
+        </dl>
+      ) : (
+        <div className="px-5 py-5 sm:px-6">
+          <Alert tone="warning">No se encontró el registro del pago en Mercado Pago.</Alert>
+        </div>
+      )}
+      {mp && (mp.estado === 'refunded' || mp.estado === 'charged_back') && (
+        <div className="px-5 pb-5 sm:px-6">
+          <Alert tone="danger" title="Mercado Pago revirtió este pago">
+            El pago figura como {ESTADO_PAGO_MP[mp.estado].toLowerCase()}: no lo apruebes.
+          </Alert>
+        </div>
+      )}
     </Panel>
   )
 }
@@ -130,7 +168,9 @@ function Cotejo({ c }: { c: Comprobante }) {
             {coincide ? formatMoney('0.00') : formatMoney(c.diferencia)}
           </dd>
         </div>
-        <Par label="Transferencia">{formatDate(c.fecha_transferencia)}</Par>
+        <Par label={c.origen === 'MERCADO_PAGO' ? 'Pago aprobado' : 'Transferencia'}>
+          {formatDate(c.fecha_transferencia)}
+        </Par>
         <Par label="N° de operación">{c.numero_operacion}</Par>
         <Par label="Banco de origen">{c.banco_origen ?? '—'}</Par>
         <Par label="Adjuntado por">{c.subido_por ?? '—'}</Par>
@@ -422,7 +462,11 @@ export function ComprobantePage() {
             </div>
           </div>
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-            <Visor comprobante={c} />
+            {c.origen === 'MERCADO_PAGO' ? (
+              <PagoMercadoPagoPanel c={c} />
+            ) : (
+              <Visor comprobante={c} />
+            )}
             <div className="grid gap-6">
               <Cotejo c={c} />
               <Resolucion c={c} />

@@ -12,6 +12,37 @@ export const api = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest' },
 })
 
+/** Dirección de la API armada con un id inválido. Los ids que llegan de la URL de la página
+ * (parámetros de ruta o de búsqueda) se interpolan en las rutas de la API: uno armado a propósito
+ * podría redirigir el pedido a otro endpoint con la sesión del usuario. Los parámetros de búsqueda
+ * van siempre en `params`, así que la ruta nunca lleva `?` ni `#`; se decodifica hasta tres veces
+ * para atrapar la doble codificación (`%252e%252e`). */
+export function rutaInsegura(url: string): boolean {
+  let valor = url
+  for (let i = 0; i < 3; i++) {
+    if (/[?#\\]/.test(valor)) return true
+    if (valor.split('/').some((segmento) => segmento === '.' || segmento === '..')) return true
+    let decodificado: string
+    try {
+      decodificado = decodeURIComponent(valor)
+    } catch {
+      return true
+    }
+    if (decodificado === valor) return false
+    // Una barra que aparece al decodificar estaba escondida dentro de un id.
+    if (decodificado.split('/').length !== valor.split('/').length) return true
+    valor = decodificado
+  }
+  return true
+}
+
+api.interceptors.request.use((config) => {
+  if (rutaInsegura(config.url ?? '')) {
+    throw new Error('Pedido rechazado: la dirección tiene un identificador inválido.')
+  }
+  return config
+})
+
 type RetriableConfig = AxiosRequestConfig & { _retried?: boolean }
 
 const AUTH_PATHS_WITHOUT_REFRESH = ['/v1/auth/login', '/v1/auth/refresh', '/v1/auth/password-reset']

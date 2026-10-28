@@ -1,5 +1,5 @@
 import type { Tone } from '../../components/StatusIndicator'
-import type { EstadoComprobante } from './api'
+import type { EstadoComprobante, EstadoPagoMP } from './api'
 
 export const ESTADO_COMPROBANTE: Record<
   EstadoComprobante,
@@ -39,3 +39,17 @@ export function formatTamano(bytes: number): string {
 /** Máximo que acepta el servidor (MAX_UPLOAD_MB). */
 export const MAX_BYTES = 10 * 1024 * 1024
 export const TIPOS_ACEPTADOS = 'application/pdf,image/png,image/jpeg'
+
+/** Estado del pago tal como lo informa Mercado Pago, en palabras. */
+export const ESTADO_PAGO_MP: Record<EstadoPagoMP, string> = {
+  CREADO: 'Cobro armado, sin pago',
+  pending: 'Pendiente',
+  authorized: 'Autorizado',
+  in_process: 'En proceso',
+  in_mediation: 'En mediación',
+  approved: 'Aprobado',
+  rejected: 'Rechazado',
+  cancelled: 'Cancelado',
+  refunded: 'Devuelto',
+  charged_back: 'Desconocido por el titular (contracargo)',
+}

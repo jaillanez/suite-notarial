@@ -32,6 +32,9 @@ UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # GET con efectos (las exportaciones se auditan): exigen la misma defensa CSRF, para que un
 # enlace desde otro sitio no dispare exportaciones a nombre de quien tiene la sesión abierta.
 CSRF_GET_PATHS = re.compile(r"^/api/v1/reportes/[^/]+/export$")
+# Llamadas de servidor a servidor, sin sesión ni cookies (no hay CSRF posible): la
+# notificación de Mercado Pago. Se autentica por firma y se verifica contra la API de MP.
+CSRF_EXEMPT_PATHS = frozenset({"/api/v1/pagos/mercadopago/notificaciones"})
 CSRF_HEADER = "X-Requested-With"
 CSRF_HEADER_VALUE = "XMLHttpRequest"
 
@@ -47,7 +50,7 @@ def _csrf_violation(request: Request, allowed_origins: frozenset[str]) -> str | 
     protegido = request.method in UNSAFE_METHODS or (
         request.method == "GET" and CSRF_GET_PATHS.match(path) is not None
     )
-    if not protegido or not path.startswith("/api/"):
+    if not protegido or not path.startswith("/api/") or path in CSRF_EXEMPT_PATHS:
         return None
     if request.headers.get(CSRF_HEADER) != CSRF_HEADER_VALUE:
         return f"Falta la cabecera {CSRF_HEADER}."

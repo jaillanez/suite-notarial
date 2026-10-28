@@ -85,6 +85,16 @@ class Settings(BaseSettings):
     IA_VISION_TIMEOUT_S: Annotated[int, Field(gt=0, le=300)] = 90
     IA_INDICE_MAX_FOTOS: Annotated[int, Field(gt=0, le=20)] = 6
 
+    # Pago de boletas con Mercado Pago (Checkout Pro). Sin token, el botón no se ofrece. El
+    # pago se registra y queda en revisión: Tesorería lo confirma (regla PAGO). La comisión la
+    # absorbe la Caja (definido el 27/10/2026): se cobra el total exacto de la boleta.
+    MERCADOPAGO_ACCESS_TOKEN: SecretStr | None = None
+    # Clave secreta de las notificaciones (webhook); sin ella, solo se verifica al volver del
+    # pago consultando a Mercado Pago.
+    MERCADOPAGO_WEBHOOK_SECRET: SecretStr | None = None
+    MERCADOPAGO_BASE_URL: str = "https://api.mercadopago.com"
+    MERCADOPAGO_TIMEOUT_S: Annotated[int, Field(gt=0, le=120)] = 30
+
     # Migración (Fase 10): simulacros cuadrados exigidos antes de la carga definitiva
     # (módulo 11: tres simulacros completos).
     MIGRACION_SIMULACROS_MINIMOS: Annotated[int, Field(ge=1, le=20)] = 3
@@ -149,6 +159,18 @@ class Settings(BaseSettings):
         if self.SMTP_USER and self.SMTP_SECURITY == "none":
             raise ValueError(
                 "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"
+            )
+        mp_token = self.MERCADOPAGO_ACCESS_TOKEN
+        mp_secret = self.MERCADOPAGO_WEBHOOK_SECRET
+        if (
+            self.ENVIRONMENT in (Environment.STAGING, Environment.PRODUCTION)
+            and mp_token is not None
+            and mp_token.get_secret_value().strip()
+            and not (mp_secret and mp_secret.get_secret_value().strip())
+        ):
+            raise ValueError(
+                "Con Mercado Pago habilitado fuera de desarrollo, MERCADOPAGO_WEBHOOK_SECRET es "
+                "obligatorio (las notificaciones se verifican por firma)"
             )
         return self
 

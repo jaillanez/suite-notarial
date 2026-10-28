@@ -3,7 +3,18 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
@@ -21,15 +32,23 @@ from app.modules.iam.deps import (
 )
 from app.modules.iam.router_auth import MailerDep
 from app.modules.padron.models import RegistroNotarial
-from app.modules.pagos import mails, service, storage
-from app.modules.pagos.catalog import EstadoComprobante, ResultadoConciliacion
-from app.modules.pagos.models import Comprobante
+from app.modules.pagos import mails, mercadopago, mercadopago_service, service, storage
+from app.modules.pagos.catalog import (
+    EstadoComprobante,
+    EstadoPagoMP,
+    OrigenComprobante,
+    ResultadoConciliacion,
+)
+from app.modules.pagos.models import Comprobante, PagoMercadoPago
 from app.modules.pagos.schemas import (
     AprobacionIn,
     BoletaResumen,
     ComprobanteIn,
     ComprobanteOut,
     ConciliacionOut,
+    InicioPagoMPOut,
+    MercadoPagoEstadoOut,
+    PagoMercadoPagoOut,
     RechazoIn,
 )
 from app.modules.parametros import service as parametros
@@ -77,6 +96,7 @@ async def comprobante_out(
             fecha_pago=boleta.fecha_pago,
             total_a_pagar=boleta.total_a_pagar,
         ),
+        origen=OrigenComprobante(c.origen),
         nombre_original=c.nombre_original,
         mime_type=c.mime_type,
         tamano_bytes=c.tamano_bytes,
@@ -101,7 +121,105 @@ async def comprobante_out(
         )
         if conciliacion
         else None,
+        mercado_pago=pago_mp_out(mp, interno=service.es_tesoreria(principal))
+        if (mp := await mercadopago_service.de_comprobante(session, c.id))
+        else None,
     )
+
+
+def pago_mp_out(p: PagoMercadoPago, *, interno: bool) -> PagoMercadoPagoOut:
+    """`interno`: comisión y neto son datos de la Caja; solo los ve Tesorería."""
+    return PagoMercadoPagoOut(
+        id=p.id,
+        boleta_id=p.boleta_id,
+        estado=EstadoPagoMP(p.estado),
+        estado_detalle=p.estado_detalle,
+        mp_payment_id=p.mp_payment_id,
+        medio_pago=p.medio_pago,
+        importe_boleta=p.importe_boleta,
+        importe_pagado=p.importe_pagado,
+        comision=p.comision if interno else None,
+        importe_neto=p.importe_neto if interno else None,
+        aprobado_en=p.aprobado_en,
+        comprobante_id=p.comprobante_id,
+        created_at=p.created_at,
+    )
+
+
+# --------------------------------------------------------------------------- Mercado Pago
+
+
+@router.get("/mercadopago/estado", response_model=MercadoPagoEstadoOut)
+async def mercadopago_estado(_: CanRead) -> MercadoPagoEstadoOut:
+    return MercadoPagoEstadoOut(habilitado=mercadopago.configurado())
+
+
+@router.post("/boletas/{boleta_id}/mercadopago", response_model=InicioPagoMPOut, status_code=201)
+async def pagar_con_mercadopago(
+    boleta_id: uuid.UUID, principal: CanUpload, session: SessionDep, ctx: RequestContextDep
+) -> InicioPagoMPOut:
+    preferencia = await mercadopago_service.iniciar(session, ctx, principal, boleta_id)
+    return InicioPagoMPOut(url_pago=preferencia.url_pago)
+
+
+@router.get("/boletas/{boleta_id}/mercadopago", response_model=list[PagoMercadoPagoOut])
+async def pagos_mp_de_boleta(
+    boleta_id: uuid.UUID, principal: CanRead, session: SessionDep
+) -> list[PagoMercadoPagoOut]:
+    return [
+        pago_mp_out(p, interno=service.es_tesoreria(principal))
+        for p in await mercadopago_service.de_boleta(session, principal, boleta_id)
+    ]
+
+
+@router.post("/mercadopago/{pago_id}/sincronizar", response_model=PagoMercadoPagoOut)
+async def sincronizar_pago_mp(
+    pago_id: uuid.UUID, principal: CanRead, session: SessionDep, ctx: RequestContextDep
+) -> PagoMercadoPagoOut:
+    """Al volver de Mercado Pago: la Suite consulta el pago a Mercado Pago y lo registra."""
+    pago = await mercadopago_service.sincronizar(session, ctx, principal, pago_id)
+    return pago_mp_out(pago, interno=service.es_tesoreria(principal))
+
+
+@router.get("/mercadopago", response_model=Page[PagoMercadoPagoOut])
+async def registro_pagos_mp(
+    _: CanVerify, session: SessionDep, page: PageParamsDep
+) -> Page[PagoMercadoPagoOut]:
+    items, total = await mercadopago_service.registro(session, page)
+    return Page(
+        items=[pago_mp_out(p, interno=True) for p in items],
+        total=total,
+        page=page.page,
+        page_size=page.page_size,
+    )
+
+
+@router.post("/mercadopago/notificaciones", status_code=200)
+async def notificacion_mp(
+    request: Request,
+    session: SessionDep,
+    ctx: RequestContextDep,
+    tipo: Annotated[str | None, Query(alias="type", max_length=50)] = None,
+    data_id: Annotated[str | None, Query(alias="data.id", max_length=50)] = None,
+    x_signature: Annotated[str | None, Header(max_length=500)] = None,
+    x_request_id: Annotated[str | None, Header(max_length=200)] = None,
+) -> dict[str, str]:
+    """Notificación de Mercado Pago (servidor a servidor, sin sesión). El pago se consulta
+    siempre a la API: lo que dice la notificación no se toma como cierto."""
+    if tipo is None or data_id is None:
+        try:
+            cuerpo = await request.json()
+        except ValueError:
+            cuerpo = {}
+        if isinstance(cuerpo, dict):
+            tipo = tipo or (str(cuerpo.get("type"))[:50] if cuerpo.get("type") else None)
+            datos = cuerpo.get("data")
+            if data_id is None and isinstance(datos, dict) and datos.get("id") is not None:
+                data_id = str(datos["id"])[:50]
+    await mercadopago_service.notificacion(
+        session, ctx, tipo=tipo, data_id=data_id, firma=x_signature, request_id=x_request_id
+    )
+    return {"status": "ok"}
 
 
 @router.post("/boletas/{boleta_id}/comprobantes", response_model=ComprobanteOut, status_code=201)
@@ -174,6 +292,7 @@ async def archivo_comprobante(
 ) -> Response:
     item = await service.get(session, principal, comprobante_id)
     contenido = await service.archivo(session, settings, ctx, principal.user, item)
+    assert item.archivo is not None and item.mime_type is not None  # noqa: S101 - verificado
     extension = item.archivo.rsplit(".", 1)[-1]
     return Response(
         content=contenido,
