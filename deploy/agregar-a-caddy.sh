@@ -3,10 +3,9 @@
 #
 # Uso (en el servidor, como root):  bash agregar-a-caddy.sh DOMINIO
 #
-# Parte de la configuración que el Caddy tiene EN EJECUCIÓN (puede ser más nueva que el archivo del
-# disco si alguien lo editó con un método que reemplaza el archivo), guarda una copia, agrega solo
-# el bloque de la Suite, lo valida y carga en caliente exactamente el archivo validado. Deja el
-# archivo del disco igual a lo cargado, para que un reinicio del Caddy no pierda nada. Si la
+# Parte del archivo del disco (que queda igual a lo cargado en el Caddy), guarda una copia, agrega
+# solo el bloque de la Suite, lo valida y carga en caliente exactamente el archivo validado. Deja
+# el archivo del disco igual a lo cargado, para que un reinicio del Caddy no pierda nada. Si la
 # validación falla, no cambia nada.
 set -euo pipefail
 umask 077
@@ -33,7 +32,9 @@ trap 'rm -rf "$TMPD"; docker exec "$CONT" rm -f "$REMOTO" >/dev/null 2>&1 || tru
 LIVE="$TMPD/caddy-live"
 NUEVO="$TMPD/caddy-nuevo"
 
-docker exec "$CONT" cat /etc/caddy/Caddyfile > "$LIVE"
+# Se parte del archivo del disco, que este script deja siempre igual a lo cargado en el Caddy. (La
+# copia que monta el contenedor puede ser vieja: no ve los cambios hasta reiniciarlo.)
+cat "$F" > "$LIVE"
 install -m 600 "$LIVE" "$F.bak-$T-en-ejecucion"
 if grep -q "^$DOMINIO " "$LIVE"; then
   echo "El dominio ya está en el Caddy: no hay nada que hacer."
