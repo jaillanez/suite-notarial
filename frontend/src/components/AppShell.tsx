@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { LogOut, Menu, ShieldCheck, X } from 'lucide-react'
+import { ArrowLeft, LogOut, Menu, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 
 import { logout } from '../features/auth/api'
 import { SESSION_KEY, needsMfaEnrollment, useSession } from '../features/auth/session'
@@ -190,8 +190,15 @@ export function PublicShell() {
     <div className="flex min-h-dvh flex-col">
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex h-[4.5rem] max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
-          <BrandLogo to="/ingresar" />
-          <p className="text-sm font-medium text-ink-muted">Suite Notarial</p>
+          {/* Ingreso y recuperación de clave: el logo y el enlace vuelven al sitio de la Caja. */}
+          <BrandLogo to="/sitio" />
+          <Link
+            to="/sitio"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-3 text-sm font-medium no-underline hover:bg-brand-50"
+          >
+            <ArrowLeft aria-hidden="true" className="size-4" strokeWidth={2.25} />
+            Volver al sitio
+          </Link>
         </div>
       </header>
       <main className="flex flex-1 justify-center px-4 py-10 sm:px-6 sm:py-16">

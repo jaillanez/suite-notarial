@@ -143,7 +143,22 @@ async def seed_dev() -> int:
         await _seed_vencimientos(session)
     async with get_sessionmaker()() as session:
         await _seed_lineas_prestamo(session)
+    async with get_sessionmaker()() as session:
+        await _seed_sitio(session)
     return 0
+
+
+async def _seed_sitio(session: AsyncSession) -> None:
+    """Contenido del sitio tomado del sitio público actual de la Caja (ver cms/demo.py)."""
+    from app.modules.cms.demo import seed_sitio
+
+    # La publica el usuario de Caja (permiso cms:publish).
+    autor = await session.scalar(select(User.id).where(User.email == DEV_USERS[1][0]))
+    if autor is None:
+        return
+    creados = await seed_sitio(session, autor)
+    if creados:
+        _out(f"Sitio institucional: {creados} notas, páginas y autoridades del sitio actual.")
 
 
 async def _seed_lineas_prestamo(session: AsyncSession) -> None:

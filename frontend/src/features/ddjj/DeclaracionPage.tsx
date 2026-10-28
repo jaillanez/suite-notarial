@@ -12,6 +12,7 @@ import {
   CircleX,
   Send,
   Trash2,
+  Wallet,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -29,6 +30,7 @@ import { formatMoney, formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { CARGO, formatDate, todayIso } from '../padron/labels'
 import { AdjuntarComprobanteDialog } from '../pagos/AdjuntarComprobanteDialog'
+import { fetchMercadoPagoHabilitado, pagarConMercadoPago } from '../pagos/api'
 import { PERIODO_TASA } from '../parametros/labels'
 import {
   agregarActo,
@@ -703,12 +705,17 @@ function EstadoComprobanteBoleta({ boleta }: { boleta: Boleta }) {
     )
   }
   if (c.estado === 'PENDIENTE_REVISION') {
+    const mp = c.origen === 'MERCADO_PAGO'
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <StatusIndicator tone="warning" label="Comprobante en revisión" />
+        <StatusIndicator
+          tone="warning"
+          label={mp ? 'Pago con Mercado Pago en revisión' : 'Comprobante en revisión'}
+        />
         <span className="text-sm text-ink-muted tabular-nums">
-          Enviado el {formatLocalDateTime(new Date(c.created_at)).slice(0, 10)} por{' '}
-          {formatMoney(c.importe_declarado)}. Tesorería confirma el pago contra el extracto.
+          {mp ? 'Mercado Pago aprobó el pago' : 'Enviado'} el{' '}
+          {formatLocalDateTime(new Date(c.created_at)).slice(0, 10)} por{' '}
+          {formatMoney(c.importe_declarado)}. Tesorería lo confirma y la boleta pasa a pagada.
         </span>
       </div>
     )
@@ -716,9 +723,31 @@ function EstadoComprobanteBoleta({ boleta }: { boleta: Boleta }) {
   return null
 }
 
-function BoletaItem({ boleta, puedeAdjuntar }: { boleta: Boleta; puedeAdjuntar: boolean }) {
+function BoletaItem({
+  boleta,
+  puedeAdjuntar,
+  mercadoPago,
+}: {
+  boleta: Boleta
+  puedeAdjuntar: boolean
+  mercadoPago: boolean
+}) {
   const [adjuntando, setAdjuntando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const pago = useMutation({
+    mutationFn: () => pagarConMercadoPago(boleta.id),
+    onSuccess: (url) => {
+      // Se paga en Mercado Pago; al terminar vuelve a la Suite, que consulta el pago.
+      window.location.assign(url)
+    },
+    onError: (e) => {
+      setError(toProblem(e).detail)
+    },
+  })
+  const pagable =
+    boleta.estado === 'PENDIENTE' &&
+    boleta.comprobante?.estado !== 'PENDIENTE_REVISION' &&
+    boleta.fecha_pago >= todayIso()
   const descarga = useMutation({
     mutationFn: () => descargarBoleta(boleta),
     onError: (e) => {
@@ -776,6 +805,20 @@ function BoletaItem({ boleta, puedeAdjuntar }: { boleta: Boleta; puedeAdjuntar: 
           >
             Descargar PDF
           </Button>
+          {puedeAdjuntar && mercadoPago && pagable && (
+            <Button
+              variant="primary"
+              icon={Wallet}
+              busy={pago.isPending}
+              busyLabel="Abriendo Mercado Pago…"
+              onClick={() => {
+                setError(null)
+                pago.mutate()
+              }}
+            >
+              Pagar con Mercado Pago
+            </Button>
+          )}
           {puedeAdjuntar &&
             boleta.estado === 'PENDIENTE' &&
             boleta.comprobante?.estado !== 'PENDIENTE_REVISION' && (
@@ -809,6 +852,12 @@ function BoletaItem({ boleta, puedeAdjuntar }: { boleta: Boleta; puedeAdjuntar: 
 
 function BoletasPanel({ ddjj, onNueva }: { ddjj: DeclaracionDetalle; onNueva: () => void }) {
   const { can } = useSession()
+  const mercadoPago = useQuery({
+    queryKey: ['pagos', 'mercadopago', 'habilitado'],
+    queryFn: fetchMercadoPagoHabilitado,
+    enabled: can('comprobantes:upload'),
+    staleTime: 5 * 60_000,
+  })
   const vigente = ddjj.boletas.find((b) => b.estado !== 'ANULADA')
   const puedeEmitir =
     ddjj.estado === 'PRESENTADA' &&
@@ -834,7 +883,12 @@ function BoletasPanel({ ddjj, onNueva }: { ddjj: DeclaracionDetalle; onNueva: ()
       ) : (
         <ul className="divide-y divide-line">
           {ddjj.boletas.map((b) => (
-            <BoletaItem key={b.id} boleta={b} puedeAdjuntar={can('comprobantes:upload')} />
+            <BoletaItem
+              key={b.id}
+              boleta={b}
+              puedeAdjuntar={can('comprobantes:upload')}
+              mercadoPago={mercadoPago.data ?? false}
+            />
           ))}
         </ul>
       )}

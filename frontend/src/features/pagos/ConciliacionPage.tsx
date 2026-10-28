@@ -13,8 +13,8 @@ import { formatLocalDateTime } from '../../lib/datetime'
 import { formatMoney } from '../../lib/decimal'
 import { formatPeriodo } from '../ddjj/labels'
 import { formatDate } from '../padron/labels'
-import { fetchMesa, type EstadoComprobante } from './api'
-import { ESTADO_COMPROBANTE } from './labels'
+import { fetchMesa, fetchRegistroMP, type EstadoComprobante } from './api'
+import { ESTADO_COMPROBANTE, ESTADO_PAGO_MP } from './labels'
 
 const PAGE_SIZE = 20
 
@@ -92,8 +92,9 @@ export function ConciliacionPage() {
                       · {formatPeriodo(c.boleta.periodo)}
                     </span>
                     <span className="block text-sm text-ink-muted tabular-nums">
-                      Transferido el {formatDate(c.fecha_transferencia)} · Op. {c.numero_operacion}{' '}
-                      · Recibido {formatLocalDateTime(new Date(c.created_at))}
+                      {c.origen === 'MERCADO_PAGO' ? 'Mercado Pago, aprobado el' : 'Transferido el'}{' '}
+                      {formatDate(c.fecha_transferencia)} · Op. {c.numero_operacion} · Recibido{' '}
+                      {formatLocalDateTime(new Date(c.created_at))}
                     </span>
                     <span className="block text-sm tabular-nums">
                       <span className="text-ink">Declarado {formatMoney(c.importe_declarado)}</span>
@@ -128,6 +129,92 @@ export function ConciliacionPage() {
           }}
         />
       </Panel>
+      <div className="mt-6">
+        <RegistroMercadoPago />
+      </div>
     </>
+  )
+}
+
+/** Todos los pagos que informó Mercado Pago, con su estado, comisión y neto. */
+function RegistroMercadoPago() {
+  const [page, setPage] = useState(1)
+  const query = useQuery({
+    queryKey: ['pagos', 'mercadopago', 'registro', page],
+    queryFn: () => fetchRegistroMP(page),
+    placeholderData: keepPreviousData,
+  })
+  const items = query.data?.items ?? []
+  return (
+    <Panel
+      title="Pagos con Mercado Pago"
+      description="Registro de los pagos informados por Mercado Pago. Los aprobados entran a la mesa de arriba para que Tesorería los confirme."
+    >
+      {query.isError && (
+        <div className="px-5 py-4 sm:px-6">
+          <Alert tone="danger">{toProblem(query.error).detail}</Alert>
+        </div>
+      )}
+      {query.data && items.length === 0 && (
+        <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
+          Todavía no hay pagos con Mercado Pago.
+        </p>
+      )}
+      {items.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-sunken text-left text-ink-muted">
+              <tr>
+                <th scope="col" className="px-5 py-3 font-semibold sm:px-6">
+                  Operación
+                </th>
+                <th scope="col" className="px-3 py-3 font-semibold">
+                  Estado
+                </th>
+                <th scope="col" className="px-3 py-3 text-right font-semibold">
+                  Pagado
+                </th>
+                <th scope="col" className="px-3 py-3 text-right font-semibold">
+                  Comisión
+                </th>
+                <th scope="col" className="px-5 py-3 text-right font-semibold sm:px-6">
+                  Neto
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line tabular-nums">
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td className="px-5 py-3 sm:px-6">
+                    <span className="block font-semibold text-ink">N° {p.mp_payment_id}</span>
+                    <span className="block text-ink-muted">
+                      {p.aprobado_en
+                        ? formatLocalDateTime(new Date(p.aprobado_en))
+                        : formatLocalDateTime(new Date(p.created_at))}
+                      {p.medio_pago && ` · ${p.medio_pago}`}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    {p.comprobante_id ? (
+                      <Link to={`/tesoreria/conciliacion/${p.comprobante_id}`}>
+                        {ESTADO_PAGO_MP[p.estado]}
+                      </Link>
+                    ) : (
+                      ESTADO_PAGO_MP[p.estado]
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right">{formatMoney(p.importe_pagado)}</td>
+                  <td className="px-3 py-3 text-right">{formatMoney(p.comision)}</td>
+                  <td className="px-5 py-3 text-right sm:px-6">{formatMoney(p.importe_neto)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {(query.data?.total ?? 0) > 25 && (
+        <Pagination page={page} pageSize={25} total={query.data?.total ?? 0} onPage={setPage} />
+      )}
+    </Panel>
   )
 }

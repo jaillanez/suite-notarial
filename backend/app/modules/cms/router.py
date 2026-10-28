@@ -11,22 +11,40 @@ from app.common.pagination import Page, PageParams, PageParamsDep
 from app.core.config import Settings
 from app.core.errors import ProblemError
 from app.modules.cms import pdf, service
-from app.modules.cms.catalog import TIPO_DOCUMENTO_TEXTO, EstadoPublicacion, TipoDocumento
-from app.modules.cms.models import Autoridad, Documento, DocumentoVersion, Novedad
+from app.modules.cms import sitio as sitio_svc
+from app.modules.cms.catalog import (
+    GRUPO_PAGINA_TEXTO,
+    SECCION_NOVEDAD_TEXTO,
+    TIPO_DOCUMENTO_TEXTO,
+    EstadoPublicacion,
+    GrupoPagina,
+    SeccionNovedad,
+    TipoDocumento,
+)
+from app.modules.cms.models import Autoridad, Documento, DocumentoVersion, Novedad, Pagina
 from app.modules.cms.schemas import (
     AutoridadIn,
     AutoridadOut,
     AutoridadUpdate,
+    Contacto,
     DocumentoIn,
     DocumentoOut,
     DocumentoPublico,
     DocumentoUpdate,
     EstadoIn,
+    FilaPublica,
     Motivo,
     NovedadIn,
     NovedadOut,
     NovedadPublica,
     NovedadResumen,
+    PaginaIn,
+    PaginaMenu,
+    PaginaOut,
+    PaginaPublica,
+    PortadaIn,
+    PortadaOut,
+    PortadaPublica,
     SitioPublico,
     VersionOut,
     VersionPublica,
@@ -42,10 +60,12 @@ public_router = APIRouter(prefix="/publico", tags=["sitio público"])
 CanPublish = Annotated[Principal, Depends(require_permissions(Perm.CMS_PUBLISH))]
 SlugPath = Annotated[str, Path(pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", max_length=150)]
 
-# Contenido público: sin datos de sesión. Los listados se guardan un minuto. Los PDF se revalidan
-# siempre (ETag = huella, 304 si no cambió): el canónico puede pasar a una versión nueva y
-# cualquier documento puede archivarse, así que ninguna caché debe seguir sirviéndolo.
-CACHE_PUBLICO = "public, max-age=60, stale-while-revalidate=300"
+# Contenido público: sin datos de sesión. Portada, listados y páginas se piden de nuevo cada vez:
+# lo que la Caja publica, archiva o reacomoda en la portada se ve al instante (con caché, quien
+# edita vería la versión anterior y creería que no se guardó). Los PDF se revalidan siempre
+# (ETag = huella, 304 si no cambió): el canónico puede pasar a una versión nueva y cualquier
+# documento puede archivarse, así que ninguna caché debe seguir sirviéndolo.
+CACHE_PUBLICO = "public, no-cache"
 CACHE_PDF = "public, no-cache"
 
 
@@ -67,6 +87,12 @@ def autoridad_out(a: Autoridad) -> AutoridadOut:
     )
 
 
+def _version_imagen(n: Novedad) -> str:
+    # La huella en la URL permite cachear la imagen para siempre: si cambia, cambia la URL.
+    assert n.imagen_sha256 is not None  # noqa: S101 - solo se llama con imagen
+    return n.imagen_sha256[:16]
+
+
 async def novedad_out(session: SessionDep, n: Novedad) -> NovedadOut:
     emails = await parametros.user_emails(session, {n.autor_user_id})
     return NovedadOut(
@@ -75,8 +101,13 @@ async def novedad_out(session: SessionDep, n: Novedad) -> NovedadOut:
         titulo=n.titulo,
         resumen=n.resumen,
         contenido=n.contenido,
+        seccion=SeccionNovedad(n.seccion),
         estado=EstadoPublicacion(n.estado),
         fecha_publicacion=n.fecha_publicacion,
+        imagen_url=(
+            f"/api/v1/cms/novedades/{n.id}/imagen?v={_version_imagen(n)}" if n.imagen_ruta else None
+        ),
+        imagen_alt=n.imagen_alt,
         autor=emails.get(n.autor_user_id),
         created_at=n.created_at,
         updated_at=n.updated_at,
@@ -85,8 +116,50 @@ async def novedad_out(session: SessionDep, n: Novedad) -> NovedadOut:
 
 def novedad_resumen(n: Novedad) -> NovedadResumen:
     assert n.fecha_publicacion is not None  # noqa: S101 - CHECK publicada_con_fecha
+    seccion = SeccionNovedad(n.seccion)
     return NovedadResumen(
-        slug=n.slug, titulo=n.titulo, resumen=n.resumen, fecha_publicacion=n.fecha_publicacion
+        slug=n.slug,
+        titulo=n.titulo,
+        resumen=n.resumen,
+        seccion=seccion,
+        seccion_texto=SECCION_NOVEDAD_TEXTO[seccion],
+        fecha_publicacion=n.fecha_publicacion,
+        imagen_url=(
+            f"/api/v1/publico/novedades/{n.slug}/imagen?v={_version_imagen(n)}"
+            if n.imagen_ruta
+            else None
+        ),
+        imagen_alt=n.imagen_alt,
+    )
+
+
+def pagina_out(p: Pagina) -> PaginaOut:
+    return PaginaOut(
+        id=p.id,
+        slug=p.slug,
+        grupo=GrupoPagina(p.grupo),
+        titulo=p.titulo,
+        contenido=p.contenido,
+        orden=p.orden,
+        estado=EstadoPublicacion(p.estado),
+        updated_at=p.updated_at,
+    )
+
+
+def _imagen_problem(exc: ArchivoInvalidoError) -> ProblemError:
+    return ProblemError(exc.status, str(exc), type_="urn:suite-notarial:cms:imagen")
+
+
+def _servir_imagen(n: Novedad, contenido: bytes, cache: str) -> Response:
+    assert n.imagen_mime is not None  # noqa: S101 - CHECK imagen_completa
+    return Response(
+        content=contenido,
+        media_type=n.imagen_mime,
+        headers={
+            "Cache-Control": cache,
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'",
+        },
     )
 
 
@@ -259,6 +332,109 @@ async def estado_novedad(
     return await novedad_out(session, item)
 
 
+@router.post("/novedades/{novedad_id}/imagen", response_model=NovedadOut)
+async def poner_imagen(
+    novedad_id: uuid.UUID,
+    alt: Annotated[str, Form(min_length=3, max_length=200)],
+    archivo: Annotated[UploadFile, File(description="JPG, PNG o WEBP")],
+    principal: CanPublish,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+) -> NovedadOut:
+    """Imagen principal de la nota (reemplaza la anterior). `alt`: qué muestra la imagen."""
+    try:
+        validada = await sitio_svc.validar_imagen(archivo)
+    except ArchivoInvalidoError as exc:
+        raise _imagen_problem(exc) from exc
+    item = await sitio_svc.poner_imagen(
+        session, settings, ctx, principal.user, novedad_id, validada, alt.strip()
+    )
+    return await novedad_out(session, item)
+
+
+@router.post("/novedades/{novedad_id}/imagen/quitar", response_model=NovedadOut)
+async def quitar_imagen(
+    novedad_id: uuid.UUID, principal: CanPublish, session: SessionDep, ctx: RequestContextDep
+) -> NovedadOut:
+    item = await sitio_svc.quitar_imagen(session, ctx, principal.user, novedad_id)
+    return await novedad_out(session, item)
+
+
+@router.get("/novedades/{novedad_id}/imagen", response_class=Response)
+async def imagen_admin(
+    novedad_id: uuid.UUID, _: CanPublish, session: SessionDep, settings: SettingsDep
+) -> Response:
+    """La imagen también en borrador, para verla antes de publicar."""
+    item = await service.get_novedad(session, novedad_id)
+    contenido = await sitio_svc.contenido_imagen(settings, item)
+    return _servir_imagen(item, contenido, "private, max-age=3600")
+
+
+@router.get("/paginas", response_model=list[PaginaOut])
+async def list_paginas(_: CanPublish, session: SessionDep) -> list[PaginaOut]:
+    return [pagina_out(p) for p in await sitio_svc.list_paginas(session, solo_publicadas=False)]
+
+
+@router.post("/paginas", response_model=PaginaOut, status_code=201)
+async def crear_pagina(
+    body: PaginaIn, principal: CanPublish, session: SessionDep, ctx: RequestContextDep
+) -> PaginaOut:
+    return pagina_out(await sitio_svc.crear_pagina(session, ctx, principal.user, body))
+
+
+@router.put("/paginas/{pagina_id}", response_model=PaginaOut)
+async def actualizar_pagina(
+    pagina_id: uuid.UUID,
+    body: PaginaIn,
+    principal: CanPublish,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> PaginaOut:
+    item = await sitio_svc.actualizar_pagina(session, ctx, principal.user, pagina_id, body)
+    return pagina_out(item)
+
+
+@router.post("/paginas/{pagina_id}/estado", response_model=PaginaOut)
+async def estado_pagina(
+    pagina_id: uuid.UUID,
+    body: EstadoIn,
+    principal: CanPublish,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> PaginaOut:
+    item = await sitio_svc.estado_pagina(session, ctx, principal.user, pagina_id, body.estado)
+    return pagina_out(item)
+
+
+@router.get("/portada", response_model=PortadaOut)
+async def get_portada(_: CanPublish, session: SessionDep) -> PortadaOut:
+    vigente = await sitio_svc.portada_vigente(session)
+    if vigente is None:
+        return PortadaOut(destacadas=[], filas=[], actualizada=None, actualizada_por=None)
+    emails = await parametros.user_emails(session, {vigente.creado_por_user_id})
+    config = sitio_svc.leer_configuracion(vigente.configuracion)
+    return PortadaOut(
+        destacadas=config.destacadas,
+        filas=config.filas,
+        actualizada=vigente.created_at,
+        actualizada_por=emails.get(vigente.creado_por_user_id),
+    )
+
+
+@router.put("/portada", response_model=PortadaOut)
+async def guardar_portada(
+    body: PortadaIn, principal: CanPublish, session: SessionDep, ctx: RequestContextDep
+) -> PortadaOut:
+    nueva = await sitio_svc.guardar_portada(session, ctx, principal.user, body)
+    return PortadaOut(
+        destacadas=body.destacadas,
+        filas=body.filas,
+        actualizada=nueva.created_at,
+        actualizada_por=principal.user.email,
+    )
+
+
 @router.get("/documentos", response_model=list[DocumentoOut])
 async def list_documentos(
     _: CanPublish, session: SessionDep, settings: SettingsDep
@@ -341,12 +517,55 @@ async def estado_documento(
 # --------------------------------------------------------------------------- sitio público
 
 
+async def _portada_publica(session: SessionDep) -> PortadaPublica:
+    """La portada armada por la Caja, solo con notas publicadas. Sin armado guardado, la nota
+    más reciente va destacada y las siguientes en filas automáticas."""
+    vigente = await sitio_svc.portada_vigente(session)
+    if vigente is None:
+        recientes, _ = await service.novedades_publicadas(session, PageParams(page=1, page_size=9))
+        resumenes = [novedad_resumen(n) for n in recientes]
+        filas: list[FilaPublica] = []
+        resto = resumenes[1:]
+        for distribucion, cantidad in (("2+1+1", 3), ("1+1+1+1", 4), ("2+2", 2)):
+            if not resto:
+                break
+            tramo, resto = resto[:cantidad], resto[cantidad:]
+            filas.append(FilaPublica.model_validate({"distribucion": distribucion, "notas": tramo}))
+        return PortadaPublica(destacadas=resumenes[:1], filas=filas)
+    config = sitio_svc.leer_configuracion(vigente.configuracion)
+    ids = set(config.destacadas) | {n for f in config.filas for n in f.notas if n}
+    notas = await sitio_svc.novedades_por_id(session, ids, solo_publicadas=True)
+    return PortadaPublica(
+        destacadas=[novedad_resumen(notas[i]) for i in config.destacadas if i in notas],
+        filas=[
+            FilaPublica(
+                distribucion=f.distribucion,
+                notas=[novedad_resumen(notas[i]) for i in f.notas if i and i in notas],
+            )
+            for f in config.filas
+            # Una fila sin ninguna nota publicada no se muestra.
+            if any(i and i in notas for i in f.notas)
+        ],
+    )
+
+
 @public_router.get("/sitio", response_model=SitioPublico)
 async def sitio(response: Response, session: SessionDep, settings: SettingsDep) -> SitioPublico:
-    """Portada: autoridades vigentes, últimas novedades y documentos publicados."""
-    novedades, _ = await service.novedades_publicadas(session, PageParams(page=1, page_size=3))
+    """Portada: armado editorial, menú, contacto, autoridades, últimas novedades y documentos."""
+    novedades, _ = await service.novedades_publicadas(session, PageParams(page=1, page_size=6))
     response.headers["Cache-Control"] = CACHE_PUBLICO
     return SitioPublico(
+        portada=await _portada_publica(session),
+        menu=[
+            PaginaMenu(slug=p.slug, grupo=GrupoPagina(p.grupo), titulo=p.titulo)
+            for p in await sitio_svc.list_paginas(session, solo_publicadas=True)
+        ],
+        contacto=Contacto(
+            nombre=settings.CAJA_NOMBRE,
+            domicilio=settings.CAJA_DOMICILIO,
+            telefono=settings.CAJA_TELEFONO,
+            email=settings.CAJA_EMAIL,
+        ),
         autoridades=[
             autoridad_out(a) for a in await service.list_autoridades(session, solo_activas=True)
         ],
@@ -360,9 +579,12 @@ async def sitio(response: Response, session: SessionDep, settings: SettingsDep) 
 
 @public_router.get("/novedades", response_model=Page[NovedadResumen])
 async def novedades(
-    response: Response, session: SessionDep, page: PageParamsDep
+    response: Response,
+    session: SessionDep,
+    page: PageParamsDep,
+    seccion: SeccionNovedad | None = None,
 ) -> Page[NovedadResumen]:
-    items, total = await service.novedades_publicadas(session, page)
+    items, total = await service.novedades_publicadas(session, page, seccion)
     response.headers["Cache-Control"] = CACHE_PUBLICO
     return Page(
         items=[novedad_resumen(n) for n in items],
@@ -377,6 +599,29 @@ async def novedad(slug: SlugPath, response: Response, session: SessionDep) -> No
     n = await service.novedad_publicada(session, slug)
     response.headers["Cache-Control"] = CACHE_PUBLICO
     return NovedadPublica(**novedad_resumen(n).model_dump(), contenido=n.contenido)
+
+
+@public_router.get("/novedades/{slug}/imagen", response_class=Response)
+async def imagen_publica(slug: SlugPath, session: SessionDep, settings: SettingsDep) -> Response:
+    n = await service.novedad_publicada(session, slug)
+    contenido = await sitio_svc.contenido_imagen(settings, n)
+    # La URL lleva la huella (?v=): una imagen nueva es otra URL, así que esta no cambia nunca.
+    return _servir_imagen(n, contenido, "public, max-age=31536000, immutable")
+
+
+@public_router.get("/paginas/{slug}", response_model=PaginaPublica)
+async def pagina(slug: SlugPath, response: Response, session: SessionDep) -> PaginaPublica:
+    p = await sitio_svc.pagina_publicada(session, slug)
+    response.headers["Cache-Control"] = CACHE_PUBLICO
+    grupo = GrupoPagina(p.grupo)
+    return PaginaPublica(
+        slug=p.slug,
+        grupo=grupo,
+        grupo_texto=GRUPO_PAGINA_TEXTO[grupo],
+        titulo=p.titulo,
+        contenido=p.contenido,
+        updated_at=p.updated_at,
+    )
 
 
 async def _servir_pdf(

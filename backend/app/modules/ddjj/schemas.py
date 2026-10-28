@@ -17,7 +17,7 @@ from app.modules.ddjj.catalog import (
 )
 from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
-from app.modules.pagos.catalog import EstadoComprobante
+from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
 from app.modules.parametros.catalog import PeriodoTasa
 from app.modules.parametros.schemas import Money, Rate
 
@@ -165,6 +165,7 @@ class ComprobanteResumen(BaseModel):
     """Último comprobante adjuntado a la boleta (el detalle está en /api/v1/pagos)."""
 
     id: uuid.UUID
+    origen: OrigenComprobante
     estado: EstadoComprobante
     importe_declarado: Money
     motivo_rechazo: str | None

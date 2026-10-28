@@ -19,7 +19,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: LucideIcon
   busy?: boolean
   busyLabel?: string
-  children: ReactNode
+  /** Sin texto (solo ícono), el botón necesita `aria-label`. */
+  children?: ReactNode
 }
 
 export function Button({

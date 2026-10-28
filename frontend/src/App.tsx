@@ -21,6 +21,14 @@ import { AutoridadesAdmin } from './features/cms/AutoridadesAdmin'
 import { CmsLayout } from './features/cms/CmsLayout'
 import { DocumentosAdmin } from './features/cms/DocumentosAdmin'
 import { NovedadesAdmin } from './features/cms/NovedadesAdmin'
+import { PaginasAdmin } from './features/cms/PaginasAdmin'
+import { PortadaAdmin } from './features/cms/PortadaAdmin'
+import {
+  AutoridadesPublicasPage,
+  ContactoPage,
+  DocumentosPublicosPage,
+  PaginaPublicaPage,
+} from './features/sitio/InstitucionalPages'
 import { NovedadPublicaPage } from './features/sitio/NovedadPublicaPage'
 import { NovedadesPublicasPage } from './features/sitio/NovedadesPublicasPage'
 import { SitioPage } from './features/sitio/SitioPage'
@@ -42,6 +50,7 @@ import { ParametrosPage } from './features/parametros/ParametrosPage'
 import { UsersPage } from './features/users/UsersPage'
 import { ACargoPage } from './features/acargo/ACargoPage'
 import { IndicePage } from './features/ia/IndicePage'
+import { RetornoMercadoPagoPage } from './features/pagos/RetornoMercadoPagoPage'
 
 const router = createBrowserRouter([
   {
@@ -73,6 +82,10 @@ const router = createBrowserRouter([
       { path: '/sitio', element: <SitioPage /> },
       { path: '/sitio/novedades', element: <NovedadesPublicasPage /> },
       { path: '/sitio/novedades/:slug', element: <NovedadPublicaPage /> },
+      { path: '/sitio/paginas/:slug', element: <PaginaPublicaPage /> },
+      { path: '/sitio/autoridades', element: <AutoridadesPublicasPage /> },
+      { path: '/sitio/documentos', element: <DocumentosPublicosPage /> },
+      { path: '/sitio/contacto', element: <ContactoPage /> },
     ],
   },
   {
@@ -117,6 +130,7 @@ const router = createBrowserRouter([
               { path: '/ddjj/:id', element: <DeclaracionPage /> },
               { path: '/ddjj/:id/minuta', element: <MinutaPage /> },
               { path: '/ddjj/:id/indice', element: <IndicePage /> },
+              { path: '/pagos/mercadopago/retorno', element: <RetornoMercadoPagoPage /> },
             ],
           },
           {
@@ -178,7 +192,9 @@ const router = createBrowserRouter([
                 path: '/cms',
                 element: <CmsLayout />,
                 children: [
-                  { index: true, element: <Navigate to="/cms/novedades" replace /> },
+                  { index: true, element: <Navigate to="/cms/portada" replace /> },
+                  { path: 'portada', element: <PortadaAdmin /> },
+                  { path: 'paginas', element: <PaginasAdmin /> },
                   { path: 'novedades', element: <NovedadesAdmin /> },
                   { path: 'documentos', element: <DocumentosAdmin /> },
                   { path: 'autoridades', element: <AutoridadesAdmin /> },

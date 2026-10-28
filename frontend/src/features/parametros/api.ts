@@ -2,7 +2,7 @@ import { api } from '../../lib/api'
 
 export type TipoConcepto = 'PORCENTUAL_ACTO' | 'FIJO_ACTO' | 'FIJO_MENSUAL' | 'TASA_MORA'
 export type PeriodoTasa = 'MENSUAL' | 'ANUAL'
-export type EstadoVigencia = 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA'
+export type EstadoVigencia = 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA' | 'RETIRADA'
 export type ReglaRedondeo = 'HALF_UP' | 'FLOOR' | 'CEILING'
 
 /** Los valores numéricos viajan como texto decimal ("1.5000"), nunca como number. */
@@ -90,6 +90,16 @@ export async function proponerVigencia(conceptoId: string, data: VigenciaInput) 
 
 export async function aprobarVigencia(id: string): Promise<Vigencia> {
   return (await api.post<Vigencia>(`${P}/vigencias/${id}/aprobar`)).data
+}
+
+/** Corrige una propuesta pendiente: queda retirada y se crea una versión nueva para aprobar. */
+export async function corregirVigencia(id: string, data: VigenciaInput): Promise<Vigencia> {
+  return (await api.put<Vigencia>(`${P}/vigencias/${encodeURIComponent(id)}`, data)).data
+}
+
+export async function retirarVigencia(id: string, motivo: string): Promise<Vigencia> {
+  return (await api.post<Vigencia>(`${P}/vigencias/${encodeURIComponent(id)}/retirar`, { motivo }))
+    .data
 }
 
 export async function rechazarVigencia(id: string, motivo: string): Promise<Vigencia> {

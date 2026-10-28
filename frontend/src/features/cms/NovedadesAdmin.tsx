@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Pencil, Plus, Send } from 'lucide-react'
+import { Archive, ImageMinus, ImagePlus, Pencil, Plus, Send } from 'lucide-react'
 import { useState } from 'react'
 
 import { StatusIndicator } from '../../components/StatusIndicator'
@@ -7,6 +7,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Dialog } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
+import { FileField } from '../../components/ui/FileField'
 import { Pagination } from '../../components/ui/Pagination'
 import { Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
@@ -17,10 +18,13 @@ import {
   crearNovedad,
   estadoNovedad,
   fetchNovedades,
+  quitarImagen,
+  subirImagen,
   type EstadoPublicacion,
   type Novedad,
+  type SeccionNovedad,
 } from './api'
-import { ESTADO_PUBLICACION, fechaLarga } from './labels'
+import { ESTADO_PUBLICACION, SECCION_NOVEDAD, fechaLarga } from './labels'
 
 function NovedadDialog({
   novedad,
@@ -35,6 +39,7 @@ function NovedadDialog({
   const [form, setForm] = useState({
     titulo: novedad?.titulo ?? '',
     resumen: novedad?.resumen ?? '',
+    seccion: novedad?.seccion ?? 'NOVEDADES',
     contenido: novedad?.contenido ?? '',
     slug: novedad?.slug ?? '',
   })
@@ -44,6 +49,7 @@ function NovedadDialog({
       const data = {
         titulo: form.titulo.trim(),
         resumen: form.resumen.trim() || null,
+        seccion: form.seccion,
         contenido: form.contenido.trim(),
         slug: form.slug.trim() || null,
       }
@@ -55,7 +61,7 @@ function NovedadDialog({
     },
   })
   const problem = save.isError ? toProblem(save.error) : null
-  const bind = (key: keyof typeof form) => ({
+  const bind = (key: 'titulo' | 'resumen' | 'contenido' | 'slug') => ({
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
@@ -96,6 +102,14 @@ function NovedadDialog({
       <div className="grid gap-4">
         {problem && <Alert tone="danger">{problem.detail}</Alert>}
         <Field label="Título" maxLength={200} {...bind('titulo')} />
+        <Select
+          label="Sección"
+          value={form.seccion}
+          onChange={(e) => {
+            setForm((f) => ({ ...f, seccion: e.target.value as SeccionNovedad }))
+          }}
+          options={Object.entries(SECCION_NOVEDAD).map(([value, label]) => ({ value, label }))}
+        />
         <Field
           label="Resumen (opcional)"
           maxLength={400}
@@ -124,6 +138,109 @@ function NovedadDialog({
   )
 }
 
+const MAX_IMAGEN_MB = 5
+
+function ImagenDialog({ novedad, onClose }: { novedad: Novedad | null; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [archivo, setArchivo] = useState<File | null>(null)
+  const [alt, setAlt] = useState(novedad?.imagen_alt ?? '')
+  const grande = archivo !== null && archivo.size > MAX_IMAGEN_MB * 1024 * 1024
+  const cerrar = () => {
+    setArchivo(null)
+    onClose()
+  }
+  const listo = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['cms', 'novedades'] })
+    await queryClient.invalidateQueries({ queryKey: ['sitio'] })
+    cerrar()
+  }
+  const subir = useMutation({
+    mutationFn: () => {
+      if (!novedad || !archivo) throw new Error('Elegí una imagen.')
+      return subirImagen(novedad.id, archivo, alt.trim())
+    },
+    onSuccess: listo,
+  })
+  const quitar = useMutation({
+    mutationFn: () => {
+      if (!novedad) throw new Error('Sin nota.')
+      return quitarImagen(novedad.id)
+    },
+    onSuccess: listo,
+  })
+  const problem = subir.isError
+    ? toProblem(subir.error)
+    : quitar.isError
+      ? toProblem(quitar.error)
+      : null
+
+  return (
+    <Dialog
+      open={novedad !== null}
+      onClose={cerrar}
+      title="Imagen de la nota"
+      description={novedad?.titulo}
+      footer={
+        <>
+          {novedad?.imagen_url && (
+            <Button
+              variant="danger"
+              icon={ImageMinus}
+              busy={quitar.isPending}
+              busyLabel="Quitando…"
+              onClick={() => {
+                quitar.mutate()
+              }}
+            >
+              Quitar imagen
+            </Button>
+          )}
+          <Button onClick={cerrar}>Cancelar</Button>
+          <Button
+            variant="primary"
+            busy={subir.isPending}
+            busyLabel="Subiendo…"
+            disabled={!archivo || grande || alt.trim().length < 3}
+            onClick={() => {
+              subir.mutate()
+            }}
+          >
+            {novedad?.imagen_url ? 'Reemplazar imagen' : 'Guardar imagen'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4">
+        {problem && <Alert tone="danger">{problem.detail}</Alert>}
+        {novedad?.imagen_url && !archivo && (
+          <img
+            src={novedad.imagen_url}
+            alt={novedad.imagen_alt ?? ''}
+            className="aspect-[16/9] w-full rounded-panel border border-line object-cover"
+          />
+        )}
+        <FileField
+          label={novedad?.imagen_url ? 'Imagen nueva' : 'Imagen'}
+          accept="image/jpeg,image/png,image/webp"
+          formatos={`JPG, PNG o WEBP, hasta ${String(MAX_IMAGEN_MB)} MB. Ideal: horizontal, 1600 × 900.`}
+          archivo={archivo}
+          error={grande ? `La imagen supera los ${String(MAX_IMAGEN_MB)} MB.` : undefined}
+          onChange={setArchivo}
+        />
+        <Field
+          label="Qué muestra la imagen"
+          value={alt}
+          maxLength={200}
+          hint="Para quien no puede verla (lector de pantalla). También se usa como epígrafe."
+          onChange={(e) => {
+            setAlt(e.target.value)
+          }}
+        />
+      </div>
+    </Dialog>
+  )
+}
+
 export function NovedadesAdmin() {
   const queryClient = useQueryClient()
   const [filtro, setFiltro] = useState({ page: 1, estado: '' as EstadoPublicacion | '' })
@@ -133,6 +250,7 @@ export function NovedadesAdmin() {
     placeholderData: keepPreviousData,
   })
   const [editando, setEditando] = useState<{ open: boolean; item?: Novedad }>({ open: false })
+  const [conImagen, setConImagen] = useState<Novedad | null>(null)
   const estado = useMutation({
     mutationFn: ({ id, nuevo }: { id: string; nuevo: EstadoPublicacion }) =>
       estadoNovedad(id, nuevo),
@@ -185,12 +303,21 @@ export function NovedadesAdmin() {
               key={n.id}
               className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 sm:px-6"
             >
-              <div className="min-w-0">
-                <p className="font-semibold text-ink">{n.titulo}</p>
-                <p className="text-sm text-ink-muted">
-                  /{n.slug}
-                  {n.fecha_publicacion && ` · Publicada el ${fechaLarga(n.fecha_publicacion)}`}
-                </p>
+              <div className="flex min-w-0 gap-4">
+                {n.imagen_url ? (
+                  <img
+                    src={n.imagen_url}
+                    alt=""
+                    className="hidden aspect-[3/2] w-24 shrink-0 rounded-control object-cover sm:block"
+                  />
+                ) : null}
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink">{n.titulo}</p>
+                  <p className="text-sm text-ink-muted">
+                    {SECCION_NOVEDAD[n.seccion]} · /{n.slug}
+                    {n.fecha_publicacion && ` · Publicada el ${fechaLarga(n.fecha_publicacion)}`}
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusIndicator tone={e.tone} label={e.label} />
@@ -202,6 +329,15 @@ export function NovedadesAdmin() {
                   }}
                 >
                   Editar
+                </Button>
+                <Button
+                  variant="ghost"
+                  icon={ImagePlus}
+                  onClick={() => {
+                    setConImagen(n)
+                  }}
+                >
+                  {n.imagen_url ? 'Imagen' : 'Agregar imagen'}
                 </Button>
                 {n.estado === 'PUBLICADO' ? (
                   <Button
@@ -235,6 +371,13 @@ export function NovedadesAdmin() {
         total={query.data?.total ?? 0}
         onPage={(page) => {
           setFiltro((f) => ({ ...f, page }))
+        }}
+      />
+      <ImagenDialog
+        key={conImagen?.id ?? 'sin-imagen'}
+        novedad={conImagen}
+        onClose={() => {
+          setConImagen(null)
         }}
       />
       <NovedadDialog

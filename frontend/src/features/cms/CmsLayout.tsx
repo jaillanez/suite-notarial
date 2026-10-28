@@ -27,9 +27,18 @@ export function CmsLayout() {
           </>
         }
       />
-      <nav aria-label="Secciones del sitio" className="mb-6 flex gap-2 border-b border-line">
+      <nav
+        aria-label="Secciones del sitio"
+        className="mb-6 flex gap-2 overflow-x-auto border-b border-line"
+      >
+        <NavLink to="/cms/portada" className={tab}>
+          Portada
+        </NavLink>
         <NavLink to="/cms/novedades" className={tab}>
           Novedades
+        </NavLink>
+        <NavLink to="/cms/paginas" className={tab}>
+          Páginas
         </NavLink>
         <NavLink to="/cms/documentos" className={tab}>
           Documentos

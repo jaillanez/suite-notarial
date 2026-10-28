@@ -19,6 +19,7 @@ export const ESTADO_VIGENCIA: Record<EstadoVigencia, { label: string; tone: Tone
   PENDIENTE_APROBACION: { label: 'Pendiente de aprobación', tone: 'warning' },
   VIGENTE: { label: 'Aprobada', tone: 'success' },
   RECHAZADA: { label: 'Rechazada', tone: 'danger' },
+  RETIRADA: { label: 'Retirada', tone: 'unknown' },
 }
 
 export const PERIODO_TASA: Record<PeriodoTasa, string> = { MENSUAL: 'mensual', ANUAL: 'anual' }
