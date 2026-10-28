@@ -41,6 +41,7 @@ import { ConceptoPage } from './features/parametros/ConceptoPage'
 import { ParametrosPage } from './features/parametros/ParametrosPage'
 import { UsersPage } from './features/users/UsersPage'
 import { ACargoPage } from './features/acargo/ACargoPage'
+import { IndicePage } from './features/ia/IndicePage'
 
 const router = createBrowserRouter([
   {
@@ -115,6 +116,7 @@ const router = createBrowserRouter([
               { path: '/ddjj', element: <DeclaracionesPage /> },
               { path: '/ddjj/:id', element: <DeclaracionPage /> },
               { path: '/ddjj/:id/minuta', element: <MinutaPage /> },
+              { path: '/ddjj/:id/indice', element: <IndicePage /> },
             ],
           },
           {

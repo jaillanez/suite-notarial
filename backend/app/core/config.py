@@ -73,6 +73,17 @@ class Settings(BaseSettings):
     IA_OCR_IDIOMAS: str = "spa+eng"
     IA_OCR_TIMEOUT_S: Annotated[int, Field(gt=0, le=300)] = 30
     IA_OCR_CONCURRENCIA: Annotated[int, Field(gt=0, le=16)] = 2
+    # Lectura del índice del protocolo por foto. "local": OCR con Tesseract (nada sale del
+    # servidor). "deepseek": modelo de visión externo; las fotos se procesan fuera del país.
+    # La Caja lo autorizó el 27/10/2026; cada lectura queda en la auditoría con el proveedor.
+    IA_VISION_PROVEEDOR: Literal["local", "deepseek"] = "local"
+    DEEPSEEK_API_KEY: SecretStr | None = None
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    # Modelo de visión de DeepSeek (experimental al 27/10/2026): si deja de responder, la
+    # lectura sigue con el OCR local.
+    DEEPSEEK_VISION_MODEL: str = "deepseek-v4-flash-vision-exp"
+    IA_VISION_TIMEOUT_S: Annotated[int, Field(gt=0, le=300)] = 90
+    IA_INDICE_MAX_FOTOS: Annotated[int, Field(gt=0, le=20)] = 6
 
     # Migración (Fase 10): simulacros cuadrados exigidos antes de la carga definitiva
     # (módulo 11: tres simulacros completos).

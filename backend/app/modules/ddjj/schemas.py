@@ -241,6 +241,8 @@ class DeclaracionDetalle(DeclaracionOut):
     # Controles del libro de protocolo: por acto (solo los que tienen algo) y números salteados.
     controles: dict[uuid.UUID, list[ControlOut]]
     huecos: list[HuecoOut]
+    # Número de escritura que sigue en cada protocolo (carga rápida del próximo acto).
+    proximos_numeros: dict[TipoProtocolo, int]
 
 
 class VerificacionActoIn(BaseModel):

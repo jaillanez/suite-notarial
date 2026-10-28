@@ -251,6 +251,9 @@ async def declaracion_detalle(
             )
             for h in huecos
         ],
+        proximos_numeros=await service.proximos_numeros(
+            session, principal, d.registro_id, int(d.periodo[:4])
+        ),
     )
 
 

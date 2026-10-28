@@ -301,8 +301,9 @@ def _fecha(texto: str, p: str, ctx: ContextoMinuta, alertas: list[Alerta]) -> Ca
 # --------------------------------------------------------------------------- naturaleza
 
 
-def _naturaleza(texto: str, p: str) -> Campo:
-    mejor: tuple[int, int, str, int] | None = None  # (inicio, -longitud, naturaleza, fin)
+def _primera_naturaleza(p: str) -> tuple[int, int, str, int] | None:
+    """(inicio, -longitud, naturaleza, fin) de la primera palabra clave del texto plano."""
+    mejor: tuple[int, int, str, int] | None = None
     for clave, nombre in NATURALEZAS:
         m = re.search(r"\b" + re.escape(clave) + r"\b", p)
         if m is None:
@@ -310,6 +311,17 @@ def _naturaleza(texto: str, p: str) -> Campo:
         candidato = (m.start(), -len(clave), nombre, m.end())
         if mejor is None or candidato[:2] < mejor[:2]:
             mejor = candidato
+    return mejor
+
+
+def naturaleza_canonica(p: str) -> str | None:
+    """Nombre canónico de la naturaleza que aparece primero en el texto plano (o None)."""
+    mejor = _primera_naturaleza(p)
+    return mejor[2] if mejor else None
+
+
+def _naturaleza(texto: str, p: str) -> Campo:
+    mejor = _primera_naturaleza(p)
     if mejor is None:
         return _sin_dato("No se reconoció la naturaleza del acto.")
     inicio, _, nombre, fin = mejor

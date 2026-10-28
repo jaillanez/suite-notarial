@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Camera,
   Download,
   FilePenLine,
   Paperclip,
@@ -45,7 +46,7 @@ import {
   type DeclaracionDetalle,
   type Liquidacion,
 } from './api'
-import { actoCompleto, actoInput, actoVacio } from './acto'
+import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
 import { useVerificacionActo } from './verificacion'
 import { ResultadoVerificacion } from './VerificacionActo'
@@ -295,16 +296,30 @@ function ActoDialog({
   onClose: () => void
 }) {
   const invalidate = useInvalidate(ddjj.id)
-  const [form, setForm] = useState(() => actoVacio(ddjj))
+  // Completado con lo más probable: mismo escribano, protocolo y fecha que el último acto, y
+  // el número de escritura que sigue.
+  const [form, setForm] = useState(() => actoSugerido(ddjj, todayIso()))
+  const [agregado, setAgregado] = useState<string | null>(null)
   const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
   const save = useMutation({
-    mutationFn: () => agregarActo(ddjj.id, actoInput(form)),
-    onSuccess: async () => {
+    mutationFn: ({ datos }: { datos: ActoForm; otro: boolean }) =>
+      agregarActo(ddjj.id, actoInput(datos)),
+    onSuccess: async (_, { datos, otro }) => {
       await invalidate()
-      onClose()
+      if (!otro) {
+        onClose()
+        return
+      }
+      setAgregado(`Escritura N° ${datos.numero_escritura} agregada. Seguí con la siguiente.`)
+      setForm(actoSiguiente(datos, ddjj))
     },
   })
   const problem = save.isError ? toProblem(save.error) : null
+  const listo = actoCompleto(form) && !bloqueado
+  const guardar = (otro: boolean) => {
+    setAgregado(null)
+    save.mutate({ datos: form, otro })
+  }
 
   return (
     <Dialog
@@ -314,18 +329,29 @@ function ActoDialog({
         onClose()
       }}
       title="Agregar acto"
-      description={`Acto autorizado en ${formatPeriodo(ddjj.periodo)} por un escribano del registro.`}
+      description={`Acto autorizado en ${formatPeriodo(ddjj.periodo)} por un escribano del registro. Viene completado con los datos del último acto: cambiá solo lo que difiere.`}
       footer={
         <>
-          <Button onClick={onClose}>Cancelar</Button>
+          <Button onClick={onClose}>{agregado ? 'Terminar' : 'Cancelar'}</Button>
+          <Button
+            icon={Plus}
+            busy={save.isPending && save.variables.otro}
+            busyLabel="Agregando…"
+            disabled={!listo || save.isPending}
+            onClick={() => {
+              guardar(true)
+            }}
+          >
+            Agregar y cargar otro
+          </Button>
           <Button
             variant="primary"
             icon={Plus}
-            busy={save.isPending}
+            busy={save.isPending && !save.variables.otro}
             busyLabel="Agregando…"
-            disabled={!actoCompleto(form) || bloqueado}
+            disabled={!listo || save.isPending}
             onClick={() => {
-              save.mutate()
+              guardar(false)
             }}
           >
             Agregar
@@ -334,13 +360,25 @@ function ActoDialog({
       }
     >
       <div className="grid gap-4">
+        {agregado && <Alert tone="success">{agregado}</Alert>}
         {problem && <Alert tone="danger">{problem.detail}</Alert>}
         <ActoCampos
           ddjj={ddjj}
           form={form}
           problem={problem}
           onChange={(cambio) => {
-            setForm((f) => ({ ...f, ...cambio }))
+            setForm((f) => {
+              const nuevo = { ...f, ...cambio }
+              // Al cambiar de protocolo, el número sugerido pasa al que sigue en ese protocolo.
+              if (
+                cambio.tipo_protocolo &&
+                cambio.tipo_protocolo !== f.tipo_protocolo &&
+                f.numero_escritura === String(ddjj.proximos_numeros[f.tipo_protocolo])
+              ) {
+                nuevo.numero_escritura = String(ddjj.proximos_numeros[cambio.tipo_protocolo])
+              }
+              return nuevo
+            })
           }}
         />
         <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
@@ -481,6 +519,15 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
       actions={
         editable ? (
           <div className="flex flex-wrap gap-3">
+            {ddjj.escribanos.length > 0 && (
+              <Link
+                to={`/ddjj/${ddjj.id}/indice`}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
+              >
+                <Camera aria-hidden="true" className="size-4" strokeWidth={2.25} />
+                Foto del índice
+              </Link>
+            )}
             {ddjj.escribanos.length > 0 && (
               <Link
                 to={`/ddjj/${ddjj.id}/minuta`}

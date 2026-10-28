@@ -9,13 +9,8 @@ import { FileField } from '../../components/ui/FileField'
 import { PageHeader, Panel } from '../../components/ui/Panel'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
-import {
-  compararDecimal,
-  formatDecimal,
-  formatMoney,
-  normalizeDecimalInput,
-} from '../../lib/decimal'
-import { actoCompleto, actoInput, actoVacio, type ActoForm, type CampoActo } from '../ddjj/acto'
+import { compararDecimal, formatMoney, normalizeDecimalInput } from '../../lib/decimal'
+import { actoCompleto, actoInput, type CampoActo } from '../ddjj/acto'
 import { ActoCampos } from '../ddjj/ActoCampos'
 import { useVerificacionActo } from '../ddjj/verificacion'
 import { ResultadoVerificacion } from '../ddjj/VerificacionActo'
@@ -34,6 +29,7 @@ import {
   ratificarActo,
   type Sugerencia,
 } from './api'
+import { formularioDe } from './formulario'
 import {
   AlertasSugerencia,
   AvisoHumano,
@@ -170,27 +166,6 @@ function EntradaMinuta({
 }
 
 // --------------------------------------------------------------------------- revisión
-
-function formularioDe(ddjj: DeclaracionDetalle, s: Sugerencia): ActoForm {
-  const v = (k: CampoActo) => s.campos[k]?.valor ?? null
-  const vacio = actoVacio(ddjj)
-  const escribano = v('escribano_id')
-  const base = v('base_imponible')
-  return {
-    // Si la Suite no identificó al autorizante, lo elige la persona: no se preselecciona nadie.
-    escribano_id: escribano && ddjj.escribanos.some((e) => e.id === escribano) ? escribano : '',
-    categoria: (v('categoria') ?? vacio.categoria) as CategoriaActo,
-    tipo_protocolo: (v('tipo_protocolo') ?? vacio.tipo_protocolo) as TipoProtocolo,
-    numero_escritura: v('numero_escritura') ?? '',
-    folio: v('folio') ?? '',
-    fecha_acto: v('fecha_acto') ?? '',
-    naturaleza: v('naturaleza') ?? '',
-    base_imponible: base && base !== '0.00' ? formatDecimal(base) : '',
-    acto_multiple: false,
-    motivo_exencion: '',
-    detalle_exencion: '',
-  }
-}
 
 function RevisionMinuta({
   ddjj,

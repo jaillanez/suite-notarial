@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 
 import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import type { Problem } from '../../lib/api'
 import { CARGO, todayIso } from '../padron/labels'
-import type { ActoForm } from './acto'
+import { naturalezasSugeridas, type ActoForm } from './acto'
 import type { CategoriaActo, DeclaracionDetalle, MotivoExencion, TipoProtocolo } from './api'
 import { CATEGORIA, MOTIVO_EXENCION, PROTOCOLO, rangoPeriodo } from './labels'
 
@@ -27,6 +27,7 @@ export function ActoCampos({
 }) {
   const { desde, hasta } = rangoPeriodo(ddjj.periodo)
   const hoy = todayIso()
+  const listaNaturalezas = useId()
   const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
   const bind = (
     key:
@@ -170,9 +171,16 @@ export function ActoCampos({
         label="Naturaleza del acto"
         placeholder="Compraventa, hipoteca, poder general…"
         maxLength={300}
+        list={listaNaturalezas}
+        autoComplete="off"
         hint={pistas.naturaleza}
         {...bind('naturaleza')}
       />
+      <datalist id={listaNaturalezas}>
+        {naturalezasSugeridas(ddjj).map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
       {conValor && (
         <Field
           className="sm:col-span-2 [&_input]:tabular-nums"

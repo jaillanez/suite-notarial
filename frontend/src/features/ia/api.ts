@@ -4,7 +4,7 @@ import type { EscribanoDetalle, EscribanoInput } from '../padron/api'
 
 const P = '/v1/ia'
 
-export type TipoSugerencia = 'EXTRACCION_MINUTA' | 'OCR_DNI'
+export type TipoSugerencia = 'EXTRACCION_MINUTA' | 'OCR_DNI' | 'EXTRACCION_INDICE'
 export type EstadoSugerencia = 'SUGERIDO_POR_IA' | 'RATIFICADA' | 'DESCARTADA'
 export type NivelAlerta = 'ADVERTENCIA' | 'AVISO'
 
@@ -38,6 +38,9 @@ export interface Sugerencia {
     caracteres: number | null
     paginas: number | null
     ocr: string | null
+    /** Índice del protocolo: foto y renglón de esta sugerencia. */
+    foto?: number | null
+    renglon?: number | null
   }
   campos: Record<string, CampoSugerido>
   alertas: AlertaIa[]
@@ -71,6 +74,21 @@ export async function analizarMinuta(
   if ('archivo' in entrada) form.append('archivo', entrada.archivo)
   else form.append('texto', entrada.texto)
   return (await api.post<Sugerencia>(`${P}/minutas`, form, LECTURA)).data
+}
+
+export interface LecturaIndice {
+  lote: string
+  motor: string
+  /** Una sugerencia de acto por renglón, en el orden del índice. */
+  sugerencias: Sugerencia[]
+}
+
+export async function analizarIndice(ddjjId: string, fotos: File[]): Promise<LecturaIndice> {
+  const form = new FormData()
+  form.append('ddjj_id', ddjjId)
+  for (const foto of fotos) form.append('archivos', foto)
+  // Varias fotos leídas una tras otra: más margen todavía.
+  return (await api.post<LecturaIndice>(`${P}/indices`, form, { timeout: 300_000 })).data
 }
 
 export async function analizarDni(archivo: File): Promise<Sugerencia> {

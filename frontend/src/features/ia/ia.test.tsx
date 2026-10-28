@@ -44,6 +44,7 @@ const DDJJ: ddjjApi.DeclaracionDetalle = {
   puede_operar: true,
   controles: {},
   huecos: [],
+  proximos_numeros: { GENERAL: 1, AUXILIAR: 1 },
 }
 
 const campo = (valor: string | null, confianza = '0.9000', evidencia: string | null = null) => ({
