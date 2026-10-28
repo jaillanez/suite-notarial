@@ -103,8 +103,13 @@ PrincipalDep = Annotated[Principal, Depends(get_principal)]
 
 
 def mfa_required_for(settings: Settings, user: User) -> bool:
-    """El rol exige 2FA y la exigencia está activa (solo se apaga en desarrollo)."""
+    """El rol exige 2FA y la exigencia está activa (solo se apaga fuera de producción)."""
     return settings.MFA_ENFORCED and user.mfa_required
+
+
+def mfa_sugerido_for(settings: Settings, user: User) -> bool:
+    """Con la exigencia apagada (servidor de prueba), al personal se le recomienda activarlo."""
+    return not settings.MFA_ENFORCED and user.mfa_required and not user.totp_enabled
 
 
 def _permission_checker(
