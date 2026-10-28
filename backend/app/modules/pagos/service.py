@@ -202,6 +202,9 @@ async def archivo(
     session: AsyncSession, settings: Settings, ctx: RequestContext, actor: User, item: Comprobante
 ) -> bytes:
     """Contenido verificado contra su huella. Si no coincide, se audita y no se entrega."""
+    if item.archivo is None or item.sha256 is None:
+        # Comprobante de Mercado Pago: no tiene archivo, sus datos vienen de Mercado Pago.
+        raise ProblemError(HTTPStatus.NOT_FOUND, "Este comprobante no tiene archivo adjunto.")
     try:
         return await storage.leer(settings, item.archivo, item.sha256)
     except (storage.ArchivoAlteradoError, FileNotFoundError) as exc:
