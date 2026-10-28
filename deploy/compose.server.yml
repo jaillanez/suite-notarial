@@ -84,15 +84,26 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    environment:
+      # Subred de la red del Caddy compartido: la calcula deploy.sh.
+      EDGE_SUBNET: ${EDGE_SUBNET:?lo calcula deploy.sh}
     mem_limit: 128m
     cpus: 0.5
-    networks: [interna, edge]
+    networks:
+      interna:
+        # IP fija: es el único proxy en el que confía la API.
+        ipv4_address: 10.77.88.10
+      edge: {}
     # Solo en localhost, para verificar desde el propio servidor.
     ports:
       - "127.0.0.1:${WEB_BIND_PORT:-8686}:80"
 
 networks:
+  # Subred propia y fija (no se superpone con las de los otros proyectos del servidor).
   interna:
+    ipam:
+      config:
+        - subnet: 10.77.88.0/24
   # Red del Caddy compartido (suite-turnos). Debe existir ya.
   edge:
     external: true

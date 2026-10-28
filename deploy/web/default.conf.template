@@ -1,5 +1,6 @@
 # nginx de la Suite Notarial (dentro del contenedor web). El TLS y el dominio los resuelve el
 # Caddy compartido del servidor; acá solo se sirve la SPA y se pasa /api a la API interna.
+# Plantilla: la imagen oficial reemplaza ${EDGE_SUBNET} al arrancar.
 server {
     listen 80;
     server_name _;
@@ -8,6 +9,12 @@ server {
 
     # Fotos del índice (hasta 6), comprobantes (10 MB) y documentos del sitio (25 MB).
     client_max_body_size 80m;
+
+    # IP real del cliente (auditoría, bloqueo de ingresos): solo se toma la que informa un
+    # proxy de la red del Caddy compartido; cualquier otro origen ve ignorada su cabecera.
+    set_real_ip_from ${EDGE_SUBNET};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive off;
 
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
@@ -18,8 +25,8 @@ server {
         proxy_pass http://api:8000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        # El Caddy ya pone la IP real del cliente; se reenvía tal cual para la auditoría.
-        proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+        # Un único valor, ya resuelto arriba: la API confía solo en este nginx.
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
         # La lectura de fotos con IA externa puede tardar hasta 90 s.
         proxy_read_timeout 150s;

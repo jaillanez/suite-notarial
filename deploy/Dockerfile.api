@@ -25,7 +25,7 @@ RUN useradd --system --uid 10001 --home-dir /app suite \
 USER suite
 
 EXPOSE 8000
-# La API solo es alcanzable desde el nginx de la Suite (red interna), que reenvía la IP real
-# del cliente que le pasó el Caddy: por eso se confía en las cabeceras de proxy.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", \
-     "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Solo se confía en las cabeceras de proxy del nginx de la Suite (IP fija en la red interna,
+# ver compose.server.yml); de cualquier otro origen se ignoran.
+ENV TRUSTED_PROXY_IP=10.77.88.10
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips \"$TRUSTED_PROXY_IP\""]

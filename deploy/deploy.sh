@@ -13,8 +13,9 @@ PUERTO=$(valor WEB_BIND_PORT); PUERTO=${PUERTO:-8686}
 if grep -q "DOMINIO-A-DEFINIR" deploy/.env.server; then
   echo "Falta definir el dominio en deploy/.env.server (PUBLIC_WEB_URL y CORS_ORIGINS)."; exit 1
 fi
-docker network inspect "$EDGE" >/dev/null \
+EDGE_SUBNET=$(docker network inspect "$EDGE" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null) \
   || { echo "No existe la red del Caddy compartido ($EDGE)."; exit 1; }
+export EDGE_SUBNET
 
 echo "== 1/5  git pull =="
 git pull --ff-only
