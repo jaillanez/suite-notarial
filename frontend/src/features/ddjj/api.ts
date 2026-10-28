@@ -138,6 +138,8 @@ export interface DeclaracionDetalle extends Declaracion {
   /** Solo los actos que tienen algún control, por id. */
   controles: Record<string, ControlProtocolo[]>
   huecos: Hueco[]
+  /** Número de escritura que sigue en cada protocolo (la numeración es anual). */
+  proximos_numeros: Record<TipoProtocolo, number>
 }
 
 export interface VerificacionActoInput {

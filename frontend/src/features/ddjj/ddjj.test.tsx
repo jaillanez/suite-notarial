@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -102,6 +102,7 @@ const DDJJ: apiModule.DeclaracionDetalle = {
   puede_operar: true,
   controles: {},
   huecos: [],
+  proximos_numeros: { GENERAL: 1, AUXILIAR: 1 },
 }
 
 function renderFicha() {
@@ -264,6 +265,49 @@ describe('ficha de la DDJJ', () => {
     expect(await screen.findByText('$ 21.600,00')).toBeInTheDocument()
     expect(screen.getByText(/ya está declarada en la DDJJ 08\/2026/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Agregar' })).toBeDisabled()
+  })
+
+  it('carga rápida: viene completado con el último acto y sigue con el próximo número', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({
+      ...DDJJ,
+      proximos_numeros: { GENERAL: 102, AUXILIAR: 1 },
+    })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
+      ...IMPORTES,
+      aportes: [],
+      vencimiento: '2026-10-28',
+      fecha_pago: '2026-10-23',
+      usa_valores_de_ejemplo: false,
+    })
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: '21600.00', controles: [] })
+    vi.mocked(apiModule.agregarActo).mockResolvedValue({ ...ACTO, id: 'a2', numero_escritura: 102 })
+
+    renderFicha()
+    fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
+    // Número que sigue y la fecha del último acto, sin tipear.
+    expect(screen.getByLabelText('N° de escritura')).toHaveValue('102')
+    expect(screen.getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
+    fireEvent.change(screen.getByLabelText('Naturaleza del acto'), {
+      target: { value: 'Hipoteca' },
+    })
+    fireEvent.change(screen.getByLabelText('Base imponible ($)'), {
+      target: { value: '1.000.000' },
+    })
+    const otro = screen.getByRole('button', { name: 'Agregar y cargar otro' })
+    await waitFor(() => {
+      expect(otro).toBeEnabled()
+    })
+    fireEvent.click(otro)
+
+    expect(await screen.findByText(/Escritura N° 102 agregada/)).toBeInTheDocument()
+    expect(apiModule.agregarActo).toHaveBeenCalledWith(
+      'd1',
+      expect.objectContaining({ numero_escritura: 102, fecha_acto: '2026-09-15' }),
+    )
+    // Sigue abierto, con el número siguiente y los campos del acto en blanco.
+    expect(screen.getByLabelText('N° de escritura')).toHaveValue('103')
+    expect(screen.getByLabelText('Naturaleza del acto')).toHaveValue('')
+    expect(screen.getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
   })
 
   it('una DDJJ presentada no se edita: ofrece rectificar y descargar la boleta', async () => {
