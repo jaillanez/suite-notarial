@@ -3,7 +3,7 @@ import { useId, type SelectHTMLAttributes } from 'react'
 
 interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'id'> {
   label: string
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; disabled?: boolean }[]
 }
 
 export function Select({ label, options, className = '', ...select }: SelectProps) {
@@ -20,7 +20,7 @@ export function Select({ label, options, className = '', ...select }: SelectProp
           {...select}
         >
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}

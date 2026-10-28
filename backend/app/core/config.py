@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     CAJA_CUIT: str | None = None
     CAJA_DOMICILIO: str | None = None
     CAJA_CONTACTO: str | None = None
+    # Datos públicos de contacto del sitio institucional.
+    CAJA_TELEFONO: str | None = None
+    CAJA_EMAIL: str | None = None
     BANCO_NOMBRE: str | None = None
     BANCO_CUENTA: str | None = None
     BANCO_CBU: str | None = None

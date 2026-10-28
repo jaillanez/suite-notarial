@@ -1,4 +1,4 @@
-"""Autoridades, novedades y documentos oficiales del sitio institucional (Módulo 8).
+"""Autoridades, novedades, páginas, portada y documentos oficiales del sitio (Módulo 8).
 
 - Nada se borra (INM): autoridades con baja lógica; novedades y documentos se archivan.
 - Un documento tiene una URL canónica estable (`slug`); cada archivo que se sube es una versión
@@ -22,13 +22,14 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 SLUG_CHECK = "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
 ESTADOS_CHECK = "estado IN ('BORRADOR', 'PUBLICADO', 'ARCHIVADO')"
+SECCIONES_CHECK = "seccion IN ('NOVEDADES', 'COMUNICADOS', 'APORTES', 'INSTITUCIONAL')"
 
 
 class Autoridad(UUIDMixin, TimestampMixin, Base):
@@ -54,11 +55,25 @@ class Novedad(UUIDMixin, TimestampMixin, Base):
         CheckConstraint(
             "estado = 'BORRADOR' OR fecha_publicacion IS NOT NULL", name="publicada_con_fecha"
         ),
+        CheckConstraint(SECCIONES_CHECK, name="seccion_valida"),
+        CheckConstraint(
+            "(imagen_ruta IS NULL) = (imagen_sha256 IS NULL)"
+            " AND (imagen_ruta IS NULL) = (imagen_mime IS NULL)",
+            name="imagen_completa",
+        ),
     )
 
     slug: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
     titulo: Mapped[str] = mapped_column(String(200), nullable=False)
     resumen: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    seccion: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="NOVEDADES", index=True
+    )
+    # Imagen principal (opcional), validada por magic bytes y guardada fuera del webroot.
+    imagen_ruta: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    imagen_mime: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    imagen_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    imagen_alt: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Texto plano en párrafos (sin HTML): se muestra escapado, no hay inyección posible.
     contenido: Mapped[str] = mapped_column(Text, nullable=False)
     estado: Mapped[str] = mapped_column(
@@ -137,4 +152,43 @@ class DocumentoVersion(UUIDMixin, Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Pagina(UUIDMixin, TimestampMixin, Base):
+    """Página institucional fija del menú (Quiénes somos, Ley de creación, Reglamentación…)."""
+
+    __tablename__ = "cms_paginas"
+    __table_args__ = (
+        CheckConstraint(SLUG_CHECK, name="slug_formato"),
+        CheckConstraint(ESTADOS_CHECK, name="estado_valido"),
+        CheckConstraint("grupo IN ('CAJA', 'NORMATIVA')", name="grupo_valido"),
+        CheckConstraint("orden >= 0", name="orden"),
+    )
+
+    slug: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
+    grupo: Mapped[str] = mapped_column(String(20), nullable=False)
+    titulo: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Texto plano en párrafos (sin HTML), como las novedades.
+    contenido: Mapped[str] = mapped_column(Text, nullable=False)
+    orden: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, server_default="BORRADOR")
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+
+
+class PortadaVersion(UUIDMixin, Base):
+    """Armado de la portada. Cada guardado es una fila nueva (nunca se modifica): la vigente
+    es la última, y el historial muestra quién cambió qué y cuándo."""
+
+    __tablename__ = "cms_portada_versiones"
+
+    # {"destacadas": [novedad_id…], "filas": [{"distribucion": "2+1+1", "notas": [id…]}]}
+    configuracion: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    creado_por_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )

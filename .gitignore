@@ -7,6 +7,8 @@ Thumbs.db
 
 # Dependencias y builds
 node_modules/
+# También los enlaces (no carpetas) a un entorno compartido.
+node_modules
 dist/
 build/
 .next/
@@ -14,6 +16,7 @@ coverage/
 __pycache__/
 *.pyc
 .venv/
+.venv
 venv/
 
 # Entorno y secretos

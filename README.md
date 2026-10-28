@@ -161,6 +161,7 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `DEV_SEED_PASSWORD` | Solo desarrollo: contraseña de los usuarios de demostración |
 | `PASSWORD_RESET_TTL_MIN` | Vigencia del token de recuperación (30) |
 | `CAJA_NOMBRE` / `CAJA_CUIT` / `CAJA_DOMICILIO` / `CAJA_CONTACTO` | Datos de la Caja impresos en la boleta |
+| `CAJA_TELEFONO` / `CAJA_EMAIL` | Contacto público del sitio institucional (franja superior, pie y página de contacto; el domicilio sale de `CAJA_DOMICILIO`) |
 | `BANCO_NOMBRE` / `BANCO_CUENTA` / `BANCO_CBU` / `BANCO_ALIAS` | Cuenta recaudadora impresa en la boleta. Solo en el `.env` de cada entorno; sin CBU la boleta dice «Datos bancarios a confirmar» |
 | `CMS_MAX_DOC_MB` | Tamaño máximo de los documentos oficiales que se publican en el sitio (25) |
 | `UPLOAD_DIR` / `MAX_UPLOAD_MB` | Almacenamiento de comprobantes, fuera del webroot (10 MB). También es el tope de los archivos que lee la IA |
@@ -350,6 +351,18 @@ Ya aplicadas:
   versiones no se modifican (triggers).
 - **Integridad al servir:** cada descarga verifica la huella; un archivo alterado no se entrega
   y queda una alerta CRITICAL en la auditoría. Toda publicación y cambio se audita.
+- **Portada como diario:** la Caja la arma en `/cms/portada`: hasta 5 notas destacadas (una a la
+  vez, con imagen grande) y hasta 8 filas de noticias con distribución elegible (4, 3+1, 2+2,
+  2+1+1, 1+1+1+1). Cada guardado es una versión nueva e inmutable; el sitio muestra solo notas
+  publicadas (archivar una la saca sin rearmar). Sin armado, va la última nota destacada y las
+  siguientes en filas automáticas.
+- **Notas con sección e imagen:** Novedades, Comunicados de la Caja, Aportes e Institucional; la
+  imagen principal se valida por magic bytes (JPG, PNG o WEBP, hasta 5 MB), se guarda fuera del
+  webroot con su huella y se sirve verificada.
+- **Menú del sitio de la Caja:** Novedades, Caja (Quiénes somos, Autoridades, Estados
+  contables), Normativa (páginas del gestor y documentos oficiales), Servicios online y
+  Contacto. Las páginas institucionales se cargan en `/cms/paginas`. `make seed-dev` trae el
+  contenido del sitio actual de la Caja (cajanotarial-sj.com.ar) para probar.
 
 ## Préstamos (Fase 8)
 
