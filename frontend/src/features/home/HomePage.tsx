@@ -75,8 +75,8 @@ const SECTIONS: Section[] = [
   },
   {
     to: '/cuenta/seguridad',
-    title: 'Seguridad de la cuenta',
-    description: 'Verificación en dos pasos y códigos de recuperación.',
+    title: 'Mi cuenta',
+    description: 'Tus datos, la contraseña y la verificación en dos pasos.',
   },
   {
     to: '/estado',

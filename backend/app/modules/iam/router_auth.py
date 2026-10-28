@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
+from sqlalchemy import select
 
 from app.common.cuit import format_cuit
 from app.common.deps import SessionDep, SettingsDep
@@ -36,8 +37,11 @@ from app.modules.iam.schemas import (
     MfaDisableRequest,
     MfaLoginRequest,
     MfaSetupResponse,
+    PasswordChange,
     PasswordResetConfirm,
     PasswordResetRequest,
+    PerfilIn,
+    PerfilOut,
     RecoveryCodesResponse,
     SessionUser,
 )
@@ -47,6 +51,7 @@ from app.modules.iam.tokens import (
     create_mfa_pending_token,
     decode_mfa_pending_token,
 )
+from app.modules.padron.models import Escribano
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -225,6 +230,72 @@ async def password_reset_confirm(
         )
     clear_session_cookies(response, settings)
     return MessageResponse(message="La contraseña se actualizó. Ya podés ingresar con la nueva.")
+
+
+@router.post("/password/change", response_model=MessageResponse)
+async def password_change(
+    body: PasswordChange,
+    principal: PrincipalDep,
+    background: BackgroundTasks,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+    mailer: MailerDep,
+) -> MessageResponse:
+    user = principal.user
+    await service.change_password(
+        session,
+        settings,
+        ctx,
+        user,
+        principal.session,
+        current_password=body.current_password,
+        new_password=body.new_password,
+    )
+    if user.password_changed_at is not None:
+        background.add_task(
+            send_safely,
+            mailer,
+            password_changed_mail(settings, user, user.password_changed_at, desde_la_cuenta=True),
+        )
+    return MessageResponse(
+        message="La contraseña se cambió. Cerramos tus sesiones en otros dispositivos."
+    )
+
+
+async def _nombre_editable(session: SessionDep, user: User) -> bool:
+    return await session.scalar(select(Escribano.id).where(Escribano.user_id == user.id)) is None
+
+
+def _perfil(user: User, nombre_editable: bool) -> PerfilOut:
+    return PerfilOut(
+        email=user.email,
+        full_name=user.full_name,
+        cuit=format_cuit(user.cuit),
+        phone_number=user.phone_number,
+        nombre_editable=nombre_editable,
+    )
+
+
+@router.get("/perfil", response_model=PerfilOut)
+async def ver_perfil(principal: PrincipalDep, session: SessionDep) -> PerfilOut:
+    return _perfil(principal.user, await _nombre_editable(session, principal.user))
+
+
+@router.patch("/perfil", response_model=PerfilOut)
+async def editar_perfil(
+    body: PerfilIn, principal: PrincipalDep, session: SessionDep, ctx: RequestContextDep
+) -> PerfilOut:
+    editable = await _nombre_editable(session, principal.user)
+    user = await service.update_profile(
+        session,
+        ctx,
+        principal.user,
+        full_name=body.full_name,
+        phone_number=body.phone_number,
+        nombre_editable=editable,
+    )
+    return _perfil(user, editable)
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)

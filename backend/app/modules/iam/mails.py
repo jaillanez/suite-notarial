@@ -37,7 +37,11 @@ def account_created_mail(settings: Settings, user: User, raw_token: str) -> Outg
     )
 
 
-def password_changed_mail(settings: Settings, user: User, changed_at: datetime) -> OutgoingMail:
+def password_changed_mail(
+    settings: Settings, user: User, changed_at: datetime, *, desde_la_cuenta: bool = False
+) -> OutgoingMail:
+    """Aviso de cambio de contraseña: por recuperación (se cierran todas las sesiones) o desde
+    la cuenta (se cierran las demás)."""
     return render_mail(
         "password_changed",
         "Se cambió tu contraseña · Suite Notarial",
@@ -46,5 +50,6 @@ def password_changed_mail(settings: Settings, user: User, changed_at: datetime) 
             "full_name": user.full_name,
             "changed_at": changed_at.astimezone(LOCAL_TZ).strftime("%d/%m/%Y %H:%M"),
             "link": f"{settings.public_web_base}/ingresar",
+            "desde_la_cuenta": desde_la_cuenta,
         },
     )

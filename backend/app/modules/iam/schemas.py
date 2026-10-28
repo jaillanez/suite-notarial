@@ -152,3 +152,22 @@ class AuditLogOut(BaseModel):
     @classmethod
     def _ip_to_str(cls, value: object) -> str | None:
         return None if value is None else str(value)
+
+
+class PasswordChange(BaseModel):
+    current_password: PasswordInput
+    new_password: PasswordInput
+
+
+class PerfilOut(BaseModel):
+    email: str
+    full_name: str
+    cuit: str
+    phone_number: str | None
+    # El nombre de un escribano lo lleva el padrón: lo cambia la Caja.
+    nombre_editable: bool
+
+
+class PerfilIn(BaseModel):
+    full_name: FullName | None = None
+    phone_number: Phone | None = None
