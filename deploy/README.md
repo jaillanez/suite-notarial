@@ -36,21 +36,15 @@ docker compose --env-file deploy/.env.server -f deploy/compose.server.yml \
 
 ## Dominio en el Caddy compartido
 
-Agregar al final de `/opt/suite-turnos/infra/caddy/Caddyfile` (hacer antes una copia) y recargar:
-
-```
-DOMINIO {
-	encode zstd gzip
-	reverse_proxy suite-notarial-web:80
-}
-```
+En el servidor, como root:
 
 ```bash
-docker exec suite-turnos-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+bash /opt/suite-notarial/deploy/agregar-a-caddy.sh DOMINIO
 ```
 
-`caddy reload` valida la configuración antes de aplicarla: si tiene un error, los otros sitios
-siguen como estaban.
+El script parte de la configuración que el Caddy tiene **en ejecución**, guarda una copia, agrega
+solo el bloque de la Suite, lo valida y recién entonces lo aplica. No hay que editar el Caddyfile a
+mano: un editor que reemplaza el archivo deja al contenedor leyendo una copia vieja.
 
 ## Actualizar
 
