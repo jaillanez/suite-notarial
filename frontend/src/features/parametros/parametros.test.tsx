@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -94,5 +94,82 @@ describe('parámetros', () => {
 
     expect(await screen.findByRole('button', { name: 'Aprobar' })).toBeDisabled()
     expect(screen.getByText('La propusiste vos: la aprueba otra persona.')).toBeInTheDocument()
+  })
+
+  function renderConcepto() {
+    return renderWithProviders(
+      <Routes>
+        <Route path="/parametros/:id" element={<ConceptoPage />} />
+      </Routes>,
+      { path: '/parametros/c1', user: ADMIN, raw: true },
+    )
+  }
+
+  it('«Cambiar valor» abre el formulario con el valor vigente precargado', async () => {
+    vi.mocked(apiModule.fetchVigencias).mockResolvedValue([VIGENCIA])
+    vi.mocked(apiModule.proponerVigencia).mockResolvedValue({
+      ...VIGENCIA,
+      id: 'v9',
+      estado: 'PENDIENTE_APROBACION',
+    })
+    renderConcepto()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar valor' }))
+    expect(screen.getByLabelText('Porcentaje (%)')).toHaveValue('1,5')
+    expect(screen.getByLabelText('Mínimo ($, opcional)')).toHaveValue('1000,00')
+    fireEvent.change(screen.getByLabelText('Porcentaje (%)'), { target: { value: '1,75' } })
+    fireEvent.change(screen.getByLabelText('Resolución que la respalda'), {
+      target: { value: 'Res. 3/2027' },
+    })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Aumento anual' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Proponer' }))
+
+    await waitFor(() => {
+      expect(apiModule.proponerVigencia).toHaveBeenCalledWith(
+        'c1',
+        expect.objectContaining({ porcentaje: '1.75', monto_minimo: '1000.00' }),
+      )
+    })
+  })
+
+  it('una propuesta pendiente se corrige o se retira', async () => {
+    const pendiente: apiModule.Vigencia = {
+      ...VIGENCIA,
+      id: 'v2',
+      version: 2,
+      fecha_desde: '2027-01-01',
+      porcentaje: '1.7500',
+      estado: 'PENDIENTE_APROBACION',
+      creado_por: ADMIN.email,
+      aprobado_por: null,
+      fecha_aprobacion: null,
+    }
+    vi.mocked(apiModule.fetchVigencias).mockResolvedValue([pendiente, VIGENCIA])
+    vi.mocked(apiModule.corregirVigencia).mockResolvedValue({ ...pendiente, id: 'v3', version: 3 })
+    vi.mocked(apiModule.retirarVigencia).mockResolvedValue({ ...pendiente, estado: 'RETIRADA' })
+    renderConcepto()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Corregir' }))
+    expect(screen.getByLabelText('Vigente desde')).toHaveValue('2027-01-01')
+    fireEvent.change(screen.getByLabelText('Porcentaje (%)'), { target: { value: '1,8' } })
+    fireEvent.change(screen.getByLabelText('Qué se corrige'), {
+      target: { value: 'Era 1,8 y no 1,75' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+    await waitFor(() => {
+      expect(apiModule.corregirVigencia).toHaveBeenCalledWith(
+        'v2',
+        expect.objectContaining({ porcentaje: '1.8', fecha_desde: '2027-01-01' }),
+      )
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retirar' }))
+    fireEvent.change(screen.getByLabelText('Por qué se retira'), {
+      target: { value: 'Ya no corresponde' },
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Retirar' }).at(-1) as HTMLElement)
+    await waitFor(() => {
+      expect(apiModule.retirarVigencia).toHaveBeenCalledWith('v2', 'Ya no corresponde')
+    })
   })
 })

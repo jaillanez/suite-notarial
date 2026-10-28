@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Calculator, Check, Plus, Save, X } from 'lucide-react'
+import { ArrowLeft, Calculator, Check, Pencil, Plus, Save, Undo2, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 
@@ -23,10 +23,12 @@ import { useSession } from '../auth/session'
 import { formatDate, todayIso } from '../padron/labels'
 import {
   aprobarVigencia,
+  corregirVigencia,
   fetchConceptos,
   fetchVigencias,
   proponerVigencia,
   rechazarVigencia,
+  retirarVigencia,
   simular,
   type Concepto,
   type PeriodoTasa,
@@ -52,34 +54,58 @@ const optTasa = (value: string): string | null => {
   return v ? v : null
 }
 
+/** Decimal de la API ("37446.00", "0.4000") como se tipea en el formulario ("37446,00", "0,4"). */
+function aCampo(valor: string | null, { sinCeros = false } = {}): string {
+  if (valor === null) return ''
+  let texto = valor
+  if (sinCeros && texto.includes('.')) texto = texto.replace(/0+$/, '').replace(/\.$/, '')
+  return texto.replace('.', ',')
+}
+
+/** Primer día del mes que viene: el inicio habitual de un valor nuevo. */
+function proximoMes(): string {
+  const [anio = 0, mes = 1] = todayIso().split('-').map(Number)
+  const siguiente =
+    mes === 12 ? `${String(anio + 1)}-01` : `${String(anio)}-${String(mes + 1).padStart(2, '0')}`
+  return `${siguiente}-01`
+}
+
+/** Para qué se abre el formulario: proponer desde cero, cambiar el valor vigente (precargado)
+ * o corregir una propuesta pendiente (la reemplaza por una versión nueva). */
+type Modo =
+  { tipo: 'nueva' } | { tipo: 'cambiar'; base: Vigencia } | { tipo: 'corregir'; base: Vigencia }
+
 function ProponerDialog({
   concepto,
-  open,
+  modo,
   onClose,
 }: {
   concepto: Concepto
-  open: boolean
+  modo: Modo | null
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
+  const base = modo && modo.tipo !== 'nueva' ? modo.base : null
+  const corrigiendo = modo?.tipo === 'corregir'
   const [form, setForm] = useState({
-    fecha_desde: '',
-    fecha_hasta: '',
-    porcentaje: '',
-    monto_fijo: '',
-    monto_minimo: '',
-    monto_maximo: '',
-    tasa: '',
-    periodo_tasa: 'ANUAL' as PeriodoTasa,
-    dias_gracia: '',
-    regla_redondeo: 'HALF_UP' as ReglaRedondeo,
-    resolucion_respaldo: '',
+    fecha_desde:
+      corrigiendo && base ? base.fecha_desde : modo?.tipo === 'cambiar' ? proximoMes() : '',
+    fecha_hasta: corrigiendo && base?.fecha_hasta ? base.fecha_hasta : '',
+    porcentaje: aCampo(base?.porcentaje ?? null, { sinCeros: true }),
+    monto_fijo: aCampo(base?.monto_fijo ?? null),
+    monto_minimo: aCampo(base?.monto_minimo ?? null),
+    monto_maximo: aCampo(base?.monto_maximo ?? null),
+    tasa: aCampo(base?.tasa ?? null, { sinCeros: true }),
+    periodo_tasa: base?.periodo_tasa ?? 'ANUAL',
+    dias_gracia: base?.dias_gracia != null ? String(base.dias_gracia) : '',
+    regla_redondeo: base?.regla_redondeo ?? 'HALF_UP',
+    resolucion_respaldo: corrigiendo && base ? base.resolucion_respaldo : '',
     motivo: '',
   })
   const t = concepto.tipo
   const save = useMutation({
-    mutationFn: () =>
-      proponerVigencia(concepto.id, {
+    mutationFn: () => {
+      const datos = {
         fecha_desde: form.fecha_desde,
         fecha_hasta: form.fecha_hasta || null,
         regla_redondeo: form.regla_redondeo,
@@ -96,7 +122,11 @@ function ProponerDialog({
           periodo_tasa: form.periodo_tasa,
           dias_gracia: form.dias_gracia ? Number.parseInt(form.dias_gracia, 10) : null,
         }),
-      }),
+      }
+      return corrigiendo && base
+        ? corregirVigencia(base.id, datos)
+        : proponerVigencia(concepto.id, datos)
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['parametros'] })
       onClose()
@@ -114,13 +144,25 @@ function ProponerDialog({
 
   return (
     <Dialog
-      open={open}
+      open={modo !== null}
       onClose={() => {
         save.reset()
         onClose()
       }}
-      title="Proponer nueva vigencia"
-      description="Queda pendiente hasta que la apruebe otra persona. Si la vigencia actual no tiene fin, al aprobarse se cierra el día anterior al inicio de esta."
+      title={
+        corrigiendo
+          ? `Corregir la versión ${String(base?.version ?? '')}`
+          : modo?.tipo === 'cambiar'
+            ? 'Cambiar el valor'
+            : 'Proponer nueva vigencia'
+      }
+      description={
+        corrigiendo
+          ? 'La propuesta actual queda retirada (no se borra) y se crea una versión nueva con estos datos, que también aprueba otra persona.'
+          : modo?.tipo === 'cambiar'
+            ? 'Precargado con el valor actual: cambiá lo que corresponda y la fecha desde la que rige. La vigencia actual se cierra el día anterior cuando otra persona apruebe el cambio; las boletas ya emitidas no cambian.'
+            : 'Queda pendiente hasta que la apruebe otra persona. Si la vigencia actual no tiene fin, al aprobarse se cierra el día anterior al inicio de esta.'
+      }
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -138,7 +180,7 @@ function ProponerDialog({
               save.mutate()
             }}
           >
-            Proponer
+            {corrigiendo ? 'Guardar corrección' : 'Proponer'}
           </Button>
         </>
       }
@@ -174,9 +216,9 @@ function ProponerDialog({
             />
           </>
         )}
-        {t === 'FIJO_MENSUAL' && (
+        {(t === 'FIJO_MENSUAL' || t === 'FIJO_ACTO') && (
           <Field
-            label="Monto mensual ($)"
+            label={t === 'FIJO_ACTO' ? 'Monto por acto ($)' : 'Monto mensual ($)'}
             placeholder="25.000,00"
             {...money}
             {...bind('monto_fijo')}
@@ -222,17 +264,33 @@ function ProponerDialog({
           className="sm:col-span-2"
           {...bind('resolucion_respaldo')}
         />
-        <TextArea label="Motivo" className="sm:col-span-2" {...bind('motivo')} />
+        <TextArea
+          label={corrigiendo ? 'Qué se corrige' : 'Motivo'}
+          className="sm:col-span-2"
+          {...bind('motivo')}
+        />
       </div>
     </Dialog>
   )
 }
 
-function RechazarDialog({ vigencia, onClose }: { vigencia: Vigencia | null; onClose: () => void }) {
+function RechazarDialog({
+  vigencia,
+  retirar = false,
+  onClose,
+}: {
+  vigencia: Vigencia | null
+  /** Retirar: la saca quien puede proponer (sin aprobar), en vez de rechazarla quien aprueba. */
+  retirar?: boolean
+  onClose: () => void
+}) {
   const queryClient = useQueryClient()
   const [motivo, setMotivo] = useState('')
   const save = useMutation({
-    mutationFn: () => rechazarVigencia(vigencia?.id ?? '', motivo.trim()),
+    mutationFn: () =>
+      retirar
+        ? retirarVigencia(vigencia?.id ?? '', motivo.trim())
+        : rechazarVigencia(vigencia?.id ?? '', motivo.trim()),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['parametros'] })
       setMotivo('')
@@ -246,22 +304,26 @@ function RechazarDialog({ vigencia, onClose }: { vigencia: Vigencia | null; onCl
         save.reset()
         onClose()
       }}
-      title={`Rechazar la versión ${String(vigencia?.version ?? '')}`}
-      description="El rechazo es definitivo; quien la propuso puede cargar una propuesta nueva."
+      title={`${retirar ? 'Retirar' : 'Rechazar'} la versión ${String(vigencia?.version ?? '')}`}
+      description={
+        retirar
+          ? 'Deja de estar pendiente y no se puede aprobar. No se borra: queda en el historial como retirada.'
+          : 'El rechazo es definitivo; quien la propuso puede cargar una propuesta nueva.'
+      }
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
           <Button
             variant="danger"
-            icon={X}
+            icon={retirar ? Undo2 : X}
             busy={save.isPending}
-            busyLabel="Rechazando…"
+            busyLabel={retirar ? 'Retirando…' : 'Rechazando…'}
             disabled={motivo.trim().length < 5}
             onClick={() => {
               save.mutate()
             }}
           >
-            Rechazar
+            {retirar ? 'Retirar' : 'Rechazar'}
           </Button>
         </>
       }
@@ -269,7 +331,7 @@ function RechazarDialog({ vigencia, onClose }: { vigencia: Vigencia | null; onCl
       <div className="space-y-4">
         {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
         <TextArea
-          label="Motivo del rechazo"
+          label={retirar ? 'Por qué se retira' : 'Motivo del rechazo'}
           value={motivo}
           onChange={(e) => {
             setMotivo(e.target.value)
@@ -402,8 +464,9 @@ export function ConceptoPage() {
     queryKey: ['parametros', 'vigencias', id],
     queryFn: () => fetchVigencias(id),
   })
-  const [proponiendo, setProponiendo] = useState(false)
+  const [modo, setModo] = useState<Modo | null>(null)
   const [rechazando, setRechazando] = useState<Vigencia | null>(null)
+  const [retirando, setRetirando] = useState<Vigencia | null>(null)
   const aprobar = useMutation({
     mutationFn: aprobarVigencia,
     onSuccess: async () => {
@@ -427,6 +490,9 @@ export function ConceptoPage() {
 
   const historial = vigencias.data
   const puedeAprobar = can('parameters:approve')
+  const puedeProponer = can('parameters:write') && concepto.is_active
+  // El valor que rige hoy (o el último aprobado): base de «Cambiar valor».
+  const actual = concepto.vigente ?? historial.find((v) => v.estado === 'VIGENTE') ?? null
 
   return (
     <>
@@ -447,16 +513,29 @@ export function ConceptoPage() {
           </p>
           <p className="mt-1 max-w-[65ch] text-sm text-ink-muted">{TIPO[concepto.tipo].ayuda}</p>
         </div>
-        {can('parameters:write') && concepto.is_active && (
-          <Button
-            variant="primary"
-            icon={Plus}
-            onClick={() => {
-              setProponiendo(true)
-            }}
-          >
-            Proponer vigencia
-          </Button>
+        {puedeProponer && (
+          <div className="flex flex-wrap gap-3">
+            {actual && (
+              <Button
+                variant="primary"
+                icon={Pencil}
+                onClick={() => {
+                  setModo({ tipo: 'cambiar', base: actual })
+                }}
+              >
+                Cambiar valor
+              </Button>
+            )}
+            <Button
+              variant={actual ? 'secondary' : 'primary'}
+              icon={Plus}
+              onClick={() => {
+                setModo({ tipo: 'nueva' })
+              }}
+            >
+              {actual ? 'Proponer en blanco' : 'Proponer vigencia'}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -516,35 +595,64 @@ export function ConceptoPage() {
                       : ''}
                   </p>
                   {v.motivo_rechazo && (
-                    <p className="mt-2 text-sm text-danger-700">Rechazo: {v.motivo_rechazo}</p>
+                    <p
+                      className={`mt-2 text-sm ${v.estado === 'RETIRADA' ? 'text-ink-muted' : 'text-danger-700'}`}
+                    >
+                      {v.estado === 'RETIRADA' ? 'Retirada' : 'Rechazo'}: {v.motivo_rechazo}
+                    </p>
                   )}
-                  {v.estado === 'PENDIENTE_APROBACION' && puedeAprobar && (
+                  {v.estado === 'PENDIENTE_APROBACION' && (puedeAprobar || puedeProponer) && (
                     <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <Button
-                        variant="primary"
-                        icon={Check}
-                        disabled={propia}
-                        busy={aprobar.isPending && aprobar.variables === v.id}
-                        busyLabel="Aprobando…"
-                        onClick={() => {
-                          aprobar.mutate(v.id)
-                        }}
-                      >
-                        Aprobar
-                      </Button>
-                      <Button
-                        variant="danger"
-                        icon={X}
-                        onClick={() => {
-                          setRechazando(v)
-                        }}
-                      >
-                        Rechazar
-                      </Button>
-                      {propia && (
-                        <span className="text-sm text-ink-muted">
-                          La propusiste vos: la aprueba otra persona.
-                        </span>
+                      {puedeProponer && (
+                        <>
+                          <Button
+                            icon={Pencil}
+                            onClick={() => {
+                              setModo({ tipo: 'corregir', base: v })
+                            }}
+                          >
+                            Corregir
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            icon={Undo2}
+                            onClick={() => {
+                              setRetirando(v)
+                            }}
+                          >
+                            Retirar
+                          </Button>
+                        </>
+                      )}
+                      {puedeAprobar && (
+                        <>
+                          <Button
+                            variant="primary"
+                            icon={Check}
+                            disabled={propia}
+                            busy={aprobar.isPending && aprobar.variables === v.id}
+                            busyLabel="Aprobando…"
+                            onClick={() => {
+                              aprobar.mutate(v.id)
+                            }}
+                          >
+                            Aprobar
+                          </Button>
+                          <Button
+                            variant="danger"
+                            icon={X}
+                            onClick={() => {
+                              setRechazando(v)
+                            }}
+                          >
+                            Rechazar
+                          </Button>
+                          {propia && (
+                            <span className="text-sm text-ink-muted">
+                              La propusiste vos: la aprueba otra persona.
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -560,17 +668,24 @@ export function ConceptoPage() {
       )}
 
       <ProponerDialog
-        key={String(proponiendo)}
+        key={modo ? `${modo.tipo}-${modo.tipo === 'nueva' ? '' : modo.base.id}` : 'cerrado'}
         concepto={concepto}
-        open={proponiendo}
+        modo={modo}
         onClose={() => {
-          setProponiendo(false)
+          setModo(null)
         }}
       />
       <RechazarDialog
         vigencia={rechazando}
         onClose={() => {
           setRechazando(null)
+        }}
+      />
+      <RechazarDialog
+        retirar
+        vigencia={retirando}
+        onClose={() => {
+          setRetirando(null)
         }}
       />
     </>
