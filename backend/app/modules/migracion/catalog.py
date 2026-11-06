@@ -9,6 +9,13 @@ class Entidad(StrEnum):
     CARGOS = "cargos"
     BOLETAS = "boletas"
     PAGOS = "pagos"
+    # Opcional (agregado al formato v2): créditos a favor del escribano en el sistema anterior.
+    CREDITOS = "creditos"
+
+
+# Archivos que el lote puede no traer. Si viene el archivo, `control.csv` tiene que declarar sus
+# totales (y viceversa): sin origen no hay cuadratura.
+OPCIONALES = frozenset({Entidad.CREDITOS})
 
 
 class Severidad(StrEnum):

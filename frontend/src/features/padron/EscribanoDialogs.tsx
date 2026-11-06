@@ -14,6 +14,7 @@ import {
   assignCargo,
   changeEstado,
   closeCargo,
+  completarEscribano,
   fetchRegistros,
   updateEscribano,
   type Cargo,
@@ -21,7 +22,7 @@ import {
   type EscribanoDetalle,
   type EstadoMatricula,
 } from './api'
-import { CARGO, ESTADO_MATRICULA, ESTADOS_DEFINITIVOS, todayIso } from './labels'
+import { CAMPO_A_COMPLETAR, CARGO, ESTADO_MATRICULA, ESTADOS_DEFINITIVOS, todayIso } from './labels'
 
 const orNull = (value: string): string | null => (value.trim() ? value.trim() : null)
 
@@ -330,7 +331,7 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
   const [form, setForm] = useState({
     apellido: p.apellido,
     nombre: p.nombre,
-    numero_documento: p.numero_documento,
+    numero_documento: p.numero_documento ?? '',
     fecha_nacimiento: p.fecha_nacimiento ?? '',
     email: p.email ?? '',
     telefono: p.telefono ?? '',
@@ -346,7 +347,10 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
         persona: {
           apellido: form.apellido.trim(),
           nombre: form.nombre.trim(),
-          numero_documento: form.numero_documento.trim(),
+          // Un documento que falta se carga desde «Completar datos», no acá.
+          ...(p.numero_documento === null
+            ? {}
+            : { numero_documento: form.numero_documento.trim() }),
           fecha_nacimiento: orNull(form.fecha_nacimiento),
           email: orNull(form.email),
           telefono: orNull(form.telefono),
@@ -374,7 +378,7 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
         onClose()
       }}
       title="Editar datos"
-      description="El CUIT y la matrícula no se editan: identifican al escribano. Cada cambio queda auditado."
+      description="El CUIT y la matrícula no se editan: identifican al escribano (si faltan, se cargan desde «Completar datos»). Cada cambio queda auditado."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -400,7 +404,9 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
         )}
         <Field label="Apellido" {...bind('apellido')} />
         <Field label="Nombre" {...bind('nombre')} />
-        <Field label="Número de documento" inputMode="numeric" {...bind('numero_documento')} />
+        {p.numero_documento !== null && (
+          <Field label="Número de documento" inputMode="numeric" {...bind('numero_documento')} />
+        )}
         <Field label="Fecha de nacimiento" type="date" {...bind('fecha_nacimiento')} />
         <Field
           label="Correo electrónico"
@@ -477,6 +483,106 @@ export function CuentaDialog({ escribano, open, onClose }: Props) {
           }}
           hint="Debe coincidir con el registrado."
         />
+      </div>
+    </Dialog>
+  )
+}
+
+/** Carga, una sola vez, los datos que faltaban al migrar (matrícula, fecha, CUIT, DNI). */
+export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
+  const refresh = useRefresh(escribano.id)
+  const faltan = escribano.a_completar
+  const [form, setForm] = useState({
+    matricula_numero: '',
+    fecha_matriculacion: '',
+    cuit: '',
+    numero_documento: '',
+  })
+  const save = useMutation({
+    mutationFn: () => {
+      const matricula = form.matricula_numero.trim()
+      const cuit = form.cuit.trim()
+      const documento = form.numero_documento.trim()
+      return completarEscribano(escribano.id, {
+        ...(matricula ? { matricula_numero: Number(matricula) } : {}),
+        ...(form.fecha_matriculacion ? { fecha_matriculacion: form.fecha_matriculacion } : {}),
+        ...(cuit ? { cuit } : {}),
+        ...(documento ? { numero_documento: documento } : {}),
+      })
+    },
+    onSuccess: async () => {
+      await refresh()
+      onClose()
+    },
+  })
+  const problem = save.isError ? toProblem(save.error) : null
+  const bind = (key: keyof typeof form) => ({
+    value: form[key],
+    onChange: (e: { target: { value: string } }) => {
+      setForm((f) => ({ ...f, [key]: e.target.value }))
+    },
+    error: problem?.fieldErrors[key],
+  })
+  const algoCargado = Object.values(form).some((v) => v.trim() !== '')
+  return (
+    <Dialog
+      open={open}
+      onClose={() => {
+        save.reset()
+        onClose()
+      }}
+      title="Completar datos"
+      description="Datos que no venían del sistema anterior. Cada uno se carga una sola vez y queda auditado: verificalo contra el legajo antes de guardar. Lo que dejes vacío sigue a completar."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancelar</Button>
+          <Button
+            variant="primary"
+            icon={Save}
+            busy={save.isPending}
+            busyLabel="Guardando…"
+            disabled={!algoCargado}
+            onClick={() => {
+              save.mutate()
+            }}
+          >
+            Guardar datos
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        {problem && Object.keys(problem.fieldErrors).length === 0 && (
+          <div className="sm:col-span-2">
+            <Alert tone="danger">{problem.detail}</Alert>
+          </div>
+        )}
+        {faltan.includes('matricula_numero') && (
+          <Field
+            label={CAMPO_A_COMPLETAR.matricula_numero}
+            inputMode="numeric"
+            {...bind('matricula_numero')}
+          />
+        )}
+        {faltan.includes('fecha_matriculacion') && (
+          <Field
+            label={CAMPO_A_COMPLETAR.fecha_matriculacion}
+            type="date"
+            {...bind('fecha_matriculacion')}
+          />
+        )}
+        {faltan.includes('cuit') && (
+          <Field
+            label={CAMPO_A_COMPLETAR.cuit}
+            inputMode="numeric"
+            placeholder="20-12345678-9"
+            hint="Se valida el dígito verificador."
+            {...bind('cuit')}
+          />
+        )}
+        {faltan.includes('numero_documento') && (
+          <Field label="Número de documento" inputMode="numeric" {...bind('numero_documento')} />
+        )}
       </div>
     </Dialog>
   )

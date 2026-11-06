@@ -3,6 +3,8 @@ import { api } from '../../lib/api'
 export type Sistema = 'FRANCES' | 'ALEMAN'
 export type EstadoPrestamo = 'SOLICITADO' | 'OTORGADO' | 'RECHAZADO' | 'CANCELADO'
 export type EstadoCuota = 'PENDIENTE' | 'PAGADA'
+/** Moneda de la línea y de sus préstamos: capital, cuotas e ingreso van en la misma. */
+export type Moneda = 'ARS' | 'USD'
 
 /** Importes y tasas como texto decimal ("8884.88", "30.0000"), nunca como number. */
 export interface Linea {
@@ -18,6 +20,14 @@ export interface Linea {
   tna: string
   afectacion_maxima: string
   requiere_garante: boolean
+  moneda: Moneda
+  garantia: string | null
+  requisito_conducta: string | null
+  /** Capital sobre el valor del inmueble hipotecado, en % ("70.0000"). */
+  relacion_capital_hipoteca: string | null
+  requiere_certificado_ingresos: boolean
+  requiere_certificado_bienes: boolean
+  antiguedad_minima_meses: number | null
   es_ejemplo: boolean
   is_active: boolean
 }
@@ -45,6 +55,7 @@ export interface Totales {
 }
 
 export interface Evaluacion {
+  moneda: Moneda
   sistema: Sistema
   tna: string
   tasa_es_ejemplo: boolean
@@ -56,6 +67,8 @@ export interface Evaluacion {
   afectacion_maxima: string
   requiere_garante: boolean
   impedimentos: string[]
+  /** No impiden otorgar, pero hay que revisarlos (tipo de cambio, antigüedad). */
+  avisos: string[]
   plan: Cuota[]
   totales: Totales
 }
@@ -63,7 +76,7 @@ export interface Evaluacion {
 export interface PersonaResumen {
   id: string
   apellido_nombre: string
-  matricula_numero: number
+  matricula_numero: number | null
 }
 
 export interface Prestamo {
@@ -74,6 +87,7 @@ export interface Prestamo {
   linea_id: string
   linea_nombre: string
   estado: EstadoPrestamo
+  moneda: Moneda
   sistema: Sistema
   tna: string
   tasa_es_ejemplo: boolean
@@ -101,6 +115,7 @@ export interface PrestamoDetalle extends Prestamo {
   plan: Cuota[]
   totales: Totales
   impedimentos_actuales: string[]
+  avisos_actuales: string[]
   puede_resolver: boolean
 }
 

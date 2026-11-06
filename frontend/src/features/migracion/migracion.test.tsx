@@ -132,6 +132,50 @@ describe('migración', () => {
     expect(screen.getByText(/no se le puede dar conformidad/)).toBeInTheDocument()
   })
 
+  it('muestra los créditos a favor y el saldo a favor por registro', async () => {
+    vi.mocked(api.fetchCorrida).mockResolvedValue({
+      ...CORRIDA,
+      informe: {
+        ...INFORME,
+        entidades: [
+          ...ENTIDADES,
+          {
+            entidad: 'creditos',
+            control_filas: 2,
+            leidas: 2,
+            rechazadas: 0,
+            cargadas: 2,
+            cuadra_filas: true,
+            control_importe: '7777.00',
+            importe_leido: '7777.00',
+            importe_rechazado: '0.00',
+            importe_cargado: '7777.00',
+            filas_importe_ilegible: 0,
+            cuadra_importe: true,
+          },
+        ],
+        saldos: {
+          ...INFORME.saldos,
+          registros_a_favor: 1,
+          a_favor_origen: '4321.00',
+          a_favor_destino: '4321.00',
+        },
+      },
+    })
+    renderCorrida()
+    expect((await screen.findAllByText('Créditos a favor')).length).toBeGreaterThan(0)
+    expect(screen.getByText('Registros con saldo a favor')).toBeInTheDocument()
+    expect(screen.getByText('Saldo a favor, según la Suite')).toBeInTheDocument()
+    expect(screen.getAllByText('$ 4.321,00')).toHaveLength(2)
+  })
+
+  it('un informe anterior a los créditos no muestra el saldo a favor', async () => {
+    vi.mocked(api.fetchCorrida).mockResolvedValue(CORRIDA)
+    renderCorrida()
+    expect(await screen.findByText('Registros con movimientos')).toBeInTheDocument()
+    expect(screen.queryByText('Registros con saldo a favor')).not.toBeInTheDocument()
+  })
+
   it('Tesorería firma un simulacro que cuadró, tras tildar la revisión', async () => {
     const cuadrado: api.CorridaDetalle = {
       ...CORRIDA,

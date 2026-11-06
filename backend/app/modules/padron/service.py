@@ -41,6 +41,7 @@ from app.modules.padron.schemas import (
     CargoCierre,
     CircunscripcionIn,
     CircunscripcionUpdate,
+    DatosACompletar,
     EscribanoIn,
     EscribanoUpdate,
     EstadoCambio,
@@ -461,6 +462,26 @@ async def update_escribano(
 ) -> Escribano:
     escribano = await get_escribano(session, escribano_id)
     persona = escribano.persona
+    # Un dato «a completar» se carga una sola vez y sólo por «Completar datos» (con sus
+    # controles y su auditoría propia), nunca por la edición general.
+    cambios = {
+        **data.model_dump(exclude_unset=True, exclude={"persona"}),
+        **(data.persona.model_dump(exclude_unset=True) if data.persona is not None else {}),
+    }
+    duenos = {"escribano": escribano, "persona": persona}
+    for campo, valor in cambios.items():
+        if (
+            campo in _A_COMPLETAR
+            and valor is not None
+            and getattr(duenos[_A_COMPLETAR[campo][0]], campo) is None
+        ):
+            raise _conflict(
+                f"Ese dato está «a completar»: cargalo desde «Completar datos» ({campo})."
+            )
+    if cambios.get("fecha_matriculacion") is not None:
+        await _exigir_matriculacion_antes_de_todo(
+            session, escribano.id, cambios["fecha_matriculacion"]
+        )
     old = {**_snapshot(persona, PER_FIELDS), **_snapshot(escribano, ESC_FIELDS)}
     for field, value in data.model_dump(exclude_unset=True, exclude={"persona"}).items():
         if field == "fecha_matriculacion" and value is None:
@@ -492,6 +513,83 @@ async def update_escribano(
     return escribano
 
 
+async def _exigir_matriculacion_antes_de_todo(
+    session: AsyncSession, escribano_id: uuid.UUID, fecha: date
+) -> None:
+    """La matriculación no puede ser posterior a ningún cargo, designación a cargo ni cambio
+    de estado ya registrado del escribano (lo usan la edición y «Completar datos»)."""
+    from app.modules.padron.models import DesignacionACargo
+
+    primeras = [
+        await session.scalar(select(func.min(columna)).where(dueno == escribano_id))
+        for columna, dueno in (
+            (Adscripcion.fecha_desde, Adscripcion.escribano_id),
+            (DesignacionACargo.fecha_desde, DesignacionACargo.escribano_id),
+            (HistorialEstado.fecha_efectiva, HistorialEstado.escribano_id),
+        )
+    ]
+    primera = min((f for f in primeras if f is not None), default=None)
+    if primera is not None and primera < fecha:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La fecha de matriculación no puede ser posterior a su primer cargo, designación "
+            "o cambio de estado.",
+        )
+
+
+# Campo a completar → (objeto que lo tiene, mensaje si ya está cargado).
+_A_COMPLETAR = {
+    "matricula_numero": ("escribano", "La matrícula ya está cargada"),
+    "fecha_matriculacion": ("escribano", "La fecha de matriculación ya está cargada"),
+    "cuit": ("persona", "El CUIT ya está cargado"),
+    "numero_documento": ("persona", "El número de documento ya está cargado"),
+}
+
+
+def datos_a_completar(escribano: Escribano) -> list[str]:
+    """Campos que faltan (migrados del sistema anterior sin ese dato)."""
+    duenos = {"escribano": escribano, "persona": escribano.persona}
+    return [
+        campo for campo, (dueno, _) in _A_COMPLETAR.items() if getattr(duenos[dueno], campo) is None
+    ]
+
+
+async def completar_escribano(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    escribano_id: uuid.UUID,
+    data: DatosACompletar,
+) -> Escribano:
+    """Carga, una sola vez, los datos que faltaban al migrar. No cambia un dato ya cargado."""
+    escribano = await get_escribano_for_update(session, escribano_id)
+    persona = escribano.persona
+    duenos: dict[str, Escribano | Persona] = {"escribano": escribano, "persona": persona}
+    cambios = data.model_dump(exclude_none=True)
+    for campo in cambios:
+        dueno, mensaje = _A_COMPLETAR[campo]
+        if getattr(duenos[dueno], campo) is not None:
+            raise _conflict(f"{mensaje}: no se cambia desde «a completar».")
+    fecha = cambios.get("fecha_matriculacion")
+    if fecha is not None:
+        await _exigir_matriculacion_antes_de_todo(session, escribano.id, fecha)
+    old = {campo: None for campo in cambios}
+    for campo, valor in cambios.items():
+        setattr(duenos[_A_COMPLETAR[campo][0]], campo, valor)
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PADRON_ESCRIBANO_COMPLETADO,
+        actor_user_id=actor.id,
+        old_value=old,
+        new_value={campo: _jsonable(valor) for campo, valor in cambios.items()},
+        details={"escribano_id": str(escribano.id), "campos": sorted(cambios)},
+    )
+    await _commit_unique(session)
+    await session.refresh(escribano, attribute_names=["persona"])
+    return escribano
+
+
 async def change_estado(
     session: AsyncSession,
     ctx: RequestContext,
@@ -514,6 +612,11 @@ async def change_estado(
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "La reincorporación requiere citar la resolución que la dispone.",
+        )
+    if escribano.fecha_matriculacion is None:
+        raise _conflict(
+            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "esta operación."
         )
     if data.fecha_efectiva < escribano.fecha_matriculacion:
         raise ProblemError(
@@ -664,6 +767,11 @@ async def assign_cargo(
     escribano = await get_escribano(session, escribano_id)
     if escribano.estado_matricula != EstadoMatricula.ACTIVO:
         raise _conflict("Solo un escribano con matrícula ACTIVA puede asumir un cargo.")
+    if escribano.fecha_matriculacion is None:
+        raise _conflict(
+            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "esta operación."
+        )
     if data.fecha_desde < escribano.fecha_matriculacion:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,

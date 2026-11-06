@@ -9,6 +9,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 MONEY_QUANT = Decimal("0.01")
 RATE_QUANT = Decimal("0.0001")
+# Puntos previsionales y aporte medio del ejercicio (Ley 7231): columnas `Numeric(18,6)`.
+POINTS_QUANT = Decimal("0.000001")
 
 type DecimalInput = Decimal | int | str
 
@@ -35,12 +37,22 @@ def to_rate(value: DecimalInput) -> Decimal:
     return _to_decimal(value).quantize(RATE_QUANT, rounding=ROUND_HALF_UP)
 
 
+def to_points(value: DecimalInput) -> Decimal:
+    """Cuantiza a 6 decimales con ROUND_HALF_UP (puntos y aporte medio, `Numeric(18,6)`)."""
+    return _to_decimal(value).quantize(POINTS_QUANT, rounding=ROUND_HALF_UP)
+
+
 def format_pesos(monto: Decimal) -> str:
     """`$ 1.081.699,06`: formato argentino para textos (boleta, correos), sin pasar por float."""
+    return format_importe(monto, "$")
+
+
+def format_importe(monto: Decimal, simbolo: str) -> str:
+    """Como `format_pesos`, con otro símbolo de moneda: `US$ 50.000,00`."""
     signo = "-" if monto < 0 else ""
     entero, _, centavos = f"{abs(monto):.2f}".partition(".")
     grupos: list[str] = []
     while entero:
         grupos.insert(0, entero[-3:])
         entero = entero[:-3]
-    return f"{signo}$ {'.'.join(grupos)},{centavos}"
+    return f"{signo}{simbolo} {'.'.join(grupos)},{centavos}"

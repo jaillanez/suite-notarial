@@ -1,5 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Pencil, RefreshCw, ShieldPlus, UserCheck, UserPlus } from 'lucide-react'
+import {
+  ArrowLeft,
+  ClipboardPen,
+  Pencil,
+  RefreshCw,
+  ShieldPlus,
+  UserCheck,
+  UserPlus,
+} from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 
@@ -10,15 +18,22 @@ import { Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { useSession } from '../auth/session'
+import { PuntosPanel } from '../previsional/PuntosPanel'
 import { fetchEscribano, type CargoItem } from './api'
 import {
   AsignarCargoDialog,
   CerrarCargoDialog,
+  CompletarDatosDialog,
   CuentaDialog,
   EditarEscribanoDialog,
   EstadoDialog,
 } from './EscribanoDialogs'
-import { CARGO, ESTADO_MATRICULA, formatDate } from './labels'
+import { A_COMPLETAR, CAMPO_A_COMPLETAR, CARGO, ESTADO_MATRICULA, formatDate } from './labels'
+
+/** Dato que no vino del sistema anterior: se ve como pendiente, no como vacío. */
+function ACompletar() {
+  return <span className="font-semibold text-warning-700">{A_COMPLETAR}</span>
+}
 
 function Rows({ items }: { items: [string, ReactNode][] }) {
   return (
@@ -36,7 +51,7 @@ function Rows({ items }: { items: [string, ReactNode][] }) {
   )
 }
 
-type DialogName = 'editar' | 'estado' | 'cargo' | 'cuenta' | null
+type DialogName = 'editar' | 'estado' | 'cargo' | 'cuenta' | 'completar' | null
 
 export function EscribanoPage() {
   const { id = '' } = useParams()
@@ -78,9 +93,13 @@ export function EscribanoPage() {
             {e.apellido_nombre}
           </h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-ink-muted tabular-nums">
-            <span>Matrícula {e.matricula_numero}</span>
+            <span>
+              {e.matricula_numero === null
+                ? 'Matrícula a completar'
+                : `Matrícula ${String(e.matricula_numero)}`}
+            </span>
             <span aria-hidden="true">·</span>
-            <span>CUIT {e.cuit}</span>
+            <span>{e.cuit === null ? 'CUIT a completar' : `CUIT ${e.cuit}`}</span>
             <StatusIndicator tone={estado.tone} label={estado.label} />
           </p>
         </div>
@@ -108,6 +127,31 @@ export function EscribanoPage() {
         </div>
       </div>
 
+      {e.a_completar.length > 0 && (
+        <div className="mb-6">
+          <Alert
+            tone="warning"
+            title="Datos a completar"
+            action={
+              canWrite ? (
+                <Button
+                  icon={ClipboardPen}
+                  onClick={() => {
+                    setDialog('completar')
+                  }}
+                >
+                  Completar datos
+                </Button>
+              ) : undefined
+            }
+          >
+            No venían del sistema anterior:{' '}
+            {e.a_completar.map((c) => CAMPO_A_COMPLETAR[c].toLowerCase()).join(', ')}.
+            {e.a_completar.includes('cuit') && ' Sin CUIT no se le puede crear la cuenta.'}
+          </Alert>
+        </div>
+      )}
+
       {e.estado_matricula !== 'ACTIVO' && e.motivo_ultimo_cambio_estado && (
         <div className="mb-6">
           <Alert
@@ -124,8 +168,8 @@ export function EscribanoPage() {
           <Rows
             items={[
               ['Apellido y nombre', `${e.persona.apellido}, ${e.persona.nombre}`],
-              ['CUIT', e.persona.cuit],
-              [e.persona.tipo_documento, e.persona.numero_documento],
+              ['CUIT', e.persona.cuit ?? <ACompletar />],
+              [e.persona.tipo_documento, e.persona.numero_documento ?? <ACompletar />],
               ['Nacimiento', formatDate(e.persona.fecha_nacimiento)],
               ['Correo', e.persona.email],
               ['Teléfono', e.persona.telefono],
@@ -136,9 +180,12 @@ export function EscribanoPage() {
         <Panel title="Matrícula">
           <Rows
             items={[
-              ['Número', e.matricula_numero],
+              ['Número', e.matricula_numero ?? <ACompletar />],
               ['Tomo / folio', [e.tomo, e.folio].filter(Boolean).join(' / ') || '—'],
-              ['Matriculación', formatDate(e.fecha_matriculacion)],
+              [
+                'Matriculación',
+                e.fecha_matriculacion ? formatDate(e.fecha_matriculacion) : <ACompletar />,
+              ],
               [
                 'Cuenta de autogestión',
                 e.tiene_cuenta ? (
@@ -156,13 +203,18 @@ export function EscribanoPage() {
             <div className="space-y-3 border-t border-line px-5 py-4 sm:px-6">
               <Button
                 icon={UserPlus}
-                disabled={!e.persona.email}
+                disabled={!e.persona.email || e.persona.cuit === null}
                 onClick={() => {
                   setDialog('cuenta')
                 }}
               >
                 Crear cuenta de autogestión
               </Button>
+              {e.persona.cuit === null && (
+                <p className="text-sm text-ink-muted">
+                  Completá su CUIT para poder crearle la cuenta.
+                </p>
+              )}
               {!e.persona.email && (
                 <p className="text-sm text-ink-muted">
                   Cargá su correo en “Editar datos” para poder crearle la cuenta.
@@ -236,6 +288,8 @@ export function EscribanoPage() {
         )}
       </Panel>
 
+      {can('puntos:read_all') && <PuntosPanel className="mt-6" escribanoId={e.id} />}
+
       <Panel
         className="mt-6"
         title="Historial de estados"
@@ -297,6 +351,14 @@ export function EscribanoPage() {
       <AsignarCargoDialog
         escribano={e}
         open={dialog === 'cargo'}
+        onClose={() => {
+          setDialog(null)
+        }}
+      />
+      <CompletarDatosDialog
+        key={`completar-${e.a_completar.join('-')}-${String(dialog === 'completar')}`}
+        escribano={e}
+        open={dialog === 'completar'}
         onClose={() => {
           setDialog(null)
         }}

@@ -32,6 +32,7 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 
 MONEY = Numeric(15, 2)
 RATE = Numeric(18, 4)
+MONEDA_VALIDA = "moneda IN ('ARS', 'USD')"
 
 
 class Linea(UUIDMixin, TimestampMixin, Base):
@@ -44,6 +45,16 @@ class Linea(UUIDMixin, TimestampMixin, Base):
         CheckConstraint("monto_minimo > 0 AND monto_maximo >= monto_minimo", name="montos"),
         CheckConstraint("tna >= 0 AND tna <= 1000", name="tna"),
         CheckConstraint("afectacion_maxima > 0 AND afectacion_maxima <= 100", name="afectacion"),
+        CheckConstraint(MONEDA_VALIDA, name="moneda"),
+        CheckConstraint(
+            "relacion_capital_hipoteca IS NULL OR "
+            "(relacion_capital_hipoteca > 0 AND relacion_capital_hipoteca <= 100)",
+            name="relacion_capital_hipoteca",
+        ),
+        CheckConstraint(
+            "antiguedad_minima_meses IS NULL OR antiguedad_minima_meses > 0",
+            name="antiguedad_minima",
+        ),
     )
 
     codigo: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
@@ -59,6 +70,21 @@ class Linea(UUIDMixin, TimestampMixin, Base):
     # Tope de la cuota sobre el ingreso neto mensual, en % (30.0000 = 30 %).
     afectacion_maxima: Mapped[Decimal] = mapped_column(RATE, nullable=False)
     requiere_garante: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Moneda de los montos de la línea y de sus préstamos (catalog.Moneda).
+    moneda: Mapped[str] = mapped_column(String(3), nullable=False, server_default="ARS")
+    # Requisitos de la línea (Resolución N° 273). Informativos salvo la antigüedad, que se
+    # controla al evaluar cuando se conoce la fecha de matriculación.
+    garantia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requisito_conducta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Capital sobre el valor del inmueble hipotecado, en % (70.0000 = 70 %).
+    relacion_capital_hipoteca: Mapped[Decimal | None] = mapped_column(RATE, nullable=True)
+    requiere_certificado_ingresos: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    requiere_certificado_bienes: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    antiguedad_minima_meses: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Valores de ejemplo, no aprobados por el Directorio: se muestran como "A confirmar".
     es_ejemplo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
@@ -92,6 +118,7 @@ class Prestamo(UUIDMixin, TimestampMixin, Base):
             name="otorgamiento_coherente",
         ),
         CheckConstraint("afectacion <= afectacion_maxima", name="dentro_del_tope"),
+        CheckConstraint(MONEDA_VALIDA, name="moneda"),
         Index("ix_prestamos_escribano_estado", "escribano_id", "estado"),
     )
 
@@ -123,6 +150,9 @@ class Prestamo(UUIDMixin, TimestampMixin, Base):
     capital: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     cuotas: Mapped[int] = mapped_column(Integer, nullable=False)
     tasa_es_ejemplo: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Copiada de la línea al solicitar; no cambia nunca (trigger). Capital, cuotas, ingreso neto
+    # y otras cuotas están en esta moneda.
+    moneda: Mapped[str] = mapped_column(String(3), nullable=False, server_default="ARS")
 
     # Evaluación crediticia.
     ingreso_neto: Mapped[Decimal] = mapped_column(MONEY, nullable=False)

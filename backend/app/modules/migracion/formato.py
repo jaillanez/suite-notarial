@@ -1,4 +1,4 @@
-"""Formato de intercambio v1: lo que la extracción del sistema anterior tiene que entregar.
+"""Formato de intercambio v2: lo que la extracción del sistema anterior tiene que entregar.
 
 TODO(negocio): el formato se fija acá porque el sistema anterior todavía no fue auditado
 (decisión D-03). Tras la auditoría de su estructura, la extracción se escribe para producir
@@ -7,6 +7,9 @@ exactamente estos archivos; si algún dato no existe en el origen, se acuerda co
 Un lote es un directorio con un CSV por entidad (UTF-8 o Windows-1252, separador `;`, `,` o
 tabulador, con encabezado) más `control.csv` con los totales que informa el sistema anterior
 (filas e importes): son el «origen» contra el que se cuadra.
+
+`creditos.csv` es opcional (agregado a la versión 2): los créditos a favor del escribano que el
+sistema anterior registra como importes negativos. Si viene, `control.csv` declara sus totales.
 """
 
 import csv
@@ -15,9 +18,9 @@ import io
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.modules.migracion.catalog import Entidad
+from app.modules.migracion.catalog import OPCIONALES, Entidad
 
-VERSION_FORMATO = "1"
+VERSION_FORMATO = "2"
 
 # (obligatorias, opcionales) por entidad.
 COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
@@ -33,20 +36,22 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("nombre_fantasia", "fecha_creacion"),
     ),
     Entidad.ESCRIBANOS: (
+        ("codigo_legado", "apellido", "nombre", "estado"),
+        # v2: CUIT, documento, matrícula y fecha de matriculación pueden faltar en el origen
+        # (históricos, altas sin matrícula): se cargan vacíos y quedan «a completar».
         (
-            "codigo_legado",
             "cuit",
+            "tipo_documento",
             "numero_documento",
-            "apellido",
-            "nombre",
             "matricula",
             "fecha_matriculacion",
-            "estado",
+            "fecha_nacimiento",
+            "email",
         ),
-        ("tipo_documento", "fecha_nacimiento", "email"),
     ),
     Entidad.CARGOS: (
-        ("codigo_legado", "matricula", "numero_registro", "cargo", "fecha_desde"),
+        # v2: el escribano se referencia por su `codigo_legado` (no todos tienen matrícula).
+        ("codigo_legado", "escribano", "numero_registro", "cargo", "fecha_desde"),
         ("fecha_hasta",),
     ),
     Entidad.BOLETAS: (
@@ -65,6 +70,11 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("codigo_legado", "boleta", "fecha_pago", "importe"),
         ("medio",),
     ),
+    # Importe en positivo: lo que el sistema anterior le debe al escribano.
+    Entidad.CREDITOS: (
+        ("codigo_legado", "numero_registro", "fecha", "importe"),
+        ("periodo", "concepto"),
+    ),
 }
 COLUMNAS_CONTROL = ("entidad", "filas", "importe")
 MAX_FILAS = 500_000
@@ -81,17 +91,22 @@ class Fila:
 
     @property
     def codigo(self) -> str:
-        return self.datos.get("codigo_legado", "")
+        """Forma canónica (espacios unidos): la misma para el mapeo, los duplicados y las
+        referencias de otros archivos (p. ej. `escribano` en cargos.csv)."""
+        return " ".join(self.datos.get("codigo_legado", "").split())
 
 
 @dataclass
 class Lote:
+    # Un archivo opcional ausente queda con la lista vacía (ver `presentes`).
     filas: dict[Entidad, list[Fila]]
     # Totales que declara el sistema anterior: entidad → (filas, importe en texto o None).
     control: dict[str, tuple[int, str | None]]
     # Huella del lote (archivos y contenido): identifica la extracción en cada corrida.
     huella: str
     codificaciones: dict[str, str] = field(default_factory=dict)
+    # Archivos que trae el lote (los obligatorios siempre; los opcionales, si vinieron).
+    presentes: frozenset[Entidad] = frozenset(e for e in Entidad if e not in OPCIONALES)
 
 
 def _decodificar(contenido: bytes) -> tuple[str, str]:
@@ -134,15 +149,27 @@ def leer_lote(directorio: Path) -> Lote:
     huella = hashlib.sha256(f"formato-{VERSION_FORMATO}".encode())
     filas: dict[Entidad, list[Fila]] = {}
     codificaciones: dict[str, str] = {}
+    presentes: set[Entidad] = set()
     for entidad in Entidad:
         archivo = directorio / f"{entidad.value}.csv"
         if not archivo.is_file():
+            if entidad in OPCIONALES:
+                # Sin el archivo la huella no cambia: un lote sin créditos es el mismo de antes.
+                filas[entidad] = []
+                continue
             raise FormatoInvalidoError(f"Falta {archivo.name} en el lote.")
+        presentes.add(entidad)
         contenido = archivo.read_bytes()
         huella.update(archivo.name.encode() + b"\0" + hashlib.sha256(contenido).digest())
         datos, columnas, codificacion = leer_csv(contenido, archivo.name)
         obligatorias, opcionales = COLUMNAS[entidad]
         faltan = [c for c in obligatorias if c not in columnas]
+        if entidad is Entidad.CARGOS and "escribano" in faltan and "matricula" in columnas:
+            raise FormatoInvalidoError(
+                f"{archivo.name}: es del formato v1 (cargos por «matricula»), que ya no se "
+                f"acepta. El formato v{VERSION_FORMATO} referencia al escribano por su código "
+                "del origen en la columna «escribano»."
+            )
         if faltan:
             raise FormatoInvalidoError(f"{archivo.name}: faltan las columnas {', '.join(faltan)}.")
         conocidas = set(obligatorias) | set(opcionales)
@@ -171,10 +198,16 @@ def leer_lote(directorio: Path) -> Lote:
                 f"control.csv: filas inválidas en {entidad_control}."
             ) from exc
         control[entidad_control] = (cantidad, d.get("importe") or None)
-    faltan_control = [e.value for e in Entidad if e.value not in control]
+    faltan_control = [e.value for e in Entidad if e in presentes and e.value not in control]
     if faltan_control:
         raise FormatoInvalidoError(
             f"control.csv: faltan los totales de {', '.join(faltan_control)}."
         )
+    sin_archivo = sorted(e.value for e in OPCIONALES if e not in presentes and e.value in control)
+    if sin_archivo:
+        raise FormatoInvalidoError(
+            f"control.csv declara totales de {', '.join(sin_archivo)}, pero el lote no trae "
+            "el archivo."
+        )
     codificaciones["control.csv"] = codificacion
-    return Lote(filas, control, huella.hexdigest(), codificaciones)
+    return Lote(filas, control, huella.hexdigest(), codificaciones, frozenset(presentes))

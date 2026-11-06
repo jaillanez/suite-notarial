@@ -1,8 +1,10 @@
 """Validación del lote: normaliza cada fila y registra observaciones (sin base de datos).
 
 Reglas de calidad de la matriz de homologación (módulo 11 §3): CUIT por Módulo 11, unicidad de
-CUIT, matrícula, número de registro y códigos del origen, un único titular vigente por registro,
-un único cargo vigente por escribano, estados homologados, fechas y períodos válidos e importes
+CUIT, matrícula, número de registro y códigos del origen (CUIT, documento, matrícula y fecha de
+matriculación pueden faltar: se cargan vacíos, «a completar»; si vienen, se validan), un único
+titular vigente por registro, un único cargo vigente por escribano (por su código del origen),
+estados homologados, fechas y períodos válidos e importes
 exactos. Una fila con observación BLOQUEANTE no se carga, ni tampoco las que dependen de ella.
 
 Las observaciones no llevan datos personales: identifican la fila y el código del origen.
@@ -18,6 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.common.cuit import InvalidCuitError, normalize_cuit
+from app.common.dates import today_local
 from app.modules.migracion import valores
 from app.modules.migracion.catalog import Entidad, EstadoBoletaHistorica, Severidad
 from app.modules.migracion.formato import Fila, Lote
@@ -61,22 +64,23 @@ class RegistroN:
 @dataclass(frozen=True)
 class EscribanoN:
     codigo: str
-    cuit: str
+    # None: el origen no lo tiene; se carga vacío («a completar»).
+    cuit: str | None
     tipo_documento: str
-    numero_documento: str
+    numero_documento: str | None
     apellido: str
     nombre: str
     fecha_nacimiento: date | None
     email: str | None
-    matricula: int
-    fecha_matriculacion: date
+    matricula: int | None
+    fecha_matriculacion: date | None
     estado: str
 
 
 @dataclass(frozen=True)
 class CargoN:
     codigo: str
-    matricula: int
+    escribano: str  # codigo_legado del escribano
     numero_registro: int
     cargo: str
     desde: date
@@ -105,6 +109,16 @@ class PagoN:
 
 
 @dataclass(frozen=True)
+class CreditoN:
+    codigo: str
+    numero_registro: int
+    fecha: date
+    periodo: str | None
+    importe: Decimal  # en positivo: a favor del escribano
+    concepto: str | None
+
+
+@dataclass(frozen=True)
 class Existentes:
     """Lo que ya está en la Suite: lo migrado no puede chocar con eso."""
 
@@ -120,6 +134,7 @@ class Staging:
     cargos: list[CargoN] = field(default_factory=list)
     boletas: list[BoletaN] = field(default_factory=list)
     pagos: list[PagoN] = field(default_factory=list)
+    creditos: list[CreditoN] = field(default_factory=list)
     observaciones: list[Observacion] = field(default_factory=list)
     # Por entidad: filas leídas, rechazadas e importe legible de cada grupo (cuadratura).
     leidas: Counter[str] = field(default_factory=Counter)
@@ -127,6 +142,8 @@ class Staging:
     importe_leido: dict[str, Decimal] = field(default_factory=lambda: defaultdict(lambda: CERO))
     importe_rechazado: dict[str, Decimal] = field(default_factory=lambda: defaultdict(lambda: CERO))
     importe_ilegible: Counter[str] = field(default_factory=Counter)
+    # Día de la corrida: un pago o crédito con fecha posterior se advierte (no se carga distinto).
+    fecha_corrida: date = field(default_factory=today_local)
 
     def bloqueantes(self) -> int:
         return sum(1 for o in self.observaciones if o.severidad is Severidad.BLOQUEANTE)
@@ -149,6 +166,8 @@ class _Fila:
         if not fila.codigo:
             # Sin código no hay trazabilidad origen → Suite (mapeo y cuadratura).
             self.observar("DATO_FALTANTE", "Falta «codigo_legado».")
+        elif len(fila.codigo) > 100:
+            self.observar("VALOR_INVALIDO", "«codigo_legado» supera los 100 caracteres.")
 
     def observar(
         self, codigo: str, mensaje: str, severidad: Severidad = Severidad.BLOQUEANTE
@@ -201,6 +220,15 @@ def _duplicados(filas: list[Fila], clave: Callable[[Fila], object]) -> set[int]:
 
 def _texto(maximo: int) -> Callable[[str], str]:
     return lambda v: valores.texto(v, maximo)
+
+
+def _fecha_futura(f: "_Fila", fecha: date | None, que: str) -> None:
+    if fecha is not None and fecha > f.st.fecha_corrida:
+        f.observar(
+            "FECHA_POSTERIOR_A_LA_CORRIDA",
+            f"Fecha del {que} posterior al día de la corrida: verificar.",
+            Severidad.ADVERTENCIA,
+        )
 
 
 def _cerrar(st: Staging, entidad: Entidad, f: _Fila, importe: Decimal | None = None) -> bool:
@@ -282,7 +310,7 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
         f = _Fila(st, Entidad.ESCRIBANOS, fila)
         if fila.numero in codigos:
             f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
-        cuit = f.campo("cuit", _cuit)
+        cuit = f.campo("cuit", _cuit, obligatorio=False)
         if fila.numero in cuits:
             f.observar("CUIT_DUPLICADO", "El CUIT se repite en el archivo.")
         elif cuit is not None and cuit in existentes.cuits:
@@ -290,7 +318,7 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
         tipo = (fila.datos.get("tipo_documento") or "DNI").strip().upper()
         if tipo not in {t.value for t in TipoDocumento}:
             f.observar("VALOR_INVALIDO", "«tipo_documento» no es DNI, LC, LE ni PASAPORTE.")
-        documento = f.campo("numero_documento", _texto(15))
+        documento = f.campo("numero_documento", _texto(15), obligatorio=False)
         if tipo == "DNI" and cuit and documento and documento.zfill(8) != cuit[2:10]:
             f.observar(
                 "DNI_DISTINTO_DEL_CUIT",
@@ -306,14 +334,14 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
                 "EMAIL_INVALIDO", "El correo no es válido: no se migra.", Severidad.ADVERTENCIA
             )
             email = None
-        matricula = f.campo("matricula", valores.entero)
+        matricula = f.campo("matricula", valores.entero, obligatorio=False)
         if fila.numero in matriculas:
             f.observar("MATRICULA_DUPLICADA", "La matrícula se repite en el archivo.")
         elif matricula is not None and matricula in existentes.matriculas:
             f.observar("MATRICULA_EXISTENTE", "La matrícula ya existe en la Suite.")
         if matricula == 0:
             f.observar("VALOR_INVALIDO", "«matricula» tiene que ser mayor que cero.")
-        matriculacion = f.campo("fecha_matriculacion", valores.fecha)
+        matriculacion = f.campo("fecha_matriculacion", valores.fecha, obligatorio=False)
         estado = f.homologar(hom, "estado_escribano", "estado")
         if _cerrar(st, Entidad.ESCRIBANOS, f):
             st.escribanos.append(
@@ -339,19 +367,19 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
 def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
     filas = lote.filas[Entidad.CARGOS]
     codigos = _duplicados(filas, lambda f: f.codigo)
-    escribanos = {e.matricula: e for e in st.escribanos}
+    escribanos = {e.codigo: e for e in st.escribanos}
     registros = {r.numero for r in st.registros}
     candidatos: list[tuple[_Fila, CargoN]] = []
     for fila in filas:
         f = _Fila(st, Entidad.CARGOS, fila)
         if fila.numero in codigos:
             f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
-        matricula = f.campo("matricula", valores.entero)
+        codigo_escribano = f.campo("escribano", _texto(100))
         numero = f.campo("numero_registro", valores.entero)
-        if matricula is not None and matricula not in escribanos:
+        if codigo_escribano is not None and codigo_escribano not in escribanos:
             f.observar(
                 "ESCRIBANO_NO_MIGRADO",
-                "La matrícula no corresponde a un escribano del lote que se pueda cargar.",
+                "«escribano» no corresponde a un escribano del lote que se pueda cargar.",
             )
         if numero is not None and numero not in registros:
             f.observar(
@@ -363,7 +391,7 @@ def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
         hasta = f.campo("fecha_hasta", valores.fecha, obligatorio=False)
         if desde and hasta and hasta < desde:
             f.observar("FECHAS_INVERTIDAS", "«fecha_hasta» es anterior a «fecha_desde».")
-        escribano = escribanos.get(matricula) if matricula is not None else None
+        escribano = escribanos.get(codigo_escribano) if codigo_escribano else None
         if (
             escribano is not None
             and hasta is None
@@ -375,18 +403,18 @@ def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
             )
         if not f.bloqueada:
             candidatos.append(
-                (f, CargoN(fila.codigo, matricula, numero, cargo or "", desde, hasta))
+                (f, CargoN(fila.codigo, codigo_escribano, numero, cargo or "", desde, hasta))
             )
         else:
             _cerrar(st, Entidad.CARGOS, f)
 
     # Unicidad de vigentes: se observan todas las filas en conflicto (no se elige una).
-    vigentes_escribano = Counter(c.matricula for _, c in candidatos if c.hasta is None)
+    vigentes_escribano = Counter(c.escribano for _, c in candidatos if c.hasta is None)
     titulares = Counter(
         c.numero_registro for _, c in candidatos if c.hasta is None and c.cargo == Cargo.TITULAR
     )
     for f, c in candidatos:
-        if c.hasta is None and vigentes_escribano[c.matricula] > 1:
+        if c.hasta is None and vigentes_escribano[c.escribano] > 1:
             f.observar("CARGOS_VIGENTES_MULTIPLES", "El escribano tiene más de un cargo vigente.")
         if c.hasta is None and c.cargo == Cargo.TITULAR and titulares[c.numero_registro] > 1:
             f.observar("TITULARES_MULTIPLES", "El registro tiene más de un titular vigente.")
@@ -473,6 +501,7 @@ def _pagos(lote: Lote, st: Staging) -> None:
         if boleta_codigo and boleta is None:
             f.observar("BOLETA_NO_MIGRADA", "La boleta no se puede cargar o no existe en el lote.")
         fecha = f.campo("fecha_pago", valores.fecha)
+        _fecha_futura(f, fecha, "pago")
         importe = f.campo("importe", valores.importe)
         if importe is None and fila.datos.get("importe", "").strip():
             st.importe_ilegible[Entidad.PAGOS.value] += 1
@@ -509,11 +538,52 @@ def _pagos(lote: Lote, st: Staging) -> None:
         )
 
 
-def validar(lote: Lote, hom: Homologacion, existentes: Existentes) -> Staging:
-    st = Staging()
+# --------------------------------------------------------------------------- créditos
+
+
+def _creditos(lote: Lote, st: Staging) -> None:
+    """Créditos a favor del escribano (importes negativos del libro del origen, en positivo).
+
+    TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda
+    (préstamos, garantes, boletas nuevas).
+    """
+    filas = lote.filas[Entidad.CREDITOS]
+    codigos = _duplicados(filas, lambda f: f.codigo)
+    registros = {r.numero for r in st.registros}
+    for fila in filas:
+        f = _Fila(st, Entidad.CREDITOS, fila)
+        if fila.numero in codigos:
+            f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
+        numero = f.campo("numero_registro", valores.entero)
+        if numero is not None and numero not in registros:
+            f.observar(
+                "REGISTRO_NO_MIGRADO",
+                "El registro no corresponde a un registro del lote que se pueda cargar.",
+            )
+        fecha = f.campo("fecha", valores.fecha)
+        _fecha_futura(f, fecha, "crédito")
+        periodo = f.campo("periodo", valores.periodo, obligatorio=False)
+        importe = f.campo("importe", valores.importe)
+        if importe is None and fila.datos.get("importe", "").strip():
+            st.importe_ilegible[Entidad.CREDITOS.value] += 1
+        if importe is not None and importe <= 0:
+            f.observar(
+                "IMPORTE_NO_POSITIVO",
+                "El importe del crédito va en positivo y tiene que ser mayor que cero.",
+            )
+        concepto = f.campo("concepto", _texto(100), obligatorio=False)
+        if _cerrar(st, Entidad.CREDITOS, f, importe):
+            st.creditos.append(CreditoN(fila.codigo, numero, fecha, periodo, importe, concepto))
+
+
+def validar(
+    lote: Lote, hom: Homologacion, existentes: Existentes, fecha_corrida: date | None = None
+) -> Staging:
+    st = Staging(fecha_corrida=fecha_corrida or today_local())
     _registros(lote, hom, existentes, st)
     _escribanos(lote, hom, existentes, st)
     _cargos(lote, hom, st)
     _boletas(lote, hom, st)
     _pagos(lote, st)
+    _creditos(lote, st)
     return st

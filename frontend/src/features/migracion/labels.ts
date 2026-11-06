@@ -27,6 +27,7 @@ export const ENTIDAD: Record<Entidad, string> = {
   cargos: 'Cargos',
   boletas: 'Boletas',
   pagos: 'Pagos',
+  creditos: 'Créditos a favor',
 }
 
 export const ESTADO_BOLETA_HISTORICA: Record<string, string> = {

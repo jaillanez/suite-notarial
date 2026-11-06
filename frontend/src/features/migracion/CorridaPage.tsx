@@ -241,13 +241,20 @@ function Saldos({ c }: { c: CorridaDetalle }) {
   return (
     <Panel
       title="Saldos por registro"
-      description="Boletas no anuladas menos pagos, registro por registro."
+      description="Boletas no anuladas menos pagos y créditos a favor, registro por registro. Un saldo negativo es a favor del escribano."
     >
       <dl className="divide-y divide-line">
         {[
-          ['Registros con boletas', String(s.registros)],
+          ['Registros con movimientos', String(s.registros)],
           ['Saldo de lo cargado, según el sistema anterior', formatMoney(s.deuda_total_origen)],
           ['Saldo de lo cargado, según la Suite', formatMoney(s.deuda_total_destino)],
+          ...(s.a_favor_destino !== undefined
+            ? [
+                ['Registros con saldo a favor', String(s.registros_a_favor ?? 0)],
+                ['Saldo a favor, según el sistema anterior', formatMoney(s.a_favor_origen ?? null)],
+                ['Saldo a favor, según la Suite', formatMoney(s.a_favor_destino)],
+              ]
+            : []),
         ].map(([etiqueta, valor]) => (
           <div key={etiqueta} className="flex flex-wrap justify-between gap-x-4 px-5 py-3 sm:px-6">
             <dt className="text-sm font-medium text-ink-muted">{etiqueta}</dt>

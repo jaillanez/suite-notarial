@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 import { onSessionExpired } from '../../lib/api'
 import { fetchMe, type SessionUser } from './api'
-import { SESSION_KEY, SessionContext, type SessionState } from './session'
+import { SESSION_KEY, SessionContext, clearUserData, type SessionState } from './session'
 
 async function fetchSession(): Promise<SessionUser | null> {
   try {
@@ -28,11 +28,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () =>
       onSessionExpired(() => {
         queryClient.setQueryData(SESSION_KEY, null)
+        clearUserData(queryClient)
       }),
     [queryClient],
   )
 
   const user = query.data ?? null
+  // Cambió la persona (venció la sesión, cerró, o ingresó otra cuenta): nada de la anterior queda
+  // en caché. En la primera carga no hay anterior.
+  const previo = useRef<string | null | undefined>(undefined)
+  const actual = query.isPending ? undefined : (user?.id ?? null)
+  useEffect(() => {
+    if (actual === undefined) return
+    if (previo.current !== undefined && previo.current !== actual) clearUserData(queryClient)
+    previo.current = actual
+  }, [actual, queryClient])
   const value: SessionState = {
     user,
     isLoading: query.isPending,

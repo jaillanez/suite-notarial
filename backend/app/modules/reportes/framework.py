@@ -32,6 +32,8 @@ class Tipo(StrEnum):
     TEXTO = "TEXTO"
     ENTERO = "ENTERO"
     MONEDA = "MONEDA"
+    # Cifra decimal no monetaria con `decimales` fijos (puntos, cantidades estimadas).
+    DECIMAL = "DECIMAL"
     FECHA = "FECHA"
     FECHA_HORA = "FECHA_HORA"
     PERIODO = "PERIODO"
@@ -55,6 +57,17 @@ class Columna:
     total: bool = False
     # Visible por defecto en pantalla; todas salen en la exportación.
     visible: bool = True
+    # Texto para un valor vacío (p. ej. «A completar»): el mismo en pantalla y en la exportación.
+    vacio: str | None = None
+    # Escala de las columnas MONEDA (2) y DECIMAL.
+    decimales: int = 2
+
+    @property
+    def es_decimal(self) -> bool:
+        return self.tipo in (Tipo.MONEDA, Tipo.DECIMAL)
+
+    def cuantizar(self, valor: Any) -> Decimal:
+        return Decimal(valor).quantize(Decimal(1).scaleb(-self.decimales))
 
 
 @dataclass(frozen=True)
@@ -145,9 +158,7 @@ async def totales(
     ).one()
     sumas: dict[str, Decimal | int] = {}
     for col, valor in zip(sumables, fila[1:], strict=True):
-        sumas[col.key] = (
-            Decimal(valor).quantize(Decimal("0.01")) if col.tipo is Tipo.MONEDA else int(valor)
-        )
+        sumas[col.key] = col.cuantizar(valor) if col.es_decimal else int(valor)
     return int(fila[0]), sumas
 
 

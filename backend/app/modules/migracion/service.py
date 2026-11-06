@@ -23,6 +23,7 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.audit import AuditEvent, RequestContext, record_audit
+from app.common.dates import today_local
 from app.core.config import get_settings
 from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
@@ -92,8 +93,14 @@ async def _operador(session: AsyncSession, email: str) -> User:
 
 async def _existentes(session: AsyncSession) -> Existentes:
     return Existentes(
-        cuits=frozenset((await session.scalars(select(Persona.cuit))).all()),
-        matriculas=frozenset((await session.scalars(select(Escribano.matricula_numero))).all()),
+        cuits=frozenset(
+            c for c in (await session.scalars(select(Persona.cuit))).all() if c is not None
+        ),
+        matriculas=frozenset(
+            m
+            for m in (await session.scalars(select(Escribano.matricula_numero))).all()
+            if m is not None
+        ),
         registros=frozenset(
             (await session.scalars(select(RegistroNotarial.numero_registro))).all()
         ),
@@ -308,7 +315,7 @@ async def correr(
     inicio = time.perf_counter_ns()
     try:
         async with maker() as session:
-            st = validar(lote, hom, await _existentes(session))
+            st = validar(lote, hom, await _existentes(session), today_local())
             cargado = await carga.cargar(session, st, corrida_id, operador_id)
             informe = await cuadratura.calcular(session, lote, st, cargado, corrida_id)
             duracion = (time.perf_counter_ns() - inicio) // 1_000_000

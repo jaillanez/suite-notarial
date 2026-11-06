@@ -8,6 +8,12 @@ Reglas (los valores concretos —tasas, plazos, topes— son parámetros de cada
 - Quien carga la solicitud no la resuelve (cuatro ojos). Al otorgar se reevalúa todo con los
   datos del día y se genera el plan de cuotas, inmutable.
 - Las cuotas se cobran en orden. TODO(negocio): interés punitorio por pago fuera de término.
+- Moneda: cada préstamo está en la moneda de su línea (pesos o dólares); en dólares el ingreso
+  neto se declara en dólares. Quien tiene préstamos vigentes o solicitados en otra moneda no
+  puede solicitar ni recibir uno nuevo: sin tipo de cambio la afectación no se puede evaluar.
+  TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
+- Antigüedad en la matrícula: se exige si la línea la fija y se conoce la fecha de
+  matriculación; si falta, no bloquea y queda como aviso para quien resuelve.
 """
 
 import uuid
@@ -22,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import today_local
-from app.common.money import format_pesos
+from app.common.money import format_importe, to_money, to_rate
 from app.core.errors import ProblemError
 from app.modules.ddjj.catalog import EstadoBoleta
 from app.modules.ddjj.models import Boleta
@@ -30,11 +36,18 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
-from app.modules.migracion.models import HistoricoBoleta
+from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
 from app.modules.padron.catalog import EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano
 from app.modules.prestamos import motor
-from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Sistema
+from app.modules.prestamos.catalog import (
+    AVISO_TIPO_CAMBIO,
+    SIMBOLO_MONEDA,
+    EstadoCuota,
+    EstadoPrestamo,
+    Moneda,
+    Sistema,
+)
 from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
 from app.modules.prestamos.schemas import LineaIn, SolicitudIn
 
@@ -72,9 +85,30 @@ LINEA_CAMPOS = (
     "tna",
     "afectacion_maxima",
     "requiere_garante",
+    "moneda",
+    "garantia",
+    "requisito_conducta",
+    "relacion_capital_hipoteca",
+    "requiere_certificado_ingresos",
+    "requiere_certificado_bienes",
+    "antiguedad_minima_meses",
     "es_ejemplo",
     "is_active",
 )
+ANTIGUEDAD_NO_VERIFICABLE = "Antigüedad no verificable: falta la fecha de matriculación."
+
+
+def con_moneda(monto: Decimal, moneda: str) -> str:
+    """`$ 1.500,00` o `US$ 1.500,00` según la moneda (para mensajes)."""
+    return format_importe(monto, SIMBOLO_MONEDA[Moneda(moneda)])
+
+
+def texto_meses(meses: int) -> str:
+    """12 -> "1 año"; 18 -> "18 meses"."""
+    if meses % 12 == 0:
+        anios = meses // 12
+        return f"{anios} año" if anios == 1 else f"{anios} años"
+    return f"{meses} mes" if meses == 1 else f"{meses} meses"
 
 
 def porcentaje(valor: Decimal) -> str:
@@ -93,6 +127,27 @@ def _json(valor: Any) -> Any:
 
 def _valores(obj: object, campos: tuple[str, ...]) -> dict[str, Any]:
     return {c: _json(getattr(obj, c)) for c in campos}
+
+
+def valores_linea(obj: Linea) -> dict[str, Any]:
+    """Campos de una línea como texto, para la auditoría y para comparar versiones."""
+    return _valores(obj, LINEA_CAMPOS)
+
+
+def columnas_linea(data: LineaIn) -> dict[str, Any]:
+    """Valores de columna, con montos y tasas en la escala de la base (30 -> 30.0000).
+
+    Así una línea que se vuelve a guardar igual no registra cambios falsos por la escala.
+    """
+    valores = data.model_dump()
+    valores["sistema"] = data.sistema.value
+    valores["moneda"] = data.moneda.value
+    for campo in ("monto_minimo", "monto_maximo"):
+        valores[campo] = to_money(valores[campo])
+    for campo in ("tna", "afectacion_maxima", "relacion_capital_hipoteca"):
+        if valores[campo] is not None:
+            valores[campo] = to_rate(valores[campo])
+    return valores
 
 
 async def list_lineas(session: AsyncSession, *, solo_activas: bool) -> list[Linea]:
@@ -117,8 +172,7 @@ async def guardar_linea(
     linea_id: uuid.UUID | None = None,
 ) -> Linea:
     """Alta o edición. Los préstamos ya solicitados conservan sus condiciones (SNAP)."""
-    valores = data.model_dump()
-    valores["sistema"] = data.sistema.value
+    valores = columnas_linea(data)
     if linea_id is None:
         if await session.scalar(select(Linea.id).where(Linea.codigo == data.codigo)):
             raise _conflict("Ya hay una línea con ese código.")
@@ -140,6 +194,10 @@ async def guardar_linea(
         linea = existente
         if data.codigo != linea.codigo:
             raise _conflict("El código de una línea no cambia.")
+        if data.moneda.value != linea.moneda and await session.scalar(
+            select(Prestamo.id).where(Prestamo.linea_id == linea.id).limit(1)
+        ):
+            raise _conflict("La línea ya tiene préstamos: su moneda no cambia.")
         antes = _valores(linea, LINEA_CAMPOS)
         for campo, valor in valores.items():
             setattr(linea, campo, valor)
@@ -176,9 +234,17 @@ async def get_escribano(session: AsyncSession, escribano_id: uuid.UUID) -> Escri
 
 
 async def compromiso_vigente(
-    session: AsyncSession, escribano_id: uuid.UUID, *, excluir: uuid.UUID | None = None
+    session: AsyncSession,
+    escribano_id: uuid.UUID,
+    *,
+    moneda: str = Moneda.ARS.value,
+    excluir: uuid.UUID | None = None,
 ) -> Decimal:
-    """Suma de la próxima cuota impaga de cada préstamo vigente del escribano."""
+    """Suma de la próxima cuota impaga de cada préstamo vigente del escribano en `moneda`.
+
+    Nunca mezcla monedas. TODO(negocio): definir tipo de cambio para evaluar la afectación de
+    préstamos en dólares (hoy tener préstamos en otra moneda impide otorgar).
+    """
     proxima = (
         select(CuotaPrestamo.prestamo_id, func.min(CuotaPrestamo.numero).label("numero"))
         .where(CuotaPrestamo.estado == PENDIENTE)
@@ -195,11 +261,56 @@ async def compromiso_vigente(
             ),
         )
         .join(Prestamo, Prestamo.id == CuotaPrestamo.prestamo_id)
-        .where(Prestamo.escribano_id == escribano_id, Prestamo.estado == VIGENTE)
+        .where(
+            Prestamo.escribano_id == escribano_id,
+            Prestamo.estado == VIGENTE,
+            Prestamo.moneda == moneda,
+        )
     )
     if excluir is not None:
         stmt = stmt.where(Prestamo.id != excluir)
     return Decimal(await session.scalar(stmt) or 0).quantize(Decimal("0.01"))
+
+
+OTRA_MONEDA = (
+    "Tiene préstamos vigentes en otra moneda: hasta que la Caja defina el tipo de cambio no se "
+    "puede evaluar la afectación."
+)
+OTRA_MONEDA_SOLICITADA = (
+    "Tiene una solicitud pendiente en otra moneda: si se otorga, impedirá otorgar esta hasta que "
+    "la Caja defina el tipo de cambio."
+)
+
+
+async def prestamos_en_otra_moneda(
+    session: AsyncSession,
+    escribano_id: uuid.UUID,
+    moneda: str,
+    *,
+    excluir: uuid.UUID | None = None,
+    estados: tuple[str, ...] = (VIGENTE,),
+) -> bool:
+    """Préstamos en otra moneda en esos estados (por omisión, los otorgados).
+
+    Bloquea sólo lo otorgado: una solicitud pendiente la puede cargar cualquiera con permiso de
+    carga y no debe frenar a otra; se informa como aviso y, si se otorga, bloquea a las demás.
+
+    TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
+    Sin él, la afectación de un escribano con préstamos en pesos y en dólares no se puede
+    calcular, y mezclar monedas permitiría superar el tope: se bloquea.
+    """
+    stmt = select(func.count()).where(
+        Prestamo.escribano_id == escribano_id,
+        Prestamo.estado.in_(estados),
+        Prestamo.moneda != moneda,
+    )
+    if excluir is not None:
+        stmt = stmt.where(Prestamo.id != excluir)
+    return bool(await session.scalar(stmt))
+
+
+def antiguedad_suficiente(fecha_matriculacion: date, meses: int, hoy: date) -> bool:
+    return motor.sumar_meses(fecha_matriculacion, meses) <= hoy
 
 
 def _cuotas_vencidas(hoy: date) -> Any:
@@ -229,8 +340,9 @@ async def garantiza_en_mora(session: AsyncSession, escribano_id: uuid.UUID, hoy:
 
 
 async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: date) -> bool:
-    """Boletas impagas y vencidas de los registros donde el escribano tiene cargo vigente,
-    incluidas las del sistema anterior (histórico migrado)."""
+    """Deuda vencida en los registros donde el escribano tiene cargo vigente: boletas de la
+    Suite pendientes y vencidas, o deuda vencida del sistema anterior (ver
+    `registros_con_deuda_historica`)."""
     registros = select(Adscripcion.registro_id).where(
         Adscripcion.escribano_id == escribano_id, Adscripcion.is_current.is_(True)
     )
@@ -243,14 +355,50 @@ async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: dat
     )
     if actuales:
         return True
-    historicas = await session.scalar(
-        select(func.count()).where(
+    return bool(await registros_con_deuda_historica(session, registros, hoy))
+
+
+async def registros_con_deuda_historica(
+    session: AsyncSession, registros: Any, hoy: date
+) -> list[uuid.UUID]:
+    """Registros con deuda vencida en el sistema anterior, a la fecha `hoy` (fail-closed).
+
+    Boleta por boleta: cada boleta no anulada con vencimiento anterior a `hoy` debe
+    max(importe - sus pagos con fecha hasta `hoy`, 0). Lo pagado de más en una boleta no
+    compensa otra, y un pago con fecha posterior a `hoy` no cuenta. Un registro debe si la suma
+    de sus boletas es positiva.
+
+    Los créditos a favor (`historico_creditos`) NO reducen esta deuda: siguen en el saldo de la
+    cuadratura y en los reportes, pero no habilitan a nadie.
+    TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda (préstamos,
+    garantes, boletas nuevas).
+    """
+    pagado = (
+        select(func.coalesce(func.sum(HistoricoPago.importe), 0))
+        .where(HistoricoPago.boleta_id == HistoricoBoleta.id, HistoricoPago.fecha_pago <= hoy)
+        .correlate(HistoricoBoleta)
+        .scalar_subquery()
+    )
+    por_boleta = (
+        select(
+            HistoricoBoleta.registro_id.label("registro_id"),
+            func.greatest(HistoricoBoleta.importe - pagado, 0).label("deuda"),
+        )
+        .where(
             HistoricoBoleta.registro_id.in_(registros),
-            HistoricoBoleta.estado == EstadoBoletaHistorica.IMPAGA.value,
+            HistoricoBoleta.estado != EstadoBoletaHistorica.ANULADA.value,
             HistoricoBoleta.fecha_vencimiento < hoy,
         )
+        .subquery()
     )
-    return bool(historicas)
+    return list(
+        await session.scalars(
+            select(por_boleta.c.registro_id)
+            .group_by(por_boleta.c.registro_id)
+            .having(func.sum(por_boleta.c.deuda) > 0)
+            .order_by(por_boleta.c.registro_id)
+        )
+    )
 
 
 async def inhabilidades_garante(session: AsyncSession, garante: Escribano, hoy: date) -> list[str]:
@@ -274,6 +422,7 @@ GARANTE_NO_HABIL = "El garante propuesto no reúne las condiciones exigidas: con
 
 @dataclass
 class Evaluacion:
+    moneda: Moneda
     sistema: Sistema
     tna: Decimal
     tasa_es_ejemplo: bool
@@ -286,6 +435,8 @@ class Evaluacion:
     afectacion_maxima: Decimal
     requiere_garante: bool
     impedimentos: list[str] = field(default_factory=list)
+    # No impiden otorgar, pero quien resuelve los tiene que revisar.
+    avisos: list[str] = field(default_factory=list)
     # Subconjunto de `impedimentos` que describe la situación del garante (un tercero).
     impedimentos_garante: list[str] = field(default_factory=list)
 
@@ -310,14 +461,17 @@ async def evaluar(
 ) -> Evaluacion:
     """Plan y reglas de otorgamiento. `condiciones` fija sistema y tasa ya pactados (SNAP)."""
     sistema, tna, ejemplo = condiciones or (Sistema(linea.sistema), linea.tna, linea.es_ejemplo)
+    # La moneda de una línea no cambia si ya tiene préstamos: es también la del préstamo.
+    moneda = Moneda(linea.moneda)
     impedimentos: list[str] = []
+    avisos: list[str] = [AVISO_TIPO_CAMBIO] if moneda is Moneda.USD else []
     del_garante: list[str] = []
     if not linea.is_active and condiciones is None:
         impedimentos.append("La línea de crédito no está habilitada.")
     if not linea.monto_minimo <= capital <= linea.monto_maximo:
         impedimentos.append(
-            f"El monto tiene que estar entre {format_pesos(linea.monto_minimo)} y "
-            f"{format_pesos(linea.monto_maximo)}."
+            f"El monto tiene que estar entre {con_moneda(linea.monto_minimo, moneda)} y "
+            f"{con_moneda(linea.monto_maximo, moneda)}."
         )
     if not linea.plazo_minimo <= cuotas <= linea.plazo_maximo:
         impedimentos.append(
@@ -335,7 +489,30 @@ async def evaluar(
             impedimentos.append("La matrícula del solicitante no le permite tomar préstamos.")
         if await en_mora(session, escribano.id, hoy):
             impedimentos.append("El solicitante tiene cuotas de préstamos vencidas impagas.")
-        otras = await compromiso_vigente(session, escribano.id, excluir=excluir)
+        if linea.antiguedad_minima_meses:
+            # La fecha de matriculación puede faltar (padrón incompleto): no se presume.
+            matriculacion: date | None = escribano.fecha_matriculacion
+            if matriculacion is None:
+                avisos.append(ANTIGUEDAD_NO_VERIFICABLE)
+            elif not antiguedad_suficiente(matriculacion, linea.antiguedad_minima_meses, hoy):
+                impedimentos.append(
+                    f"La línea exige {texto_meses(linea.antiguedad_minima_meses)} de antigüedad "
+                    f"en la matrícula (matriculación: {matriculacion:%d/%m/%Y})."
+                )
+        otras = await compromiso_vigente(
+            session, escribano.id, moneda=moneda.value, excluir=excluir
+        )
+        # Bloqueante (no aviso): sin tipo de cambio, mezclar monedas evadiría el tope.
+        if await prestamos_en_otra_moneda(session, escribano.id, moneda.value, excluir=excluir):
+            impedimentos.append(OTRA_MONEDA)
+        elif await prestamos_en_otra_moneda(
+            session,
+            escribano.id,
+            moneda.value,
+            excluir=excluir,
+            estados=(EstadoPrestamo.SOLICITADO.value,),
+        ):
+            avisos.append(OTRA_MONEDA_SOLICITADA)
     if ingreso_neto is not None:
         afectacion = motor.afectacion(cuota_maxima + otras, ingreso_neto)
         if afectacion > linea.afectacion_maxima:
@@ -354,6 +531,7 @@ async def evaluar(
     elif linea.requiere_garante:
         impedimentos.append("La línea exige un garante solidario matriculado.")
     return Evaluacion(
+        moneda=moneda,
         sistema=sistema,
         tna=tna,
         tasa_es_ejemplo=ejemplo,
@@ -366,6 +544,7 @@ async def evaluar(
         afectacion_maxima=linea.afectacion_maxima,
         requiere_garante=linea.requiere_garante,
         impedimentos=impedimentos,
+        avisos=avisos,
         impedimentos_garante=del_garante,
     )
 
@@ -410,6 +589,7 @@ async def crear_solicitud(
         linea_id=linea.id,
         garante_escribano_id=data.garante_escribano_id,
         estado=EstadoPrestamo.SOLICITADO.value,
+        moneda=ev.moneda.value,
         sistema=ev.sistema.value,
         tna=ev.tna,
         capital=ev.capital,
@@ -431,6 +611,7 @@ async def crear_solicitud(
         actor_user_id=actor.id,
         new_value={
             "linea": linea.codigo,
+            "moneda": ev.moneda.value,
             "capital": f"{ev.capital:.2f}",
             "cuotas": ev.cuotas,
             "tna": f"{ev.tna:.4f}",
@@ -578,6 +759,7 @@ async def otorgar(
         old_value={"estado": EstadoPrestamo.SOLICITADO.value},
         new_value={
             "estado": VIGENTE,
+            "moneda": prestamo.moneda,
             "capital": f"{prestamo.capital:.2f}",
             "cuotas": prestamo.cuotas,
             "tna": f"{prestamo.tna:.4f}",
@@ -648,7 +830,9 @@ async def registrar_pago(
     # TODO(negocio): interés punitorio si se paga después del vencimiento; por ahora se cobra
     # exactamente la cuota del plan y el atraso queda registrado en la auditoría.
     if importe != cuota.cuota:
-        raise _invalid(f"El importe tiene que ser el de la cuota: {format_pesos(cuota.cuota)}.")
+        raise _invalid(
+            f"El importe tiene que ser el de la cuota: {con_moneda(cuota.cuota, prestamo.moneda)}."
+        )
     cuota.estado = EstadoCuota.PAGADA.value
     cuota.fecha_pago = fecha_pago
     cuota.importe_pagado = importe
@@ -660,7 +844,12 @@ async def registrar_pago(
         AuditEvent.PRESTAMO_CUOTA_PAGADA,
         severity=Severity.WARNING if atraso else Severity.INFO,
         actor_user_id=principal.user.id,
-        new_value={"cuota": numero, "importe": f"{importe:.2f}", "fecha_pago": str(fecha_pago)},
+        new_value={
+            "cuota": numero,
+            "importe": f"{importe:.2f}",
+            "moneda": prestamo.moneda,
+            "fecha_pago": str(fecha_pago),
+        },
         details={"prestamo_id": str(prestamo.id), "dias_atraso": atraso},
     )
     if len(pendientes) == 1:

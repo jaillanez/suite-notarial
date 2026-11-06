@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Informe de aportes y puntos · Matrícula {{ e.matricula_numero }}</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 20mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Public Sans", "Helvetica Neue", Arial, sans-serif; color: #16232b; font-size: 9.5pt; line-height: 1.4; margin: 0; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2pt solid #113347; padding-bottom: 8pt; }
+  header img { height: 36pt; }
+  .titulo { text-align: right; max-width: 70%; }
+  .titulo h1 { font-size: 12pt; margin: 0; color: #113347; }
+  .titulo p { margin: 2pt 0 0; color: #4c5c66; }
+  .grid { display: flex; gap: 12pt; margin-top: 12pt; }
+  .card { flex: 1; border: 0.75pt solid #d3dce2; padding: 8pt 10pt; }
+  .label { color: #63737d; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+  .value { font-size: 11pt; font-weight: 600; margin: 1pt 0 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14pt; }
+  thead { display: table-header-group; }
+  th { text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.06em; color: #4c5c66; background: #f7f9fa; padding: 4pt 6pt; border-bottom: 1pt solid #b4c2ca; }
+  td { padding: 3pt 6pt; border-bottom: 0.5pt solid #d3dce2; }
+  th.cifra, td.cifra { text-align: right; }
+  tr { page-break-inside: avoid; }
+  tr.total td { font-weight: 600; color: #113347; border-top: 1.5pt solid #113347; border-bottom: none; padding-top: 5pt; }
+  .detalle { color: #4c5c66; font-size: 8pt; }
+  .vacio { margin-top: 14pt; padding: 10pt; border: 0.75pt solid #d3dce2; background: #f7f9fa; }
+  .nota { margin-top: 12pt; color: #4c5c66; font-size: 8pt; }
+  footer { position: fixed; bottom: -12mm; left: 0; right: 0; text-align: center; color: #63737d; font-size: 7.5pt; }
+</style>
+</head>
+<body>
+<header>
+  <img src="../boletas/logo.png" alt="{{ caja.CAJA_NOMBRE }}">
+  <div class="titulo">
+    <h1>Informe de aportes previsionales realizados y de puntos acumulados conforme reglamentación Ley 7231</h1>
+    <p>Emitido el <span class="num">{{ emitido }}</span></p>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <p class="label">Notario</p>
+    <p class="value">{{ e.apellido_nombre }}</p>
+    <p class="detalle num">Matrícula N° {{ e.matricula_numero }} · {{ e.tipo_documento }} {{ e.numero_documento }}</p>
+  </div>
+  <div class="card">
+    <p class="label">Total de puntos</p>
+    <p class="value num">{{ total_puntos }}</p>
+  </div>
+  <div class="card">
+    <p class="label">Total de aportes</p>
+    <p class="value num">{{ total_aportes }}</p>
+  </div>
+</div>
+
+{% if filas %}
+<table>
+  <thead>
+    <tr><th>Ejercicio</th><th>Período</th><th class="cifra">Aportes</th><th class="cifra">Puntos</th></tr>
+  </thead>
+  <tbody>
+    {% for f in filas %}
+    <tr>
+      <td class="num">{{ f.anio }}</td>
+      <td class="num detalle">{{ f.fecha_inicio }} al {{ f.fecha_cierre }}</td>
+      <td class="cifra num">{{ f.aportes }}</td>
+      <td class="cifra num">{{ f.puntos }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="total">
+      <td colspan="2">Total · {{ filas|length }} {{ "ejercicio" if filas|length == 1 else "ejercicios" }}</td>
+      <td class="cifra num">{{ total_aportes }}</td>
+      <td class="cifra num">{{ total_puntos }}</td>
+    </tr>
+  </tbody>
+</table>
+{% else %}
+<p class="vacio">No hay aportes ni puntos registrados para este afiliado.</p>
+{% endif %}
+
+<p class="nota">Cada ejercicio va del 1 de septiembre al 31 de agosto y se identifica por el año de cierre. Datos según {{ origen }}.</p>
+
+<footer>{{ caja.CAJA_NOMBRE }} · Informe de aportes y puntos · Matrícula {{ e.matricula_numero }}</footer>
+</body>
+</html>

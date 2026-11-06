@@ -36,6 +36,7 @@ from app.modules.padron.schemas import (
     CircunscripcionOut,
     CircunscripcionUpdate,
     CuentaIn,
+    DatosACompletar,
     EscribanoDetalle,
     EscribanoIn,
     EscribanoOut,
@@ -110,7 +111,7 @@ def escribano_out(item: Escribano, vigente: Adscripcion | None) -> EscribanoOut:
         fecha_matriculacion=item.fecha_matriculacion,
         estado_matricula=EstadoMatricula(item.estado_matricula),
         apellido_nombre=f"{persona.apellido}, {persona.nombre}",
-        cuit=format_cuit(persona.cuit),
+        cuit=format_cuit(persona.cuit) if persona.cuit else None,
         numero_documento=persona.numero_documento,
         registro_actual=vigente.registro.numero_registro if vigente else None,
         cargo_actual=Cargo(vigente.cargo) if vigente else None,
@@ -147,7 +148,7 @@ async def escribano_detalle(session: SessionDep, item: Escribano) -> EscribanoDe
         ),
         persona=PersonaOut(
             id=persona.id,
-            cuit=format_cuit(persona.cuit),
+            cuit=format_cuit(persona.cuit) if persona.cuit else None,
             tipo_documento=persona.tipo_documento,
             numero_documento=persona.numero_documento,
             apellido=persona.apellido,
@@ -159,6 +160,7 @@ async def escribano_detalle(session: SessionDep, item: Escribano) -> EscribanoDe
         ),
         motivo_ultimo_cambio_estado=item.motivo_ultimo_cambio_estado,
         fecha_ultimo_cambio_estado=item.fecha_ultimo_cambio_estado,
+        a_completar=service.datos_a_completar(item),
         cargos=[cargo_out(c) for c in cargos],
         historial=[
             HistorialOut(
@@ -333,6 +335,19 @@ async def update_escribano(
     return await escribano_detalle(session, item)
 
 
+@router.post("/escribanos/{escribano_id}/completar", response_model=EscribanoDetalle)
+async def completar_escribano(
+    escribano_id: uuid.UUID,
+    body: DatosACompletar,
+    principal: CanWrite,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> EscribanoDetalle:
+    """Carga los datos que faltaban al migrar (matrícula, fecha, CUIT, documento), una vez."""
+    item = await service.completar_escribano(session, ctx, principal.user, escribano_id, body)
+    return await escribano_detalle(session, item)
+
+
 @router.post("/escribanos/{escribano_id}/estado", response_model=EscribanoDetalle)
 async def change_estado(
     escribano_id: uuid.UUID,
@@ -387,6 +402,11 @@ async def create_account(
     if escribano.user_id is not None:
         raise ProblemError(HTTPStatus.CONFLICT, "El escribano ya tiene cuenta de autogestión.")
     persona = escribano.persona
+    if not persona.cuit:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "Completá el CUIT del escribano antes de crearle la cuenta.",
+        )
     if not persona.email:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,

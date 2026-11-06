@@ -15,7 +15,7 @@ export interface Circunscripcion {
 export interface CargoResumen {
   adscripcion_id: string
   escribano_id: string
-  matricula_numero: number
+  matricula_numero: number | null
   apellido_nombre: string
   cargo: Cargo
   fecha_desde: string
@@ -43,9 +43,10 @@ export interface RegistroDetalle extends Registro {
 
 export interface Persona {
   id: string
-  cuit: string
+  /** null: migrado sin ese dato («a completar»). */
+  cuit: string | null
   tipo_documento: string
-  numero_documento: string
+  numero_documento: string | null
   apellido: string
   nombre: string
   fecha_nacimiento: string | null
@@ -56,18 +57,22 @@ export interface Persona {
 
 export interface Escribano {
   id: string
-  matricula_numero: number
+  /** null en matrícula, fecha, CUIT o documento: migrado sin ese dato («a completar»). */
+  matricula_numero: number | null
   tomo: string | null
   folio: string | null
-  fecha_matriculacion: string
+  fecha_matriculacion: string | null
   estado_matricula: EstadoMatricula
   apellido_nombre: string
-  cuit: string
-  numero_documento: string
+  cuit: string | null
+  numero_documento: string | null
   registro_actual: number | null
   cargo_actual: Cargo | null
   tiene_cuenta: boolean
 }
+
+export type CampoACompletar =
+  'matricula_numero' | 'fecha_matriculacion' | 'cuit' | 'numero_documento'
 
 export interface CargoItem {
   id: string
@@ -98,6 +103,7 @@ export interface EscribanoDetalle extends Escribano {
   transiciones_con_resolucion: EstadoMatricula[]
   motivo_ultimo_cambio_estado: string | null
   fecha_ultimo_cambio_estado: string | null
+  a_completar: CampoACompletar[]
   cargos: CargoItem[]
   historial: HistorialItem[]
 }
@@ -185,6 +191,19 @@ export async function updateEscribano(
   data: { tomo?: string | null; folio?: string | null; persona?: Partial<PersonaInput> },
 ): Promise<EscribanoDetalle> {
   return (await api.patch<EscribanoDetalle>(`${P}/escribanos/${id}`, data)).data
+}
+
+/** Carga, una sola vez, los datos que faltaban al migrar del sistema anterior. */
+export async function completarEscribano(
+  id: string,
+  data: Partial<{
+    matricula_numero: number
+    fecha_matriculacion: string
+    cuit: string
+    numero_documento: string
+  }>,
+): Promise<EscribanoDetalle> {
+  return (await api.post<EscribanoDetalle>(`${P}/escribanos/${id}/completar`, data)).data
 }
 
 export async function changeEstado(

@@ -6,7 +6,7 @@ export type ModoCorrida = 'SIMULACRO' | 'DEFINITIVA'
 export type EstadoCorrida = 'EN_CURSO' | 'SIMULADA' | 'CARGADA' | 'FALLIDA'
 export type Area = 'TESORERIA' | 'CAJA'
 export type Severidad = 'BLOQUEANTE' | 'ADVERTENCIA'
-export type Entidad = 'registros' | 'escribanos' | 'cargos' | 'boletas' | 'pagos'
+export type Entidad = 'registros' | 'escribanos' | 'cargos' | 'boletas' | 'pagos' | 'creditos'
 
 export interface Conformidad {
   area: Area
@@ -56,6 +56,10 @@ export interface Informe {
     registros: number
     deuda_total_origen: string
     deuda_total_destino: string
+    // Desde creditos.csv; los informes anteriores no los traen.
+    registros_a_favor?: number
+    a_favor_origen?: string
+    a_favor_destino?: string
     diferencias: { registro: number; origen: string | null; destino: string | null }[]
   }
   boletas_por_estado: { estado: string; filas: number; importe: string }[]

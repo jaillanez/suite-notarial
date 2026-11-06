@@ -99,7 +99,8 @@ class Candidato:
     escribano_id: uuid.UUID
     apellido: str
     nombre: str
-    matricula: int
+    # None: escribano migrado sin matrícula («a completar»); se lo reconoce por apellido.
+    matricula: int | None
     # Lugar en el equipo del registro: TITULAR, ADSCRIPTO o SUPLENTE_INTERINO ("a cargo").
     cargo: str
 

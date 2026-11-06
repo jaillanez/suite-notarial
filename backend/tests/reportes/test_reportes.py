@@ -8,10 +8,11 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
+from app.modules.padron.models import Escribano, Persona
 from app.modules.reportes.catalogo import REPORTES
 from app.modules.reportes.framework import Tipo
 from tests.ddjj.conftest import Escenario, _escribano
@@ -63,6 +64,11 @@ def _dec(valor: Any) -> Decimal:
 async def test_paridad_pantalla_xlsx_csv(
     auditor: AsyncClient, datos: dict[str, Any], codigo: str, filtros: dict[str, str]
 ) -> None:
+    await verificar_paridad(auditor, codigo, filtros)
+
+
+async def verificar_paridad(auditor: AsyncClient, codigo: str, filtros: dict[str, str]) -> None:
+    """Pantalla (paginada), XLSX y CSV: mismas filas, mismo orden y mismos totales."""
     reporte = REPORTES[codigo]
     pantalla = await _pantalla(auditor, codigo, **filtros)
     xlsx = await auditor.get(
@@ -189,15 +195,17 @@ async def test_permisos(
     disponibles_caja = [r["codigo"] for r in (await staff.get("/api/v1/reportes")).json()]
     disponibles_auditor = [r["codigo"] for r in (await auditor.get("/api/v1/reportes")).json()]
 
-    assert disponibles_caja == ["ESCRIBANOS"]
+    assert disponibles_caja == ["ESCRIBANOS", "PUNTOS_EJERCICIOS"]
     assert set(disponibles_auditor) == {
         "ESCRIBANOS",
         "BOLETAS",
         "PAGOS",
         "RECAUDACION",
         "BOLETAS_HISTORICAS",
+        "CREDITOS_HISTORICOS",
         "AUDITORIA",
         "SUGERENCIAS_IA",
+        "PUNTOS_EJERCICIOS",
     }
     assert (await notario.get("/api/v1/reportes")).status_code == 403
     assert (await notario.get("/api/v1/reportes/BOLETAS/export")).status_code == 403
@@ -244,3 +252,45 @@ async def test_exportar_exige_cabecera_csrf_y_no_se_cachea(
         select(AuditSecurityLog).where(AuditSecurityLog.event_type == "REPORTE_EXPORTADO")
     )
     assert exportaciones is None
+
+
+async def test_datos_a_completar_iguales_en_pantalla_y_exportacion(
+    staff: AsyncClient, db_session: AsyncSession, escenario: Escenario
+) -> None:
+    """Un escribano migrado sin matrícula ni CUIT: la grilla y la exportación dicen lo mismo."""
+    sin_datos = await _escribano(db_session, "Acompletar")
+    await db_session.execute(
+        update(Escribano)
+        .where(Escribano.id == sin_datos.id)
+        .values(matricula_numero=None, fecha_matriculacion=None)
+    )
+    await db_session.execute(
+        update(Persona).where(Persona.id == sin_datos.persona_id).values(cuit=None)
+    )
+    await db_session.commit()
+
+    meta = await staff.get("/api/v1/reportes")
+    reporte = next(r for r in meta.json() if r["codigo"] == "ESCRIBANOS")
+    columnas = {c["key"]: c for c in reporte["columnas"]}
+    assert columnas["matricula"]["vacio"] == columnas["cuit"]["vacio"] == "A completar"
+    pantalla = await _pantalla(staff, "ESCRIBANOS", q="acompletar")
+    assert pantalla["total"] == 1
+    fila = pantalla["filas"][0]
+    assert fila["matricula"] is None and fila["cuit"] is None
+
+    claves = [c.key for c in REPORTES["ESCRIBANOS"].columnas]
+    csv_r = await staff.get(
+        "/api/v1/reportes/ESCRIBANOS/export", params={"formato": "csv", "q": "acompletar"}
+    )
+    filas_csv = list(csv.reader(io.StringIO(csv_r.content.decode("utf-8-sig")), delimiter=";"))
+    dato = dict(zip(claves, filas_csv[1], strict=True))
+    assert dato["matricula"] == dato["cuit"] == dato["fecha_matriculacion"] == "A completar"
+
+    xlsx = await staff.get(
+        "/api/v1/reportes/ESCRIBANOS/export", params={"formato": "xlsx", "q": "acompletar"}
+    )
+    hoja = load_workbook(io.BytesIO(xlsx.content)).active
+    assert hoja is not None
+    valores = [c.value for c in hoja[ENCABEZADO_XLSX + 1]]
+    assert valores[claves.index("matricula")] == "A completar"
+    assert valores[claves.index("cuit")] == "A completar"

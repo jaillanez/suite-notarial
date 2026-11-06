@@ -1,7 +1,8 @@
 """Carga del staging validado en la Suite, dentro de la transacción del llamador.
 
 Inserta en orden de dependencias (circunscripciones, registros, personas y escribanos, cargos,
-boletas y pagos históricos) con ids generados acá, y deja el mapeo código del origen → id.
+boletas, pagos y créditos históricos) con ids generados acá, y deja el mapeo código del
+origen → id.
 No borra ni actualiza nada existente: lo que choca con datos de la Suite ya quedó observado.
 """
 
@@ -13,7 +14,7 @@ from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.migracion.catalog import Entidad
-from app.modules.migracion.models import HistoricoBoleta, HistoricoPago, Mapeo
+from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago, Mapeo
 from app.modules.migracion.validacion import Staging
 from app.modules.padron.models import (
     Adscripcion,
@@ -87,12 +88,11 @@ async def cargar(
         )
     await _insertar(session, RegistroNotarial, registros)
 
-    personas, escribanos = [], []
-    escribano_por_matricula: dict[int, uuid.UUID] = {}
+    personas: list[dict[str, object]] = []
+    escribanos: list[dict[str, object]] = []
     for e in st.escribanos:
         pid, eid = uuid.uuid4(), uuid.uuid4()
         c.ids[Entidad.ESCRIBANOS][e.codigo] = eid
-        escribano_por_matricula[e.matricula] = eid
         personas.append(
             {
                 "id": pid,
@@ -126,7 +126,7 @@ async def cargar(
         cargos.append(
             {
                 "id": aid,
-                "escribano_id": escribano_por_matricula[cargo.matricula],
+                "escribano_id": c.ids[Entidad.ESCRIBANOS][cargo.escribano],
                 "registro_id": c.registro_por_numero[cargo.numero_registro],
                 "cargo": cargo.cargo,
                 "fecha_desde": cargo.desde,
@@ -174,6 +174,24 @@ async def cargar(
             }
         )
     await _insertar(session, HistoricoPago, pagos)
+
+    creditos = []
+    for cr in st.creditos:
+        credito_id = uuid.uuid4()
+        c.ids[Entidad.CREDITOS][cr.codigo] = credito_id
+        creditos.append(
+            {
+                "id": credito_id,
+                "corrida_id": corrida_id,
+                "codigo_legado": cr.codigo,
+                "registro_id": c.registro_por_numero[cr.numero_registro],
+                "fecha": cr.fecha,
+                "periodo": cr.periodo,
+                "importe": cr.importe,
+                "concepto": cr.concepto,
+            }
+        )
+    await _insertar(session, HistoricoCredito, creditos)
 
     await _insertar(
         session,

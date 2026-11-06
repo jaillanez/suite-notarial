@@ -7,6 +7,10 @@
 - `historico_boletas` / `historico_pagos`: boletas y pagos del sistema anterior. No se
   transforman en boletas de la Suite (no tienen vigencia paramétrica ni conciliación: serían
   asientos ficticios); se conservan tal cual, de solo lectura, para saldos y consultas.
+- `historico_creditos`: créditos a favor del escribano en el sistema anterior (los importes
+  negativos de su libro de pagos, casi todos diferencias de inspección). Restan del saldo del
+  registro (cuadratura y reportes), que puede quedar a favor; no reducen la deuda que se
+  evalúa para préstamos y garantes.
 
 Todo es inmutable por trigger; el histórico solo admite INSERT dentro de una carga de migración
 (`SET LOCAL suite.migracion = 'on'`).
@@ -181,6 +185,39 @@ class HistoricoPago(UUIDMixin, Base):
     fecha_pago: Mapped[date] = mapped_column(Date, nullable=False)
     importe: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     medio: Mapped[str | None] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class HistoricoCredito(UUIDMixin, Base):
+    """Crédito a favor del escribano en el sistema anterior, con el importe en positivo.
+
+    TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda
+    (préstamos, garantes, boletas nuevas).
+    Hoy solo resta del saldo histórico del registro (cuadratura y reportes): no reduce la
+    deuda que se evalúa para préstamos y garantes ni toca boletas de la Suite.
+    """
+
+    __tablename__ = "historico_creditos"
+    __table_args__ = (
+        CheckConstraint("importe > 0", name="importe"),
+        Index("ix_historico_creditos_registro_fecha", "registro_id", "fecha"),
+    )
+
+    corrida_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("migracion_corridas.id", ondelete="RESTRICT"), nullable=False
+    )
+    codigo_legado: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    registro_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_registros_notariales.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    fecha: Mapped[date] = mapped_column(Date, nullable=False)
+    periodo: Mapped[str | None] = mapped_column(String(7))
+    importe: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    concepto: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

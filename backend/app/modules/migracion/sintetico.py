@@ -4,9 +4,18 @@ Ningún dato es real: nombres de una lista ficticia, CUIT generados con dígito 
 números de documento altos y matrículas y registros en rangos que no usa la demostración. El
 `control.csv` se calcula con todas las filas, como lo declararía el sistema anterior.
 
+Como en el origen real, algunos escribanos vienen sin matrícula, sin fecha de matriculación o
+sin CUIT ni documento (formato v2: se cargan vacíos, «a completar»). Los cargos referencian al
+escribano por su `codigo_legado`.
+
+Algunos registros traen créditos a favor del escribano (`creditos.csv`, como las diferencias de
+inspección del origen) y uno queda con saldo a favor; con `creditos=False` el lote no trae ese
+archivo opcional, como un lote anterior a su incorporación.
+
 Con `defectos=True` se inyectan problemas conocidos (un CUIT inválido, una matrícula repetida,
-un importe con decimales de punto flotante, un estado sin homologar, dos titulares vigentes y
-un pago de una boleta inexistente) para ver la validación y la cuadratura con rechazos.
+un importe con decimales de punto flotante, un estado sin homologar, dos titulares vigentes, un
+pago de una boleta inexistente, un crédito en cero y uno de un registro rechazado) para ver la
+validación y la cuadratura con rechazos.
 """
 
 import csv
@@ -36,6 +45,7 @@ class Resumen:
     cargos: int
     boletas: int
     pagos: int
+    creditos: int = 0
 
 
 def _cuit(dni: int, rng: random.Random) -> str:
@@ -80,6 +90,7 @@ def generar(
     periodos: int = 12,
     semilla: int = 42,
     defectos: bool = False,
+    creditos: bool = True,
     hasta: date = date(2026, 9, 30),
 ) -> Resumen:
     """Escribe un lote completo en `directorio` y devuelve cuántas filas tiene cada archivo."""
@@ -91,6 +102,7 @@ def generar(
     filas_car: list[dict[str, str]] = []
     filas_bol: list[dict[str, str]] = []
     filas_pag: list[dict[str, str]] = []
+    filas_cre: list[dict[str, str]] = []
     matricula = MATRICULA_BASE
     for i in range(registros):
         numero = REGISTRO_BASE + i
@@ -110,15 +122,23 @@ def generar(
         for cargo in ("T", *(("A",) if i % 3 == 0 else ()), *(("AC",) if i % 7 == 0 else ())):
             matricula += 1
             dni = DNI_BASE + matricula
+            n = len(filas_esc)
+            # Datos que el origen no tiene (quedan «a completar»); nunca en los primeros tres,
+            # que usan los defectos.
+            sin_matricula = n >= 3 and n % 5 == 3
+            sin_identidad = n >= 3 and n % 11 == 4
+            sin_fecha = n >= 3 and n % 13 == 5
             filas_esc.append(
                 {
                     "codigo_legado": f"ESC-{matricula}",
-                    "cuit": _cuit(dni, rng),
-                    "numero_documento": str(dni),
+                    "cuit": "" if sin_identidad else _cuit(dni, rng),
+                    "numero_documento": "" if sin_identidad else str(dni),
                     "apellido": rng.choice(APELLIDOS),
                     "nombre": rng.choice(NOMBRES),
-                    "matricula": str(matricula),
-                    "fecha_matriculacion": _fecha(date(2000 + rng.randint(0, 20), 3, 1)),
+                    "matricula": "" if sin_matricula else str(matricula),
+                    "fecha_matriculacion": (
+                        "" if sin_fecha else _fecha(date(2000 + rng.randint(0, 20), 3, 1))
+                    ),
                     "estado": "A",
                     "tipo_documento": "DNI",
                     "fecha_nacimiento": _fecha(date(1960 + rng.randint(0, 30), 6, 15)),
@@ -128,7 +148,7 @@ def generar(
             filas_car.append(
                 {
                     "codigo_legado": f"CAR-{matricula}",
-                    "matricula": str(matricula),
+                    "escribano": f"ESC-{matricula}",
                     "numero_registro": str(numero),
                     "cargo": cargo,
                     "fecha_desde": _fecha(date(2015, 1, 1)),
@@ -170,8 +190,57 @@ def generar(
                             "medio": "Transferencia",
                         }
                     )
+        # Diferencias de inspección a favor del escribano, en uno de cada cuatro registros
+        # (rng aparte: no cambia el resto del lote respecto de uno sin créditos).
+        if creditos and i % 4 == 1:
+            mes = hasta.replace(day=1) - timedelta(days=31 * (i % periodos))
+            filas_cre.append(
+                {
+                    "codigo_legado": f"CRE-{numero}",
+                    "numero_registro": str(numero),
+                    "fecha": _fecha(mes.replace(day=15)),
+                    "importe": _importe(Decimal(1_000 + 37 * i) + Decimal(i % 100) / 100),
+                    "periodo": f"{mes:%m/%Y}",
+                    "concepto": "Diferencia de inspección",
+                }
+            )
+
+    if filas_cre:
+        # El último registro con crédito queda con saldo a favor: más que todas sus boletas.
+        ultimo = filas_cre[-1]
+        deuda = sum(
+            (
+                Decimal(b["importe"].replace(",", "."))
+                for b in filas_bol
+                if b["numero_registro"] == ultimo["numero_registro"] and b["estado"] != "N"
+            ),
+            Decimal(0),
+        )
+        ultimo["importe"] = _importe(deuda + Decimal("5000.00"))
 
     if defectos:
+        if creditos:
+            filas_cre.append(
+                {
+                    "codigo_legado": "CRE-EN-CERO",
+                    "numero_registro": filas_reg[0]["numero_registro"],
+                    "fecha": _fecha(hasta),
+                    "importe": "0,00",
+                    "periodo": "",
+                    "concepto": "",
+                }
+            )
+            # Registro rechazado por su estado sin homologar: el crédito cae en cascada.
+            filas_cre.append(
+                {
+                    "codigo_legado": "CRE-REGISTRO-RECHAZADO",
+                    "numero_registro": filas_reg[4]["numero_registro"],
+                    "fecha": _fecha(hasta),
+                    "importe": "250,00",
+                    "periodo": "",
+                    "concepto": "Diferencia de inspección",
+                }
+            )
         cuit = filas_esc[0]["cuit"]
         filas_esc[0]["cuit"] = cuit[:-1] + str((int(cuit[-1]) + 1) % 10)
         filas_esc[2]["matricula"] = filas_esc[1]["matricula"]
@@ -180,7 +249,7 @@ def generar(
         filas_car.append(
             {
                 "codigo_legado": "CAR-EXTRA",
-                "matricula": filas_esc[-1]["matricula"],
+                "escribano": filas_esc[-1]["codigo_legado"],
                 "numero_registro": filas_reg[-1]["numero_registro"],
                 "cargo": "T",
                 "fecha_desde": _fecha(date(2020, 1, 1)),
@@ -202,6 +271,8 @@ def generar(
     _escribir(directorio, Entidad.CARGOS, filas_car)
     _escribir(directorio, Entidad.BOLETAS, filas_bol)
     _escribir(directorio, Entidad.PAGOS, filas_pag)
+    if creditos:
+        _escribir(directorio, Entidad.CREDITOS, filas_cre)
 
     def total(filas: list[dict[str, str]]) -> str:
         # El sistema anterior suma lo que tiene, incluso un importe con decimales de más: la
@@ -216,4 +287,13 @@ def generar(
         writer.writerow([Entidad.CARGOS.value, len(filas_car), ""])
         writer.writerow([Entidad.BOLETAS.value, len(filas_bol), total(filas_bol)])
         writer.writerow([Entidad.PAGOS.value, len(filas_pag), total(filas_pag)])
-    return Resumen(len(filas_reg), len(filas_esc), len(filas_car), len(filas_bol), len(filas_pag))
+        if creditos:
+            writer.writerow([Entidad.CREDITOS.value, len(filas_cre), total(filas_cre)])
+    return Resumen(
+        len(filas_reg),
+        len(filas_esc),
+        len(filas_car),
+        len(filas_bol),
+        len(filas_pag),
+        len(filas_cre),
+    )

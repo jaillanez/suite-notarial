@@ -424,6 +424,11 @@ async def designar(
         raise ProblemError(HTTPStatus.NOT_FOUND, "El escribano no existe.")
     if escribano.estado_matricula != EstadoMatricula.ACTIVO.value:
         raise _conflict("Solo un escribano con matrícula ACTIVA puede quedar a cargo.")
+    if escribano.fecha_matriculacion is None:
+        raise _conflict(
+            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "esta operación."
+        )
     if data.fecha_desde < escribano.fecha_matriculacion:
         raise _invalid("La designación no puede ser anterior a la matriculación.")
     personal = es_personal(principal)
