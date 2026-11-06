@@ -236,3 +236,21 @@ async def test_cambiar_domicilio_requiere_permiso(
         json={"domicilio": "Calle 2", "fecha_desde": "2024-01-01"},
     )
     assert response.status_code == 403
+
+
+async def test_registro_con_fecha_de_creacion_futura_se_rechaza(
+    caja: AsyncClient, circunscripcion: Factory
+) -> None:
+    circ = await circunscripcion()
+    respuesta = await caja.post(
+        "/api/v1/padron/registros",
+        json={
+            "numero_registro": 99_901,
+            "circunscripcion_id": circ["id"],
+            "departamento": "Capital",
+            "domicilio_legal": "Calle de Prueba 123",
+            "fecha_creacion": "2999-01-01",
+        },
+    )
+    assert respuesta.status_code == 422
+    assert "futura" in respuesta.text

@@ -255,6 +255,12 @@ async def create_registro(
     session: AsyncSession, ctx: RequestContext, actor: User, data: RegistroIn
 ) -> RegistroNotarial:
     await _active_circunscripcion(session, data.circunscripcion_id)
+    if data.fecha_creacion is not None and data.fecha_creacion > today_local():
+        # Un domicilio inicial con fecha futura dejaría sin salida el cambio de domicilio.
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La fecha de creación del registro no puede ser futura.",
+        )
     item = RegistroNotarial(
         id=uuid.uuid4(),
         **data.model_dump(),
@@ -266,7 +272,7 @@ async def create_registro(
         DomicilioRegistro(
             registro_id=item.id,
             domicilio=item.domicilio_legal,
-            fecha_desde=data.fecha_creacion or today_local(),
+            fecha_desde=min(data.fecha_creacion or today_local(), today_local()),
             created_by_user_id=actor.id,
         )
     )
