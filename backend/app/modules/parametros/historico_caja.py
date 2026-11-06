@@ -136,14 +136,17 @@ def leer_cuadro(ruta: Path) -> tuple[list[Tramo], dict[str, date], list[Redondeo
         (_normal(f[2]) if len(f) > 2 else "", list(f)) for f in filas
     ]
 
-    def una_fila(prefijo: str) -> list[object]:
+    def una_fila(prefijo: str, exacto: bool = False) -> list[object]:
         """La única fila cuyo rótulo empieza así: ninguna o varias es un cuadro inválido."""
-        halladas = [f for r, f in rotulos if r.startswith(prefijo)]
+        halladas = [f for r, f in rotulos if (r == prefijo if exacto else r.startswith(prefijo))]
         if len(halladas) != 1:
             raise CuadroInvalidoError(f"Se esperaba una fila «{prefijo}» y hay {len(halladas)}.")
         return halladas[0]
 
-    periodos_fila, vencimientos_fila = una_fila("PERIODO"), una_fila("FECHA DE VENCIMIENTO")
+    periodos_fila, vencimientos_fila = (
+        una_fila("PERIODO", exacto=True),
+        una_fila("FECHA DE VENCIMIENTO DE LA OBLIGACION DE PAGO", exacto=True),
+    )
     columnas: list[tuple[int, date, date]] = []
     for i in range(3, len(periodos_fila)):
         rotulo, vence = (
