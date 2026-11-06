@@ -81,7 +81,10 @@ COLUMNAS = {
         "numero_boleta",
     ),
     "pagos": ("codigo_legado", "boleta", "fecha_pago", "importe", "medio"),
+    "creditos": ("codigo_legado", "numero_registro", "fecha", "importe", "periodo", "concepto"),
 }
+# Concepto con el que la Caja registra los créditos a favor que surgen de una inspección.
+CONCEPTO_INSPECCION = "DIF DE INSPECCION"
 
 
 # ------------------------------------------------------------------ valores
@@ -597,6 +600,30 @@ def escribir_pagos(
         mes, anio = digitos(f.get("CUOTA")), digitos(f.get("_"))
         periodo = f"{int(anio):04d}-{int(mes):02d}" if mes and anio and 1 <= int(mes) <= 12 else ""
         pagado = importe(f.get("PAGO"))
+        concepto = texto(f.get("CONCEPTO"))
+        if pagado is not None and pagado < 0:
+            # Importe negativo = crédito a favor del escribano (confirmado por la Caja: surge
+            # de una diferencia de inspección a su favor). No es una cuota.
+            credito = lote.redondear(PAGOS, numero, f"CRE-{numero}", -pagado)
+            if clave_nombre(concepto) != CONCEPTO_INSPECCION:
+                lote.anotar(
+                    PAGOS,
+                    numero,
+                    f"CRE-{numero}",
+                    "CREDITO_A_CONFIRMAR",
+                    f"Importe negativo con concepto «{concepto}»: se toma como crédito, confirmar.",
+                )
+            lote.archivos["creditos"].append(
+                {
+                    "codigo_legado": f"CRE-{numero}",
+                    "numero_registro": registro,
+                    "fecha": iso(una_fecha(f.get("FECHA PAGO")) or vencimiento),
+                    "importe": monto(credito),
+                    "periodo": periodo,
+                    "concepto": concepto[:100],
+                }
+            )
+            continue
         if pagado is None:
             debido = importe(f.get("APORTES"))
             valor = abs(debido) if debido is not None else None
@@ -611,13 +638,13 @@ def escribir_pagos(
                 )
         else:
             valor, estado = pagado, "PAGADA"
-            if pagado <= 0:
+            if pagado == 0:
                 lote.anotar(
                     PAGOS,
                     numero,
                     codigo,
-                    "PAGO_EN_CERO" if pagado == 0 else "AJUSTE_NEGATIVO",
-                    "Pago en cero o negativo en el origen: revisar qué representa.",
+                    "PAGO_EN_CERO",
+                    "Pago en cero en el origen: revisar qué representa.",
                 )
         if valor is not None:
             valor = lote.redondear(PAGOS, numero, codigo, valor)
@@ -631,7 +658,7 @@ def escribir_pagos(
                 "fecha_vencimiento": iso(vencimiento),
                 "importe": monto(valor) if valor is not None else "",
                 "estado": estado,
-                "numero_boleta": texto(f.get("CONCEPTO"))[:50],
+                "numero_boleta": concepto[:50],
             }
         )
         if estado == "PAGADA" and valor is not None and valor > 0:
@@ -684,10 +711,14 @@ def leer_departamentos(ruta: Path | None) -> dict[int, dict[str, str]]:
 def totales_de_origen(filas: list[tuple[int, dict[str, object]]]) -> dict[str, tuple[int, Decimal]]:
     """Totales de la planilla de pagos tal como vienen, sin redondear fila por fila: si la
     extracción pierde una fila o un importe, la cuadratura lo muestra."""
-    boletas, pagos, cantidad_pagos = Decimal("0"), Decimal("0"), 0
+    boletas, pagos, creditos = Decimal("0"), Decimal("0"), Decimal("0")
+    cantidad_pagos = cantidad_creditos = 0
     for _, f in filas:
         pagado = importe(f.get("PAGO"))
-        if pagado is None:
+        if pagado is not None and pagado < 0:
+            creditos -= pagado
+            cantidad_creditos += 1
+        elif pagado is None:
             debido = importe(f.get("APORTES"))
             boletas += abs(debido) if debido is not None else Decimal("0")
         else:
@@ -696,8 +727,12 @@ def totales_de_origen(filas: list[tuple[int, dict[str, object]]]) -> dict[str, t
                 pagos += pagado
                 cantidad_pagos += 1
     return {
-        "boletas": (len(filas), boletas.quantize(CENTAVO, rounding=ROUND_HALF_UP)),
+        "boletas": (
+            len(filas) - cantidad_creditos,
+            boletas.quantize(CENTAVO, rounding=ROUND_HALF_UP),
+        ),
         "pagos": (cantidad_pagos, pagos.quantize(CENTAVO, rounding=ROUND_HALF_UP)),
+        "creditos": (cantidad_creditos, creditos.quantize(CENTAVO, rounding=ROUND_HALF_UP)),
     }
 
 
