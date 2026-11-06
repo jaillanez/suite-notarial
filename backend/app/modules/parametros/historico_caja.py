@@ -132,13 +132,18 @@ def leer_cuadro(ruta: Path) -> tuple[list[Tramo], dict[str, date], list[Redondeo
         filas = [list(f) for f in libro["cuadro historico"].iter_rows(values_only=True)]
     finally:
         libro.close()
-    rotulos = {_normal(f[2]) if len(f) > 2 else "": f for f in filas}
-    periodos_fila = next((f for r, f in rotulos.items() if r == "PERIODO"), None)
-    vencimientos_fila = next(
-        (f for r, f in rotulos.items() if r.startswith("FECHA DE VENCIMIENTO")), None
-    )
-    if periodos_fila is None or vencimientos_fila is None:
-        raise CuadroInvalidoError("No se encontraron las filas «Periodo» y «Fecha de vencimiento».")
+    rotulos: list[tuple[str, list[object]]] = [
+        (_normal(f[2]) if len(f) > 2 else "", list(f)) for f in filas
+    ]
+
+    def una_fila(prefijo: str) -> list[object]:
+        """La única fila cuyo rótulo empieza así: ninguna o varias es un cuadro inválido."""
+        halladas = [f for r, f in rotulos if r.startswith(prefijo)]
+        if len(halladas) != 1:
+            raise CuadroInvalidoError(f"Se esperaba una fila «{prefijo}» y hay {len(halladas)}.")
+        return halladas[0]
+
+    periodos_fila, vencimientos_fila = una_fila("PERIODO"), una_fila("FECHA DE VENCIMIENTO")
     columnas: list[tuple[int, date, date]] = []
     for i in range(3, len(periodos_fila)):
         rotulo, vence = (
@@ -156,9 +161,8 @@ def leer_cuadro(ruta: Path) -> tuple[list[Tramo], dict[str, date], list[Redondeo
     por_concepto: dict[str, dict[date, dict[str, Decimal | None]]] = {}
     redondeos: list[Redondeo] = []
     for prefijo, codigo, campo in FILAS:
-        fila = next((f for r, f in rotulos.items() if r.startswith(prefijo)), None)
-        if fila is None:
-            raise CuadroInvalidoError(f"Falta la fila «{prefijo}».")
+        fila = una_fila(prefijo)
+        visto = False
         for i, periodo, _ in columnas:
             celda = fila[i] if i < len(fila) else None
             if campo == "monto_maximo" and _normal(celda) == SIN_TOPE:
@@ -166,6 +170,9 @@ def leer_cuadro(ruta: Path) -> tuple[list[Tramo], dict[str, date], list[Redondeo
             else:
                 valor = _decimal(celda)
                 if valor is None:
+                    if visto:
+                        # Una celda vacía después de haber valores no es «sin tope»: falta el dato.
+                        raise CuadroInvalidoError(f"Falta {campo} de {codigo} en {periodo:%m/%Y}.")
                     continue  # el concepto todavía no existía (p. ej. médico asistencial en 2020)
                 if campo == "porcentaje":
                     valor = valor * 100
@@ -175,6 +182,7 @@ def leer_cuadro(ruta: Path) -> tuple[list[Tramo], dict[str, date], list[Redondeo
                 if exacto != valor:
                     redondeos.append(Redondeo(codigo, periodo, campo, valor, exacto))
                 valor = exacto
+            visto = True
             por_concepto.setdefault(codigo, {}).setdefault(periodo, {})[campo] = valor
 
     tramos: list[Tramo] = []
@@ -257,14 +265,11 @@ async def cargar(
         )
         if aprobador is not None:
             await service.aprobar_vigencia(session, CONTEXTO, aprobador, vigencia.id)
+    from app.modules.ddjj import service as ddjj
+
+    # Por el servicio de DDJJ: valida que caiga después del período y lo audita.
     for periodo in faltan:
-        session.add(
-            Vencimiento(
-                periodo=periodo,
-                fecha_vencimiento=vencimientos[periodo],
-                created_by_user_id=actor.id,
-            )
-        )
+        await ddjj.fijar_vencimiento(session, CONTEXTO, actor, periodo, vencimientos[periodo])
     await session.commit()
     return informe
 

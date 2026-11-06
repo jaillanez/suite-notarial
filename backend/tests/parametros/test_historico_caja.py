@@ -105,3 +105,15 @@ def test_cuadro_sin_filas_obligatorias(tmp_path: Path) -> None:
     libro.save(tmp_path / "v.xlsx")
     with pytest.raises(CuadroInvalidoError):
         leer_cuadro(tmp_path / "v.xlsx")
+
+
+def test_celda_vacia_despues_de_tener_valor_no_es_sin_tope(tmp_path: Path) -> None:
+    ruta = _cuadro(
+        tmp_path / "c.xlsx",
+        [
+            ("Enero", date(2021, 2, 28), _valores(800, 15000, 2850)),
+            ("Mayo", date(2021, 6, 28), _valores(800, None, 2850)),
+        ],
+    )
+    with pytest.raises(CuadroInvalidoError, match="monto_maximo"):
+        leer_cuadro(ruta)
