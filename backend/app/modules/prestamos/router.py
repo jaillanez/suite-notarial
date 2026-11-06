@@ -19,7 +19,7 @@ from app.modules.iam.deps import (
 from app.modules.padron.models import Escribano
 from app.modules.parametros import service as parametros
 from app.modules.prestamos import motor, service
-from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Sistema
+from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Moneda, Sistema
 from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
 from app.modules.prestamos.schemas import (
     CuotaOut,
@@ -66,6 +66,13 @@ def linea_out(linea: Linea) -> LineaOut:
         tna=linea.tna,
         afectacion_maxima=linea.afectacion_maxima,
         requiere_garante=linea.requiere_garante,
+        moneda=Moneda(linea.moneda),
+        garantia=linea.garantia,
+        requisito_conducta=linea.requisito_conducta,
+        relacion_capital_hipoteca=linea.relacion_capital_hipoteca,
+        requiere_certificado_ingresos=linea.requiere_certificado_ingresos,
+        requiere_certificado_bienes=linea.requiere_certificado_bienes,
+        antiguedad_minima_meses=linea.antiguedad_minima_meses,
         es_ejemplo=linea.es_ejemplo,
         is_active=linea.is_active,
     )
@@ -119,6 +126,7 @@ def evaluacion_out(ev: service.Evaluacion) -> EvaluacionOut:
     hoy = today_local()
     plan = [cuota_out(c, hoy) for c in ev.plan]
     return EvaluacionOut(
+        moneda=ev.moneda,
         sistema=ev.sistema,
         tna=ev.tna,
         tasa_es_ejemplo=ev.tasa_es_ejemplo,
@@ -130,6 +138,7 @@ def evaluacion_out(ev: service.Evaluacion) -> EvaluacionOut:
         afectacion_maxima=ev.afectacion_maxima,
         requiere_garante=ev.requiere_garante,
         impedimentos=ev.impedimentos,
+        avisos=ev.avisos,
         plan=plan,
         totales=totales(plan),
     )
@@ -167,6 +176,7 @@ async def prestamo_out(session: SessionDep, principal: Principal, p: Prestamo) -
         linea_id=linea.id,
         linea_nombre=linea.nombre,
         estado=EstadoPrestamo(p.estado),
+        moneda=Moneda(p.moneda),
         sistema=Sistema(p.sistema),
         tna=p.tna,
         tasa_es_ejemplo=p.tasa_es_ejemplo,
@@ -211,6 +221,7 @@ async def prestamo_detalle(
     base = await prestamo_out(session, principal, p)
     hoy = today_local()
     impedimentos: list[str] = []
+    avisos: list[str] = []
     if p.estado == EstadoPrestamo.SOLICITADO.value:
         ev = await service.reevaluar(session, p, hoy)
         plan = [cuota_out(c, hoy) for c in ev.plan]
@@ -218,8 +229,10 @@ async def prestamo_detalle(
         # garante, nada de la evaluación del titular.
         if service.ve_todo(principal):
             impedimentos = ev.impedimentos
+            avisos = ev.avisos
         elif not await _solo_garante(session, principal, p):
             impedimentos = ev.impedimentos_para_titular()
+            avisos = ev.avisos
     else:
         plan = [cuota_out(c, hoy) for c in await service.plan_guardado(session, p.id)]
     return PrestamoDetalle(
@@ -227,6 +240,7 @@ async def prestamo_detalle(
         plan=plan,
         totales=totales(plan),
         impedimentos_actuales=impedimentos,
+        avisos_actuales=avisos,
         puede_resolver=await _puede_resolver(session, principal, p),
     )
 

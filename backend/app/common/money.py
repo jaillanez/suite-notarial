@@ -37,10 +37,15 @@ def to_rate(value: DecimalInput) -> Decimal:
 
 def format_pesos(monto: Decimal) -> str:
     """`$ 1.081.699,06`: formato argentino para textos (boleta, correos), sin pasar por float."""
+    return format_importe(monto, "$")
+
+
+def format_importe(monto: Decimal, simbolo: str) -> str:
+    """Como `format_pesos`, con otro símbolo de moneda: `US$ 50.000,00`."""
     signo = "-" if monto < 0 else ""
     entero, _, centavos = f"{abs(monto):.2f}".partition(".")
     grupos: list[str] = []
     while entero:
         grupos.insert(0, entero[-3:])
         entero = entero[:-3]
-    return f"{signo}$ {'.'.join(grupos)},{centavos}"
+    return f"{signo}{simbolo} {'.'.join(grupos)},{centavos}"

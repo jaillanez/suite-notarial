@@ -8,10 +8,10 @@ import { Field } from '../../components/ui/Field'
 import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { toProblem } from '../../lib/api'
-import { formatMoney, formatPercent, normalizeDecimalInput } from '../../lib/decimal'
+import { normalizeDecimalInput } from '../../lib/decimal'
 import { fetchLineas, simular } from './api'
-import { PlanCuotas, ResumenEvaluacion } from './componentes'
-import { SISTEMA } from './labels'
+import { CondicionesLinea, PlanCuotas, RequisitosLinea, ResumenEvaluacion } from './componentes'
+import { MONEDA, SISTEMA } from './labels'
 
 const DECIMAL = /^\d+(\.\d{1,2})?$/
 
@@ -21,6 +21,8 @@ export function SimuladorPage() {
   const [lineaId, setLineaId] = useState('')
   const linea = activas.find((l) => l.id === lineaId) ?? activas[0]
   const [form, setForm] = useState({ capital: '', cuotas: '', ingreso: '' })
+  const usd = linea?.moneda === 'USD'
+  const simbolo = MONEDA[linea?.moneda ?? 'ARS'].simbolo
   const datos = useDeferredValue({
     capital: normalizeDecimalInput(form.capital),
     cuotas: Number.parseInt(form.cuotas, 10),
@@ -72,16 +74,13 @@ export function SimuladorPage() {
               }))}
             />
             {linea && (
-              <p className="text-sm text-ink-muted tabular-nums">
-                {SISTEMA[linea.sistema].label} · TNA {formatPercent(linea.tna)} · de{' '}
-                {formatMoney(linea.monto_minimo)} a {formatMoney(linea.monto_maximo)} ·{' '}
-                {linea.plazo_minimo} a {linea.plazo_maximo} cuotas · tope{' '}
-                {formatPercent(linea.afectacion_maxima)} del ingreso
-                {linea.requiere_garante ? ' · exige garante' : ''}
-              </p>
+              <>
+                <CondicionesLinea linea={linea} />
+                <RequisitosLinea linea={linea} />
+              </>
             )}
             <Field
-              label="Capital ($)"
+              label={`Capital ${usd ? 'en dólares ' : ''}(${simbolo})`}
               inputMode="decimal"
               className="[&_input]:tabular-nums"
               value={form.capital}
@@ -99,9 +98,13 @@ export function SimuladorPage() {
               }}
             />
             <Field
-              label="Ingreso neto mensual ($)"
+              label={`Ingreso neto mensual ${usd ? 'en dólares ' : ''}(${simbolo})`}
               inputMode="decimal"
-              hint="Opcional: para calcular la afectación."
+              hint={
+                usd
+                  ? 'Opcional: declaralo en dólares. La Caja todavía no fijó el tipo de cambio para préstamos en dólares.'
+                  : 'Opcional: para calcular la afectación.'
+              }
               className="[&_input]:tabular-nums"
               value={form.ingreso}
               onChange={(e) => {
@@ -126,7 +129,12 @@ export function SimuladorPage() {
             <>
               <ResumenEvaluacion ev={query.data} conIngreso={conIngreso} />
               <Panel title="Cuadro de amortización" description={SISTEMA[query.data.sistema].ayuda}>
-                <PlanCuotas plan={query.data.plan} totales={query.data.totales} conEstado={false} />
+                <PlanCuotas
+                  plan={query.data.plan}
+                  totales={query.data.totales}
+                  conEstado={false}
+                  moneda={query.data.moneda}
+                />
               </Panel>
             </>
           )}

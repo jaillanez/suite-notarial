@@ -6,21 +6,23 @@ import { StatusIndicator } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
 import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
-import { compararDecimal, formatMoney, formatPercent } from '../../lib/decimal'
+import { compararDecimal, formatPercent } from '../../lib/decimal'
 import { fetchEscribanos } from '../padron/api'
 import { formatDate, matriculaTexto } from '../padron/labels'
-import type { Cuota, Evaluacion, Totales } from './api'
-import { SISTEMA, estadoCuota } from './labels'
+import type { Cuota, Evaluacion, Linea, Moneda, Totales } from './api'
+import { MONEDA, SISTEMA, estadoCuota, importe, requisitosLinea } from './labels'
 
 /** Cuadro de amortización: tabla en escritorio, lista apilada en celular, totales al pie. */
 export function PlanCuotas({
   plan,
   totales,
   conEstado,
+  moneda,
 }: {
   plan: Cuota[]
   totales: Totales
   conEstado: boolean
+  moneda: Moneda
 }) {
   const cols = [
     ['N°', 'left'],
@@ -61,19 +63,19 @@ export function PlanCuotas({
                   <td className="px-3 py-2 pl-6 text-ink-muted">{c.numero}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{formatDate(c.vencimiento)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap text-ink-muted">
-                    {formatMoney(c.saldo_inicial)}
+                    {importe(c.saldo_inicial, moneda)}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {formatMoney(c.amortizacion)}
+                    {importe(c.amortizacion, moneda)}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {formatMoney(c.interes)}
+                    {importe(c.interes, moneda)}
                   </td>
                   <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                    {formatMoney(c.cuota)}
+                    {importe(c.cuota, moneda)}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap text-ink-muted">
-                    {formatMoney(c.saldo_final)}
+                    {importe(c.saldo_final, moneda)}
                   </td>
                   {conEstado && (
                     <td className="px-3 py-1.5 pr-6">
@@ -90,13 +92,13 @@ export function PlanCuotas({
                 Total · {plan.length} cuotas
               </td>
               <td className="px-3 py-3 text-right whitespace-nowrap">
-                {formatMoney(totales.capital)}
+                {importe(totales.capital, moneda)}
               </td>
               <td className="px-3 py-3 text-right whitespace-nowrap">
-                {formatMoney(totales.intereses)}
+                {importe(totales.intereses, moneda)}
               </td>
               <td className="px-3 py-3 text-right whitespace-nowrap">
-                {formatMoney(totales.total)}
+                {importe(totales.total, moneda)}
               </td>
               <td colSpan={conEstado ? 2 : 1} />
             </tr>
@@ -113,13 +115,13 @@ export function PlanCuotas({
                   Cuota {c.numero} · {formatDate(c.vencimiento)}
                 </span>
                 <span className="font-semibold whitespace-nowrap text-ink">
-                  {formatMoney(c.cuota)}
+                  {importe(c.cuota, moneda)}
                 </span>
               </div>
               <p className="text-ink-muted">
-                Capital {formatMoney(c.amortizacion)} · Interés {formatMoney(c.interes)}
+                Capital {importe(c.amortizacion, moneda)} · Interés {importe(c.interes, moneda)}
               </p>
-              <p className="text-ink-muted">Saldo {formatMoney(c.saldo_final)}</p>
+              <p className="text-ink-muted">Saldo {importe(c.saldo_final, moneda)}</p>
               {conEstado && (
                 <div className="mt-1">
                   <StatusIndicator tone={e.tone} label={e.label} />
@@ -129,7 +131,7 @@ export function PlanCuotas({
           )
         })}
         <li className="bg-surface-sunken px-5 py-3 text-sm font-semibold tabular-nums">
-          Total {formatMoney(totales.total)} · intereses {formatMoney(totales.intereses)}
+          Total {importe(totales.total, moneda)} · intereses {importe(totales.intereses, moneda)}
         </li>
       </ul>
     </>
@@ -169,6 +171,15 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
           Directorio. La simulación es orientativa.
         </Alert>
       )}
+      {ev.avisos.length > 0 && (
+        <Alert tone="warning" title="Para revisar">
+          <ul className="mt-1 grid list-disc gap-1 pl-5">
+            {ev.avisos.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
       {conIngreso &&
         (viable ? (
           <Alert tone="success" title="Cumple las condiciones de la línea">
@@ -188,12 +199,15 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
           label={ev.sistema === 'FRANCES' ? 'Cuota mensual' : 'Primera cuota (la más alta)'}
           fuerte
         >
-          {formatMoney(ev.cuota_maxima)}
+          {importe(ev.cuota_maxima, ev.moneda)}
         </Par>
+        <Par label="Moneda">{MONEDA[ev.moneda].label}</Par>
         <Par label="Tasa nominal anual">{formatPercent(ev.tna)}</Par>
         <Par label="Sistema">{SISTEMA[ev.sistema].label}</Par>
         {ev.otras_cuotas !== '0.00' && (
-          <Par label="Cuotas de otros préstamos vigentes">{formatMoney(ev.otras_cuotas)}</Par>
+          <Par label="Cuotas de otros préstamos vigentes">
+            {importe(ev.otras_cuotas, ev.moneda)}
+          </Par>
         )}
         {ev.afectacion !== null && (
           <div
@@ -208,11 +222,39 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
             </dd>
           </div>
         )}
-        <Par label="Total de intereses">{formatMoney(ev.totales.intereses)}</Par>
+        <Par label="Total de intereses">{importe(ev.totales.intereses, ev.moneda)}</Par>
         <Par label="Total a devolver" fuerte>
-          {formatMoney(ev.totales.total)}
+          {importe(ev.totales.total, ev.moneda)}
         </Par>
       </dl>
+    </div>
+  )
+}
+
+/** Condiciones de la línea en una frase, con los montos en su moneda. */
+export function CondicionesLinea({ linea }: { linea: Linea }) {
+  return (
+    <p className="text-sm text-ink-muted tabular-nums">
+      {MONEDA[linea.moneda].label} · {SISTEMA[linea.sistema].label} · TNA {formatPercent(linea.tna)}{' '}
+      · de {importe(linea.monto_minimo, linea.moneda)} a {importe(linea.monto_maximo, linea.moneda)}{' '}
+      · {linea.plazo_minimo} a {linea.plazo_maximo} cuotas · tope{' '}
+      {formatPercent(linea.afectacion_maxima)} del ingreso
+    </p>
+  )
+}
+
+/** Requisitos de la línea (garantía, certificados, antigüedad), si los tiene. */
+export function RequisitosLinea({ linea }: { linea: Linea }) {
+  const requisitos = requisitosLinea(linea)
+  if (requisitos.length === 0) return null
+  return (
+    <div className="text-sm text-ink-muted">
+      <p className="font-medium text-ink">Requisitos</p>
+      <ul className="mt-1 grid list-disc gap-0.5 pl-5">
+        {requisitos.map((r) => (
+          <li key={r}>{r}</li>
+        ))}
+      </ul>
     </div>
   )
 }
