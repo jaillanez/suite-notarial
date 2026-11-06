@@ -1,9 +1,11 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ESCRIBANO, renderWithProviders } from '../../test/render'
 import * as padronApi from './api'
 import { EscribanoNuevoPage } from './EscribanoNuevoPage'
+import { EscribanoPage } from './EscribanoPage'
 import { EscribanosPage } from './EscribanosPage'
 import { formatDate } from './labels'
 
@@ -93,5 +95,72 @@ describe('padrón', () => {
         persona: expect.objectContaining({ apellido: 'Sarmiento', email: null }) as unknown,
       }),
     )
+  })
+
+  it('muestra los datos a completar y los carga una vez', async () => {
+    const migrado: padronApi.EscribanoDetalle = {
+      id: 'e9',
+      matricula_numero: null,
+      tomo: null,
+      folio: null,
+      fecha_matriculacion: null,
+      estado_matricula: 'ACTIVO',
+      apellido_nombre: 'Sintético, Histórico',
+      cuit: null,
+      numero_documento: null,
+      registro_actual: null,
+      cargo_actual: null,
+      tiene_cuenta: false,
+      persona: {
+        id: 'p9',
+        cuit: null,
+        tipo_documento: 'DNI',
+        numero_documento: null,
+        apellido: 'Sintético',
+        nombre: 'Histórico',
+        fecha_nacimiento: null,
+        email: 'historico@ejemplo.test',
+        telefono: null,
+        domicilio_real: null,
+      },
+      transiciones_permitidas: [],
+      transiciones_con_resolucion: [],
+      motivo_ultimo_cambio_estado: null,
+      fecha_ultimo_cambio_estado: null,
+      a_completar: ['matricula_numero', 'fecha_matriculacion', 'cuit', 'numero_documento'],
+      cargos: [],
+      historial: [],
+    }
+    vi.mocked(padronApi.fetchEscribano).mockResolvedValue(migrado)
+    vi.mocked(padronApi.completarEscribano).mockResolvedValue({
+      ...migrado,
+      matricula_numero: 512,
+      a_completar: ['fecha_matriculacion', 'cuit', 'numero_documento'],
+    })
+    renderWithProviders(
+      <Routes>
+        <Route path="/padron/escribanos/:id" element={<EscribanoPage />} />
+      </Routes>,
+      {
+        path: '/padron/escribanos/e9',
+        user: { ...CAJA, permissions: [...CAJA.permissions, 'users:write'] },
+        raw: true,
+      },
+    )
+
+    expect(await screen.findByText('Matrícula a completar')).toBeInTheDocument()
+    expect(screen.getByText('CUIT a completar')).toBeInTheDocument()
+    expect(screen.getAllByText('A completar')).toHaveLength(4)
+    // Sin CUIT no se puede crear la cuenta de autogestión.
+    expect(screen.getByRole('button', { name: 'Crear cuenta de autogestión' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Completar datos' }))
+    const guardar = screen.getByRole('button', { name: 'Guardar datos' })
+    expect(guardar).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Matrícula'), { target: { value: '512' } })
+    fireEvent.click(guardar)
+    await waitFor(() => {
+      expect(padronApi.completarEscribano).toHaveBeenCalledWith('e9', { matricula_numero: 512 })
+    })
   })
 })

@@ -20,7 +20,7 @@ export interface RegistroResumen {
 export interface EscribanoResumen {
   id: string
   apellido_nombre: string
-  matricula_numero: number
+  matricula_numero: number | null
   cargo: Cargo
 }
 
@@ -33,7 +33,7 @@ export interface Acto {
   id: string
   escribano_id: string
   escribano: string
-  matricula_numero: number
+  matricula_numero: number | null
   cargo: Cargo
   tipo_protocolo: TipoProtocolo
   numero_escritura: number

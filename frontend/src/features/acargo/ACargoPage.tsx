@@ -12,7 +12,7 @@ import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
-import { formatDate, todayIso } from '../padron/labels'
+import { formatDate, matriculaTexto, todayIso } from '../padron/labels'
 import {
   anular,
   aprobar,
@@ -227,7 +227,7 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
         <p className="font-semibold text-ink">
           {d.apellido_nombre}{' '}
           <span className="font-normal text-ink-muted tabular-nums">
-            · Mat. {d.matricula_numero}
+            · Mat. {matriculaTexto(d.matricula_numero)}
           </span>
         </p>
         <p className="text-sm text-ink tabular-nums">
@@ -555,13 +555,13 @@ function DesignarDialog({
                       onClick={() => {
                         setElegido({
                           id: c.id,
-                          nombre: `${c.apellido_nombre} · Mat. ${String(c.matricula_numero)}`,
+                          nombre: `${c.apellido_nombre} · Mat. ${matriculaTexto(c.matricula_numero)}`,
                         })
                       }}
                     >
                       <span className="font-semibold text-brand-800">{c.apellido_nombre}</span>
                       <span className="text-sm text-ink-muted tabular-nums">
-                        Mat. {c.matricula_numero}
+                        Mat. {matriculaTexto(c.matricula_numero)}
                         {c.numero_registro !== null &&
                           ` · Registro ${String(c.numero_registro)} (${c.departamento ?? ''})`}
                       </span>

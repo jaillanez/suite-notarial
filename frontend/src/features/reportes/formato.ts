@@ -12,7 +12,7 @@ function humanizar(valor: string): string {
 }
 
 export function formatCelda(col: Columna, valor: Valor): string {
-  if (valor === null || valor === '') return '—'
+  if (valor === null || valor === '') return col.vacio ?? '—'
   switch (col.tipo) {
     case 'MONEDA':
       return formatMoney(String(valor))

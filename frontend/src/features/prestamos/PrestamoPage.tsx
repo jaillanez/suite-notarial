@@ -14,7 +14,7 @@ import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { formatMoney, formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
-import { formatDate, todayIso } from '../padron/labels'
+import { formatDate, matriculaTexto, todayIso } from '../padron/labels'
 import { fetchPrestamo, otorgar, rechazar, registrarPago, type PrestamoDetalle } from './api'
 import { PlanCuotas } from './componentes'
 import { ESTADO_PRESTAMO, SISTEMA } from './labels'
@@ -270,7 +270,8 @@ export function PrestamoPage() {
               </h1>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <span className="text-ink-muted">
-                  {p.escribano.apellido_nombre} · Mat. {p.escribano.matricula_numero}
+                  {p.escribano.apellido_nombre} · Mat.{' '}
+                  {matriculaTexto(p.escribano.matricula_numero)}
                 </span>
                 <StatusIndicator
                   tone={ESTADO_PRESTAMO[p.estado].tone}
@@ -326,7 +327,7 @@ export function PrestamoPage() {
               )}
               <Dato label="Garante">
                 {p.garante
-                  ? `${p.garante.apellido_nombre} · Mat. ${String(p.garante.matricula_numero)}`
+                  ? `${p.garante.apellido_nombre} · Mat. ${matriculaTexto(p.garante.matricula_numero)}`
                   : 'Sin garante'}
               </Dato>
               <Dato label="Saldo de capital">{formatMoney(p.saldo_capital)}</Dato>

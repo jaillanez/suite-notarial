@@ -3,7 +3,7 @@ import { useId, type ReactNode } from 'react'
 import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import type { Problem } from '../../lib/api'
-import { CARGO, todayIso } from '../padron/labels'
+import { CARGO, matriculaTexto, todayIso } from '../padron/labels'
 import { naturalezasSugeridas, type ActoForm } from './acto'
 import type { CategoriaActo, DeclaracionDetalle, MotivoExencion, TipoProtocolo } from './api'
 import { CATEGORIA, MOTIVO_EXENCION, PROTOCOLO, rangoPeriodo } from './labels'
@@ -58,7 +58,7 @@ export function ActoCampos({
             ...(form.escribano_id ? [] : [{ value: '', label: 'Elegí el escribano autorizante' }]),
             ...ddjj.escribanos.map((e) => ({
               value: e.id,
-              label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${String(e.matricula_numero)}`,
+              label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${matriculaTexto(e.matricula_numero)}`,
             })),
           ]}
         />

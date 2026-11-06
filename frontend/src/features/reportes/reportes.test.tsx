@@ -21,11 +21,25 @@ const BOLETAS: apiModule.Reporte = {
   descripcion: 'Boletas con su desglose.',
   sensible: false,
   columnas: [
-    { key: 'numero', label: 'N°', tipo: 'ENTERO', total: false, visible: true },
-    { key: 'periodo', label: 'Período', tipo: 'PERIODO', total: false, visible: true },
-    { key: 'estado', label: 'Estado', tipo: 'TEXTO', total: false, visible: true },
-    { key: 'excedente', label: 'Excedente', tipo: 'MONEDA', total: true, visible: false },
-    { key: 'total_a_pagar', label: 'Total', tipo: 'MONEDA', total: true, visible: true },
+    { key: 'numero', label: 'N°', tipo: 'ENTERO', total: false, visible: true, vacio: null },
+    { key: 'periodo', label: 'Período', tipo: 'PERIODO', total: false, visible: true, vacio: null },
+    { key: 'estado', label: 'Estado', tipo: 'TEXTO', total: false, visible: true, vacio: null },
+    {
+      key: 'excedente',
+      label: 'Excedente',
+      tipo: 'MONEDA',
+      total: true,
+      visible: false,
+      vacio: null,
+    },
+    {
+      key: 'total_a_pagar',
+      label: 'Total',
+      tipo: 'MONEDA',
+      total: true,
+      visible: true,
+      vacio: null,
+    },
   ],
   filtros: [
     {
