@@ -5,7 +5,8 @@ todos diferencias de inspección: pagó de más). Se migran desde `creditos.csv`
 opcional al formato v2) a un histórico de solo lectura, como boletas y pagos, y restan del
 saldo del registro.
 
-TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
+TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda (préstamos,
+garantes, boletas nuevas).
 
 Revision ID: c3a9d5e7f214
 Revises: a3e36faeaf86

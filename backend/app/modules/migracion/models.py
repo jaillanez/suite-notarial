@@ -9,7 +9,8 @@
   asientos ficticios); se conservan tal cual, de solo lectura, para saldos y consultas.
 - `historico_creditos`: créditos a favor del escribano en el sistema anterior (los importes
   negativos de su libro de pagos, casi todos diferencias de inspección). Restan del saldo del
-  registro, que puede quedar a favor.
+  registro (cuadratura y reportes), que puede quedar a favor; no reducen la deuda que se
+  evalúa para préstamos y garantes.
 
 Todo es inmutable por trigger; el histórico solo admite INSERT dentro de una carga de migración
 (`SET LOCAL suite.migracion = 'on'`).
@@ -192,8 +193,10 @@ class HistoricoPago(UUIDMixin, Base):
 class HistoricoCredito(UUIDMixin, Base):
     """Crédito a favor del escribano en el sistema anterior, con el importe en positivo.
 
-    TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
-    Hoy solo resta del saldo histórico del registro; no toca boletas de la Suite.
+    TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda
+    (préstamos, garantes, boletas nuevas).
+    Hoy solo resta del saldo histórico del registro (cuadratura y reportes): no reduce la
+    deuda que se evalúa para préstamos y garantes ni toca boletas de la Suite.
     """
 
     __tablename__ = "historico_creditos"

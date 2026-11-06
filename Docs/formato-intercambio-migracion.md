@@ -18,7 +18,7 @@ En el libro de pagos del sistema anterior los importes negativos son **créditos
 
 El formato sigue siendo la **versión 2**: se agrega un archivo **opcional**, `creditos.csv`, con el importe **en positivo**. Un lote sin ese archivo se lee igual que antes (misma huella). Si el archivo viene, `control.csv` tiene que traer la fila `creditos`; si `control.csv` la trae, el archivo tiene que venir.
 
-**TODO(negocio):** decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas. Por ahora solo resta del saldo histórico del registro.
+**TODO(negocio):** decidir si el saldo a favor del sistema anterior compensa deuda (préstamos, garantes, boletas nuevas). Por ahora solo resta del saldo histórico del registro (cuadratura y reportes); no habilita préstamos ni garantes.
 
 ## El lote
 
@@ -117,7 +117,7 @@ Un JSON con cuatro tablas que traducen los códigos del origen a los valores de 
 | Cargo vigente de un escribano cesante, jubilado o fallecido | Bloqueante |
 | Referencias (cargo → escribano y registro, boleta → registro, pago → boleta, crédito → registro) | Bloqueante, en cascada: si una fila no se carga, tampoco las que dependen de ella |
 | Importe de un crédito en cero o negativo | Bloqueante |
-| DNI distinto del incluido en el CUIT (solo si vienen los dos), correo inválido, registro activo sin titular, vencimiento anterior a la emisión, pagos de boletas anuladas, pagos que no coinciden con el estado de la boleta | Advertencia: la fila se carga y queda para revisar |
+| DNI distinto del incluido en el CUIT (solo si vienen los dos), correo inválido, registro activo sin titular, vencimiento anterior a la emisión, pagos de boletas anuladas, pagos que no coinciden con el estado de la boleta, pagos o créditos con fecha posterior al día de la corrida | Advertencia: la fila se carga y queda para revisar |
 
 Las observaciones identifican la fila (línea del archivo) y su `codigo_legado`; no repiten datos personales.
 
@@ -138,6 +138,8 @@ Lo cargado se consulta a la base, no se toma de memoria. Ninguna diferencia se c
 - **Padrón** (registros, personas, escribanos y cargos): a las tablas operativas de la Suite. Lo que vino vacío queda «a completar» en la ficha; sin CUIT no se le puede crear la cuenta de autogestión hasta completarlo.
 - **Boletas y pagos:** a `historico_boletas` e `historico_pagos`, de solo lectura. No se convierten en boletas de la Suite, porque no tienen vigencia paramétrica ni conciliación y serían asientos ficticios. Cuentan como deuda (p. ej. para garantes de préstamos) y se consultan en el reporte «Boletas del sistema anterior».
 - **Créditos:** a `historico_creditos`, de solo lectura, y se consultan en el reporte «Créditos del sistema anterior». No se imputan a ninguna boleta: restan del saldo del registro.
-- **Deuda para préstamos (garantes):** un registro debe si su saldo vencido del sistema anterior (boletas no anuladas vencidas − sus pagos − créditos con fecha hasta el día) es positivo. Un saldo a favor cuenta como deuda cero: nunca como ingreso, y no compensa la deuda de otro registro ni las boletas pendientes de la Suite.
+- **Deuda para préstamos (garantes), fail-closed:** se calcula boleta por boleta. Cada boleta no anulada y vencida a la fecha de la evaluación debe su importe menos sus propios pagos con fecha hasta ese día (nunca menos de cero); un registro debe si esa suma es positiva. Lo pagado de más en una boleta no compensa otra, un pago con fecha posterior no cuenta y **los créditos a favor no reducen esta deuda**: siguen en el saldo de la cuadratura y en los reportes, pero no habilitan a nadie.
+
+**TODO(negocio):** decidir si el saldo a favor del sistema anterior compensa deuda (préstamos, garantes, boletas nuevas).
 
 **TODO(negocio):** si la Caja necesita el detalle de actos de las DDJJ históricas, se agrega un archivo al formato (en una versión posterior).

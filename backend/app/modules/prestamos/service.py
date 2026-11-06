@@ -36,7 +36,7 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
-from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
+from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
 from app.modules.padron.catalog import EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano
 from app.modules.prestamos import motor
@@ -341,8 +341,8 @@ async def garantiza_en_mora(session: AsyncSession, escribano_id: uuid.UUID, hoy:
 
 async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: date) -> bool:
     """Deuda vencida en los registros donde el escribano tiene cargo vigente: boletas de la
-    Suite pendientes y vencidas, o saldo vencido positivo del sistema anterior (boletas no
-    anuladas - pagos - créditos; ver `registros_con_deuda_historica`)."""
+    Suite pendientes y vencidas, o deuda vencida del sistema anterior (ver
+    `registros_con_deuda_historica`)."""
     registros = select(Adscripcion.registro_id).where(
         Adscripcion.escribano_id == escribano_id, Adscripcion.is_current.is_(True)
     )
@@ -361,38 +361,42 @@ async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: dat
 async def registros_con_deuda_historica(
     session: AsyncSession, registros: Any, hoy: date
 ) -> list[uuid.UUID]:
-    """Registros con saldo vencido positivo en el sistema anterior.
+    """Registros con deuda vencida en el sistema anterior, a la fecha `hoy` (fail-closed).
 
-    Saldo de cada registro = boletas no anuladas vencidas - sus pagos - créditos a favor del
-    escribano (con fecha hasta hoy). Un saldo negativo es un saldo a favor: cuenta como deuda
-    cero, nunca como ingreso, y no compensa la deuda de otro registro ni las boletas de la Suite.
+    Boleta por boleta: cada boleta no anulada con vencimiento anterior a `hoy` debe
+    max(importe - sus pagos con fecha hasta `hoy`, 0). Lo pagado de más en una boleta no
+    compensa otra, y un pago con fecha posterior a `hoy` no cuenta. Un registro debe si la suma
+    de sus boletas es positiva.
 
-    TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
+    Los créditos a favor (`historico_creditos`) NO reducen esta deuda: siguen en el saldo de la
+    cuadratura y en los reportes, pero no habilitan a nadie.
+    TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda (préstamos,
+    garantes, boletas nuevas).
     """
-    vencida = and_(
-        HistoricoBoleta.registro_id.in_(registros),
-        HistoricoBoleta.estado != EstadoBoletaHistorica.ANULADA.value,
-        HistoricoBoleta.fecha_vencimiento < hoy,
+    pagado = (
+        select(func.coalesce(func.sum(HistoricoPago.importe), 0))
+        .where(HistoricoPago.boleta_id == HistoricoBoleta.id, HistoricoPago.fecha_pago <= hoy)
+        .correlate(HistoricoBoleta)
+        .scalar_subquery()
     )
-    movimientos = (
-        select(HistoricoBoleta.registro_id.label("registro_id"), HistoricoBoleta.importe.label("m"))
-        .where(vencida)
-        .union_all(
-            select(HistoricoBoleta.registro_id, -HistoricoPago.importe)
-            .join(HistoricoBoleta, HistoricoBoleta.id == HistoricoPago.boleta_id)
-            .where(vencida),
-            select(HistoricoCredito.registro_id, -HistoricoCredito.importe).where(
-                HistoricoCredito.registro_id.in_(registros), HistoricoCredito.fecha <= hoy
-            ),
+    por_boleta = (
+        select(
+            HistoricoBoleta.registro_id.label("registro_id"),
+            func.greatest(HistoricoBoleta.importe - pagado, 0).label("deuda"),
+        )
+        .where(
+            HistoricoBoleta.registro_id.in_(registros),
+            HistoricoBoleta.estado != EstadoBoletaHistorica.ANULADA.value,
+            HistoricoBoleta.fecha_vencimiento < hoy,
         )
         .subquery()
     )
     return list(
         await session.scalars(
-            select(movimientos.c.registro_id)
-            .group_by(movimientos.c.registro_id)
-            .having(func.sum(movimientos.c.m) > 0)
-            .order_by(movimientos.c.registro_id)
+            select(por_boleta.c.registro_id)
+            .group_by(por_boleta.c.registro_id)
+            .having(func.sum(por_boleta.c.deuda) > 0)
+            .order_by(por_boleta.c.registro_id)
         )
     )
 

@@ -23,6 +23,7 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.common.audit import AuditEvent, RequestContext, record_audit
+from app.common.dates import today_local
 from app.core.config import get_settings
 from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
@@ -314,7 +315,7 @@ async def correr(
     inicio = time.perf_counter_ns()
     try:
         async with maker() as session:
-            st = validar(lote, hom, await _existentes(session))
+            st = validar(lote, hom, await _existentes(session), today_local())
             cargado = await carga.cargar(session, st, corrida_id, operador_id)
             informe = await cuadratura.calcular(session, lote, st, cargado, corrida_id)
             duracion = (time.perf_counter_ns() - inicio) // 1_000_000

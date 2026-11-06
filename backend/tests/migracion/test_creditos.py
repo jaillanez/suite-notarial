@@ -2,13 +2,15 @@
 
 En el libro de pagos de la Caja los importes negativos son créditos a favor del escribano (casi
 todos diferencias de inspección). Se migran en positivo a `historico_creditos` y restan del
-saldo del registro: boletas no anuladas - pagos - créditos, que puede quedar a favor.
+saldo del registro: boletas no anuladas - pagos - créditos, que puede quedar a favor. Para
+habilitar préstamos y garantes los créditos no cuentan (fail-closed, decisión pendiente).
 """
 
 import csv
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -24,7 +26,7 @@ from app.modules.migracion import carga, cuadratura, formato, homologacion, serv
 from app.modules.migracion.catalog import Entidad, ModoCorrida, Severidad
 from app.modules.migracion.formato import FormatoInvalidoError
 from app.modules.migracion.models import HistoricoCredito
-from app.modules.migracion.validacion import CERO, Existentes, Staging, validar
+from app.modules.migracion.validacion import CERO, BoletaN, Existentes, Staging, validar
 from app.modules.padron.models import Escribano, RegistroNotarial
 from app.modules.prestamos import service as prestamos_service
 from tests.reportes.test_reportes import verificar_paridad
@@ -320,122 +322,181 @@ async def test_importe_no_positivo_rechazado_por_la_base(
 # --------------------------------------------------------------------------- préstamos
 
 
-async def _cargar_con_credito(
-    maker: Maker,
-    lote: Callable[..., Path],
-    operador: User,
-    db_session: AsyncSession,
-    nombre: str,
-    ajuste: Decimal,
-    *,
-    dias_credito: int = -1,
-    todo_el_saldo: bool = False,
-) -> tuple[Staging, Escribano, date, list[uuid.UUID]]:
-    """Carga un lote cuyo único crédito deja el saldo vencido de un registro con deuda (al día
-    siguiente al vencimiento de su primera boleta impaga, `hoy`) en `ajuste` (positivo: sigue
-    debiendo; cero o negativo: cancelado o a favor). El crédito tiene fecha `hoy + dias_credito`.
-    Con `todo_el_saldo`, el crédito se calcula sobre el saldo total del registro."""
-    base = lote(nombre)
-    st = _validar(base)
+def _agregar_pagos(directorio: Path, filas: list[dict[str, str]]) -> None:
+    """Agrega pagos a pagos.csv y actualiza su fila de control."""
+    pagos = _leer(directorio, "pagos.csv") + filas
+    with (directorio / "pagos.csv").open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(pagos[0]), delimiter=";")
+        writer.writeheader()
+        writer.writerows(pagos)
+    total = sum((Decimal(p["importe"].replace(",", ".")) for p in pagos), Decimal(0))
+    control = _leer(directorio, "control.csv")
+    for fila in control:
+        if fila["entidad"] == "pagos":
+            fila["filas"], fila["importe"] = str(len(pagos)), f"{total:.2f}"
+    with (directorio / "control.csv").open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["entidad", "filas", "importe"], delimiter=";")
+        writer.writeheader()
+        writer.writerows(control)
+
+
+@dataclass
+class Caso:
+    """Primera boleta impaga de un registro y el día siguiente a su vencimiento (`hoy`)."""
+
+    directorio: Path
+    st: Staging
+    impaga: BoletaN
+    hoy: date
+
+
+def _caso(lote: Callable[..., Path], nombre: str) -> Caso:
+    directorio = lote(nombre)
+    st = _validar(directorio)
     impaga = next(b for b in st.boletas if b.estado == "IMPAGA")
-    hoy = impaga.vencimiento + timedelta(days=1)
-    numero = impaga.numero_registro
-    vencidas = {
-        b.codigo
-        for b in st.boletas
-        if b.numero_registro == numero
-        and b.estado != "ANULADA"
-        and (todo_el_saldo or b.vencimiento < hoy)
-    }
-    deuda = sum((b.importe for b in st.boletas if b.codigo in vencidas), CERO) - sum(
-        (p.importe for p in st.pagos if p.boleta in vencidas), CERO
-    )
-    assert deuda > 0
-    importe = deuda - ajuste
+    return Caso(directorio, st, impaga, impaga.vencimiento + timedelta(days=1))
+
+
+async def _cargar(
+    maker: Maker, operador: User, db_session: AsyncSession, caso: Caso
+) -> tuple[Staging, Escribano, list[uuid.UUID]]:
+    r = await service.correr(caso.directorio, ModoCorrida.SIMULACRO, operador.email, maker=maker)
+    st = _validar(caso.directorio)
+    assert st.bloqueantes() == 0
+    async with db_session.begin_nested():
+        cargado = await carga.cargar(db_session, st, r.corrida_id, operador.id)
+    numero = caso.impaga.numero_registro
+    titular = next(c for c in st.cargos if c.numero_registro == numero and c.cargo == "TITULAR")
+    escribano = await db_session.get(Escribano, cargado.ids[Entidad.ESCRIBANOS][titular.escribano])
+    assert escribano is not None
+    return st, escribano, list(cargado.ids[Entidad.REGISTROS].values())
+
+
+MOTIVO_DEUDA = "El garante registra deuda de aportes previsionales con la Caja."
+
+
+async def test_creditos_no_reducen_la_deuda_para_prestamos(
+    maker: Maker, lote: Callable[..., Path], operador: User, db_session: AsyncSession
+) -> None:
+    caso = _caso(lote, "garante")
+    numero = caso.impaga.numero_registro
+    # Un crédito por más que todo lo que debe el registro: el saldo queda a favor...
+    deuda = _saldos_esperados(Staging(boletas=caso.st.boletas, pagos=caso.st.pagos))[numero]
     _escribir_creditos(
-        base,
+        caso.directorio,
         [
             {
-                "codigo_legado": f"CRE-{nombre}",
+                "codigo_legado": "CRE-GRANDE",
                 "numero_registro": str(numero),
-                "fecha": (hoy + timedelta(days=dias_credito)).isoformat(),
-                "importe": f"{importe:.2f}",
+                "fecha": caso.impaga.vencimiento.isoformat(),
+                "importe": f"{deuda + Decimal('5000'):.2f}",
                 "periodo": "",
                 "concepto": "Diferencia de inspección",
             }
         ],
     )
-    r = await service.correr(base, ModoCorrida.SIMULACRO, operador.email, maker=maker)
-    st = _validar(base)
-    assert st.observaciones == []
-    async with db_session.begin_nested():
-        cargado = await carga.cargar(db_session, st, r.corrida_id, operador.id)
-    titular = next(c for c in st.cargos if c.numero_registro == numero and c.cargo == "TITULAR")
-    escribano = await db_session.get(Escribano, cargado.ids[Entidad.ESCRIBANOS][titular.escribano])
-    assert escribano is not None
-    registros = list(cargado.ids[Entidad.REGISTROS].values())
-    return st, escribano, hoy, registros
-
-
-@pytest.mark.parametrize(
-    ("ajuste", "debe"),
-    [
-        (Decimal("0.01"), True),  # el crédito no alcanza por un centavo
-        (Decimal("0"), False),  # el crédito cancela la deuda vencida exacta
-        (Decimal("-5000"), False),  # saldo a favor: deuda cero, nunca ingreso
-    ],
-)
-async def test_creditos_compensan_la_deuda_historica_del_garante(
-    maker: Maker,
-    lote: Callable[..., Path],
-    operador: User,
-    db_session: AsyncSession,
-    ajuste: Decimal,
-    debe: bool,
-) -> None:
-    _, escribano, hoy, _ = await _cargar_con_credito(
-        maker, lote, operador, db_session, "garante", ajuste
+    st, escribano, _ = await _cargar(maker, operador, db_session, caso)
+    assert _saldos_esperados(st)[numero] < 0
+    # ...pero para habilitar un garante la deuda vencida sigue (fail-closed, TODO(negocio)).
+    assert await prestamos_service.deuda_aportes(db_session, escribano.id, caso.hoy)
+    motivos = await prestamos_service.inhabilidades_garante(db_session, escribano, caso.hoy)
+    assert MOTIVO_DEUDA in motivos
+    # El día del vencimiento todavía no hay deuda vencida.
+    assert not await prestamos_service.deuda_aportes(
+        db_session, escribano.id, caso.impaga.vencimiento
     )
-    assert await prestamos_service.deuda_aportes(db_session, escribano.id, hoy) is debe
-    motivos = await prestamos_service.inhabilidades_garante(db_session, escribano, hoy)
-    assert ("El garante registra deuda de aportes previsionales con la Caja." in motivos) is debe
 
 
-async def test_credito_posterior_a_la_fecha_no_compensa(
+async def test_pago_de_mas_en_una_boleta_no_tapa_la_deuda_de_otra(
     maker: Maker, lote: Callable[..., Path], operador: User, db_session: AsyncSession
 ) -> None:
-    _, escribano, hoy, _ = await _cargar_con_credito(
-        maker, lote, operador, db_session, "posterior", Decimal("0"), dias_credito=1
+    caso = _caso(lote, "excedente")
+    numero = caso.impaga.numero_registro
+    pagada = next(
+        b
+        for b in caso.st.boletas
+        if b.numero_registro == numero and b.estado == "PAGADA" and b.vencimiento < caso.hoy
     )
-    # Hoy la boleta ya venció y el crédito todavía no existe: hay deuda.
-    assert await prestamos_service.deuda_aportes(db_session, escribano.id, hoy)
-    # Desde la fecha del crédito, la compensa.
-    manana = hoy + timedelta(days=1)
-    assert not await prestamos_service.deuda_aportes(db_session, escribano.id, manana)
+    # Pago de más en la boleta pagada, por todo el importe de la impaga y antes de `hoy`.
+    _agregar_pagos(
+        caso.directorio,
+        [
+            {
+                "codigo_legado": "PAG-DE-MAS",
+                "boleta": pagada.codigo,
+                "fecha_pago": pagada.vencimiento.isoformat(),
+                "importe": f"{caso.impaga.importe:.2f}",
+                "medio": "Transferencia",
+            }
+        ],
+    )
+    _, escribano, _ = await _cargar(maker, operador, db_session, caso)
+    assert await prestamos_service.deuda_aportes(db_session, escribano.id, caso.hoy)
 
 
-async def test_saldo_a_favor_no_compensa_otro_registro(
+async def test_pago_con_fecha_posterior_no_cuenta(
     maker: Maker, lote: Callable[..., Path], operador: User, db_session: AsyncSession
 ) -> None:
-    st, _, _, registros = await _cargar_con_credito(
-        maker, lote, operador, db_session, "otros", Decimal("-5000"), todo_el_saldo=True
+    caso = _caso(lote, "posterior")
+    despues = caso.hoy + timedelta(days=10)
+    _agregar_pagos(
+        caso.directorio,
+        [
+            {
+                "codigo_legado": "PAG-POSTERIOR",
+                "boleta": caso.impaga.codigo,
+                "fecha_pago": despues.isoformat(),
+                "importe": f"{caso.impaga.importe:.2f}",
+                "medio": "Transferencia",
+            }
+        ],
     )
+    _, escribano, _ = await _cargar(maker, operador, db_session, caso)
+    # A `hoy` el pago todavía no existía: hay deuda. Desde su fecha, la boleta está paga.
+    assert await prestamos_service.deuda_aportes(db_session, escribano.id, caso.hoy)
+    assert not await prestamos_service.deuda_aportes(db_session, escribano.id, despues)
+
+
+async def test_deuda_historica_por_registro(
+    maker: Maker, lote: Callable[..., Path], operador: User, db_session: AsyncSession
+) -> None:
+    caso = _caso(lote, "registros")
+    st, _, registros = await _cargar(maker, operador, db_session, caso)
     lejos = date(2100, 1, 1)
     con_deuda = await prestamos_service.registros_con_deuda_historica(db_session, registros, lejos)
-    # Con todo vencido, deben los registros con boletas impagas salvo el del saldo a favor.
-    numeros = {
-        rid: n
-        for rid, n in (
+    numeros = dict(
+        (
             await db_session.execute(
                 select(RegistroNotarial.id, RegistroNotarial.numero_registro).where(
                     RegistroNotarial.id.in_(registros)
                 )
             )
         ).all()
-    }
-    saldo = _saldos_esperados(st)
-    assert {numeros[r] for r in con_deuda} == {n for n, v in saldo.items() if v > 0}
-    assert any(v < 0 for v in saldo.values())
+    )
+    # Con todo vencido, deben exactamente los registros con boletas impagas (con o sin
+    # créditos a favor: los créditos no cuentan para habilitar).
+    impagos = {b.numero_registro for b in st.boletas if b.estado == "IMPAGA"}
+    assert {numeros[r] for r in con_deuda} == impagos
+    a_favor = {n for n, v in _saldos_esperados(st).items() if v < 0}
+    assert a_favor  # el sintético deja un registro con saldo a favor
+    assert {numeros[r] for r in con_deuda} & a_favor == a_favor & impagos
+
+
+def test_fechas_posteriores_a_la_corrida_se_advierten(lote: Callable[..., Path]) -> None:
+    directorio = lote()
+    st = validar(
+        formato.leer_lote(directorio), homologacion.cargar(), Existentes(), date(2026, 1, 1)
+    )
+    futuras = [o for o in st.observaciones if o.codigo == "FECHA_POSTERIOR_A_LA_CORRIDA"]
+    assert futuras
+    assert {o.entidad for o in futuras} == {Entidad.PAGOS, Entidad.CREDITOS}
+    assert all(o.severidad is Severidad.ADVERTENCIA for o in futuras)
+    # Es una advertencia: las filas se cargan igual.
+    assert st.bloqueantes() == 0
+    assert len(st.pagos) == st.leidas["pagos"]
+    assert len(st.creditos) == st.leidas["creditos"]
+    # Con la fecha de hoy (posterior al lote sintético), no hay advertencias.
+    assert _validar(directorio).observaciones == []
 
 
 # --------------------------------------------------------------------------- reporte

@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.common.cuit import InvalidCuitError, normalize_cuit
+from app.common.dates import today_local
 from app.modules.migracion import valores
 from app.modules.migracion.catalog import Entidad, EstadoBoletaHistorica, Severidad
 from app.modules.migracion.formato import Fila, Lote
@@ -141,6 +142,8 @@ class Staging:
     importe_leido: dict[str, Decimal] = field(default_factory=lambda: defaultdict(lambda: CERO))
     importe_rechazado: dict[str, Decimal] = field(default_factory=lambda: defaultdict(lambda: CERO))
     importe_ilegible: Counter[str] = field(default_factory=Counter)
+    # Día de la corrida: un pago o crédito con fecha posterior se advierte (no se carga distinto).
+    fecha_corrida: date = field(default_factory=today_local)
 
     def bloqueantes(self) -> int:
         return sum(1 for o in self.observaciones if o.severidad is Severidad.BLOQUEANTE)
@@ -217,6 +220,15 @@ def _duplicados(filas: list[Fila], clave: Callable[[Fila], object]) -> set[int]:
 
 def _texto(maximo: int) -> Callable[[str], str]:
     return lambda v: valores.texto(v, maximo)
+
+
+def _fecha_futura(f: "_Fila", fecha: date | None, que: str) -> None:
+    if fecha is not None and fecha > f.st.fecha_corrida:
+        f.observar(
+            "FECHA_POSTERIOR_A_LA_CORRIDA",
+            f"Fecha del {que} posterior al día de la corrida: verificar.",
+            Severidad.ADVERTENCIA,
+        )
 
 
 def _cerrar(st: Staging, entidad: Entidad, f: _Fila, importe: Decimal | None = None) -> bool:
@@ -489,6 +501,7 @@ def _pagos(lote: Lote, st: Staging) -> None:
         if boleta_codigo and boleta is None:
             f.observar("BOLETA_NO_MIGRADA", "La boleta no se puede cargar o no existe en el lote.")
         fecha = f.campo("fecha_pago", valores.fecha)
+        _fecha_futura(f, fecha, "pago")
         importe = f.campo("importe", valores.importe)
         if importe is None and fila.datos.get("importe", "").strip():
             st.importe_ilegible[Entidad.PAGOS.value] += 1
@@ -531,7 +544,8 @@ def _pagos(lote: Lote, st: Staging) -> None:
 def _creditos(lote: Lote, st: Staging) -> None:
     """Créditos a favor del escribano (importes negativos del libro del origen, en positivo).
 
-    TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
+    TODO(negocio): decidir si el saldo a favor del sistema anterior compensa deuda
+    (préstamos, garantes, boletas nuevas).
     """
     filas = lote.filas[Entidad.CREDITOS]
     codigos = _duplicados(filas, lambda f: f.codigo)
@@ -547,6 +561,7 @@ def _creditos(lote: Lote, st: Staging) -> None:
                 "El registro no corresponde a un registro del lote que se pueda cargar.",
             )
         fecha = f.campo("fecha", valores.fecha)
+        _fecha_futura(f, fecha, "crédito")
         periodo = f.campo("periodo", valores.periodo, obligatorio=False)
         importe = f.campo("importe", valores.importe)
         if importe is None and fila.datos.get("importe", "").strip():
@@ -561,8 +576,10 @@ def _creditos(lote: Lote, st: Staging) -> None:
             st.creditos.append(CreditoN(fila.codigo, numero, fecha, periodo, importe, concepto))
 
 
-def validar(lote: Lote, hom: Homologacion, existentes: Existentes) -> Staging:
-    st = Staging()
+def validar(
+    lote: Lote, hom: Homologacion, existentes: Existentes, fecha_corrida: date | None = None
+) -> Staging:
+    st = Staging(fecha_corrida=fecha_corrida or today_local())
     _registros(lote, hom, existentes, st)
     _escribanos(lote, hom, existentes, st)
     _cargos(lote, hom, st)
