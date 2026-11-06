@@ -270,8 +270,11 @@ def test_boletas_pagos_redondeos_y_registro_deducido(tmp_path: Path) -> None:
     assert "APD-7" not in pagos_lote  # pago en cero: boleta pagada sin movimiento
     acciones = {(a["codigo_legado"], a["accion"]) for a in _leer(salida, "extraccion")}
     assert ("APD-5", "REGISTRO_DEDUCIDO") in acciones
+    assert ("APD-7", "PAGO_EN_CERO") in acciones
     control = {c["entidad"]: c for c in _leer(salida, "control")}
-    assert control["boletas"]["filas"] == "4" and control["pagos"]["importe"] == "12020.96"
+    # El control sale de la planilla sin redondear fila por fila.
+    assert control["boletas"]["filas"] == "4" and control["boletas"]["importe"] == "17020.96"
+    assert (control["pagos"]["filas"], control["pagos"]["importe"]) == ("2", "12020.96")
 
 
 def test_valores_y_nombres() -> None:

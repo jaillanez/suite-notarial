@@ -215,6 +215,8 @@ class FilaCargo:
 
 @dataclass
 class Lote:
+    # Filas e importes leídos de las planillas antes de transformar nada (el «origen»).
+    origen: dict[str, tuple[int, Decimal]] = field(default_factory=dict)
     archivos: dict[str, list[dict[str, str]]] = field(default_factory=lambda: defaultdict(list))
     extraccion: list[dict[str, str]] = field(default_factory=list)
     redondeos: list[dict[str, str]] = field(default_factory=list)
@@ -264,6 +266,7 @@ def leer_listado(
     for numero, f in filas:
         apellido = texto(f.get("APELLIDO DEL NOTARIO"))
         if not apellido:
+            lote.anotar(LISTADO, numero, "", "FILA_SIN_APELLIDO", "Fila sin apellido: no se lee.")
             continue
         nombre = texto(f.get("NOMBRE DEL NOTARIO"))
         # Algunas filas traen «APELLIDO, NOMBRE» completo en las dos columnas.
@@ -294,8 +297,12 @@ def leer_listado(
             ),
         )
         persona.variantes |= {
-            clave_nombre(f"{apellido} {nombre}"),
-            clave_nombre(texto(f.get("NOMBRE DEL NOTARIO_2"))),
+            v
+            for v in (
+                clave_nombre(f"{apellido} {nombre}"),
+                clave_nombre(texto(f.get("NOMBRE DEL NOTARIO_2"))),
+            )
+            if v
         }
         persona.filas.append(numero)
         alta, baja = una_fecha(f.get("ALTA")), una_fecha(f.get("BAJA"))
@@ -325,6 +332,13 @@ def leer_listado(
         if len(iguales) != 1:
             continue
         destino = iguales[0]
+        lote.anotar(
+            LISTADO,
+            sin_cuit.filas[0],
+            destino.codigo,
+            "UNION_POR_NOMBRE",
+            "Fila sin CUIT unida a la persona con el mismo nombre que sí lo tiene.",
+        )
         destino.filas += sin_cuit.filas
         destino.altas += sin_cuit.altas
         destino.variantes |= sin_cuit.variantes
@@ -349,13 +363,17 @@ def matriculas_desde_pagos(
     """
     por_cuit = {p.cuit: p.codigo for p in personas.values() if p.cuit}
 
-    def por_nombre(nombres: str) -> set[str]:
+    def por_nombre(nombres: str) -> tuple[set[str], bool]:
         """Igual nombre, o todas sus palabras dentro de un nombre del listado
         («RODAS AUGUSTO» → «RODAS AUGUSTO JOSE»), o igual sin espacios («CONTEGRAND»)."""
         clave = clave_nombre(nombres)
         palabras, junto = set(clave.split()), clave.replace(" ", "")
+
+        def exacto(v: str) -> bool:
+            return v == clave
+
         for criterio in (
-            lambda v: v == clave,
+            exacto,
             lambda v: palabras <= set(v.split()),
             lambda v: v.replace(" ", "").startswith(junto),
         ):
@@ -363,8 +381,8 @@ def matriculas_desde_pagos(
                 p.codigo for p in personas.values() if any(v and criterio(v) for v in p.variantes)
             }
             if hallados:
-                return hallados
-        return set()
+                return hallados, criterio is exacto
+        return set(), False
 
     cortas: dict[str, set[int]] = defaultdict(set)
     cuits: dict[str, set[str]] = defaultdict(set)
@@ -378,16 +396,25 @@ def matriculas_desde_pagos(
     vinculo: dict[str, str] = {}
     for nombres in {texto(f.get("NOMBRES")) for _, f in filas}:
         candidatos = {por_cuit[c] for c in cuits[nombres] if c in por_cuit}
+        seguro = bool(candidatos)
         if not candidatos:
-            candidatos = por_nombre(nombres)
+            candidatos, seguro = por_nombre(nombres)
         if len(candidatos) == 1:
             codigo = candidatos.pop()
             vinculo[nombres] = codigo
             persona = personas[codigo]
+            if not seguro:
+                lote.anotar(
+                    PAGOS,
+                    0,
+                    codigo,
+                    "VINCULO_POR_NOMBRE",
+                    "Pagos unidos a esta persona por un nombre parecido (no idéntico): revisar.",
+                )
             # CUIT faltante o inválido en el listado: se toma el de la planilla de pagos si es
-            # uno solo, válido y de nadie más.
+            # uno solo, válido, de nadie más y el vínculo no depende de un nombre parecido.
             validos = {c for c in cuits[nombres] if cuit_valido(c) and c not in por_cuit}
-            if not persona.cuit and len(validos) == 1:
+            if seguro and not persona.cuit and len(validos) == 1:
                 persona.cuit = validos.pop()
                 persona.dni = persona.cuit[2:10].lstrip("0")
                 por_cuit[persona.cuit] = codigo
@@ -562,6 +589,14 @@ def escribir_pagos(
                 )
         else:
             valor, estado = pagado, "PAGADA"
+            if pagado <= 0:
+                lote.anotar(
+                    PAGOS,
+                    numero,
+                    codigo,
+                    "PAGO_EN_CERO" if pagado == 0 else "AJUSTE_NEGATIVO",
+                    "Pago en cero o negativo en el origen: revisar qué representa.",
+                )
         if valor is not None:
             valor = lote.redondear(PAGOS, numero, codigo, valor)
         lote.archivos["boletas"].append(
@@ -624,20 +659,52 @@ def leer_departamentos(ruta: Path | None) -> dict[int, dict[str, str]]:
     return datos
 
 
+def totales_de_origen(filas: list[tuple[int, dict[str, object]]]) -> dict[str, tuple[int, Decimal]]:
+    """Totales de la planilla de pagos tal como vienen, sin redondear fila por fila: si la
+    extracción pierde una fila o un importe, la cuadratura lo muestra."""
+    boletas, pagos, cantidad_pagos = Decimal("0"), Decimal("0"), 0
+    for _, f in filas:
+        pagado = importe(f.get("PAGO"))
+        if pagado is None:
+            debido = importe(f.get("APORTES"))
+            boletas += abs(debido) if debido is not None else Decimal("0")
+        else:
+            boletas += pagado
+            if pagado > 0:
+                pagos += pagado
+                cantidad_pagos += 1
+    return {
+        "boletas": (len(filas), boletas.quantize(CENTAVO, rounding=ROUND_HALF_UP)),
+        "pagos": (cantidad_pagos, pagos.quantize(CENTAVO, rounding=ROUND_HALF_UP)),
+    }
+
+
 def extraer(listado: Path, pagos: Path, departamentos: Path | None = None) -> Lote:
     lote = Lote()
     personas, cargos = leer_listado(filas_hoja(listado, "TODOS", 3), lote)
     filas_pagos = list(filas_hoja(pagos, "aportes", 3))
+    lote.origen = totales_de_origen(filas_pagos)
     vinculo = matriculas_desde_pagos(filas_pagos, personas, lote)
     escribir_padron(personas, cargos, leer_departamentos(departamentos), lote)
     escribir_pagos(filas_pagos, vinculo, cargos, lote)
     return lote
 
 
+def _sin_formula(valor: str) -> str:
+    from app.modules.reportes.exportar import FORMULA_PREFIJOS
+
+    return f"'{valor}" if valor.startswith(FORMULA_PREFIJOS) else valor
+
+
 def guardar(lote: Lote, salida: Path) -> None:
     salida.mkdir(parents=True, exist_ok=True)
 
-    def volcar(nombre: str, columnas: Iterable[str], filas: list[dict[str, str]]) -> None:
+    def volcar(
+        nombre: str, columnas: Iterable[str], filas: list[dict[str, str]], revision: bool = False
+    ) -> None:
+        # Los archivos de revisión se abren en Excel: un texto que empieza con «=» no se ejecuta.
+        if revision:
+            filas = [{k: _sin_formula(v) for k, v in f.items()} for f in filas]
         with (salida / nombre).open("w", encoding="utf-8", newline="") as archivo:
             escritor = csv.DictWriter(archivo, fieldnames=list(columnas), delimiter=SEPARADOR)
             escritor.writeheader()
@@ -647,25 +714,29 @@ def guardar(lote: Lote, salida: Path) -> None:
     for entidad, columnas in COLUMNAS.items():
         filas = lote.archivos[entidad]
         volcar(f"{entidad}.csv", columnas, filas)
-        total = sum((Decimal(f["importe"]) for f in filas if f.get("importe")), Decimal("0"))
+        # Boletas y pagos: lo que trae la planilla. Padrón: las personas y cargos que resultan de
+        # unir las filas repetidas (no hay otro total en el origen).
+        origen = lote.origen.get(entidad)
+        cantidad, total = origen if origen else (len(filas), None)
         control.append(
             {
                 "entidad": entidad,
-                "filas": str(len(filas)),
-                "importe": monto(total) if entidad in ("boletas", "pagos") else "",
+                "filas": str(cantidad),
+                "importe": monto(total) if total is not None else "",
             }
         )
-    # El «origen» de la cuadratura son las propias planillas: no hay otro total del origen.
     volcar("control.csv", ("entidad", "filas", "importe"), control)
     volcar(
         "extraccion.csv",
         ("fuente", "fila_excel", "codigo_legado", "accion", "motivo"),
         lote.extraccion,
+        revision=True,
     )
     volcar(
         "redondeos.csv",
         ("fuente", "fila_excel", "codigo_legado", "original", "redondeado"),
         lote.redondeos,
+        revision=True,
     )
 
 
