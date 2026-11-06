@@ -15,7 +15,7 @@ Va del **1 de septiembre al 31 de agosto** y se identifica por el año de cierre
 | Tabla | Contenido |
 |---|---|
 | `previsional_ejercicios` | Año (único), inicio, cierre, total de aportes ingresados `Numeric(15,2)`, cantidad de afiliados `Numeric(10,4)` (la Caja estimó años anteriores a 2018 y no siempre son enteros), aporte medio `Numeric(18,6)` y origen. |
-| `previsional_puntos` | Ejercicio, escribano del padrón (puede faltar), nombre tal como figura en la planilla, aportes `Numeric(15,2)`, puntos `Numeric(18,6)`, origen, fila de la planilla y cómo se vinculó (`EXACTA`, `APROXIMADA`, `MANUAL`). Único por ejercicio y nombre. |
+| `previsional_puntos` | Ejercicio, escribano del padrón (puede faltar), nombre tal como figura en la planilla, aportes `Numeric(15,2)`, puntos `Numeric(18,6)`, origen, fila de la planilla cómo se vinculó (`EXACTA`, `HEREDADA`, `MANUAL`), la sugerencia aproximada pendiente y la rechazada. Único por ejercicio y nombre. |
 
 **Inmutabilidad (regla INM):** el trigger `previsional_guard` rechaza borrar filas, modificar un
 ejercicio cargado y modificar aportes, puntos u origen de una fila. Solo puede cambiar el vínculo
@@ -46,18 +46,31 @@ cd backend
 
 ### Vínculo con el padrón
 
-La planilla identifica al afiliado solo por el nombre. Para no asignar puntos a otra persona:
+La planilla identifica al afiliado solo por el nombre. Para no asignar puntos a otra persona,
+**solo un vínculo atribuye puntos** (`escribano_id` cargado): es lo único que alimenta el
+informe, el PDF, «Mis puntos» y los reportes.
 
-1. **Exacta:** el nombre normalizado (sin tildes, mayúsculas, signos ni espacios dobles) coincide
-   con «apellido nombre» de un único escribano.
-2. **Aproximada, solo si es única:** todas las palabras de la planilla están en el nombre del
-   escribano (una inicial vale por una palabra con esa letra). Queda vinculada pero listada para
-   revisar.
-3. **Sin vincular:** ningún candidato o más de uno. Queda en la lista «Puntos sin vincular»
-   (Suite → Aportes y puntos), donde quien tiene `puntos:manage` la vincula o confirma a mano.
-   Cambiar un vínculo ya confirmado exige motivo. Todo queda en `audit_security_logs`.
+| Forma | Cuándo | Autor (`vinculado_por_user_id`) | ¿Cuenta? | ¿A revisar? |
+|---|---|---|---|---|
+| `EXACTA` | El nombre normalizado (sin tildes, mayúsculas, signos ni espacios dobles) coincide con «apellido nombre» de un único escribano. | Ninguno (automático) | Sí | No |
+| `MANUAL` | Una persona con `puntos:manage` lo vinculó o confirmó desde la Suite (auditado). | Siempre, quien decidió | Sí | No |
+| `HEREDADA` | Fila de un ejercicio nuevo para un nombre que una persona ya había vinculado a mano en otro ejercicio. | Ninguno | Sí: la decisión humana es sobre el nombre | Sí, en la cola «Heredados a confirmar» |
 
-Un nombre ya vinculado en otros ejercicios conserva ese vínculo en los ejercicios nuevos.
+- **Coincidencia aproximada (no es un vínculo):** si todas las palabras de la planilla están en
+  el nombre de un único escribano (una inicial vale por una palabra con esa letra), se guarda
+  solo como **sugerencia** (`escribano_sugerido_id`). Los puntos siguen sin escribano: no los ve
+  ese escribano ni cuentan en ningún total hasta que una persona confirme la sugerencia (pasa a
+  `MANUAL`) o la rechace (queda en `sugerencia_rechazada_id` y no se vuelve a proponer). Ambas
+  acciones quedan auditadas.
+- **Herencia:** una decisión `EXACTA` se hereda como `EXACTA`; una decisión `MANUAL` (o
+  `HEREDADA`) se hereda como `HEREDADA`, nunca como `MANUAL` ni atribuida al operador de la carga.
+  Si un mismo nombre quedó vinculado a personas distintas, no se hereda: lo decide una persona.
+- **Sin vincular:** ningún candidato o más de uno.
+- La cola de revisión (Suite → Aportes y puntos) tiene tres vistas: sin escribano, sugerencias
+  aproximadas y heredados a confirmar. Cambiar a quién cuentan unos puntos ya vinculados exige
+  motivo. Todo queda en `audit_security_logs`.
+- La base lo garantiza: `MANUAL` si y solo si hay autor; una sugerencia no convive con un
+  vínculo.
 
 ## Consulta
 

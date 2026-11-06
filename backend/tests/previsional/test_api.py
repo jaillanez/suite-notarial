@@ -351,3 +351,75 @@ async def test_reporte_por_ejercicio_paridad(
 async def test_notario_no_accede_al_reporte(notario_ana: Notario) -> None:
     r = await notario_ana.client.get("/api/v1/reportes/PUNTOS_EJERCICIOS")
     assert r.status_code == 403
+
+
+async def test_sugerencia_aproximada_no_es_del_escribano_hasta_confirmarla(
+    app: FastAPI,
+    caja: AsyncClient,
+    tesoreria_ac: AsyncClient,
+    db_session: AsyncSession,
+    operador: User,
+    planilla_xlsx: Callable[..., Path],
+) -> None:
+    """«EJEMPLO GÓMEZ Luis» coincide solo aproximadamente con este escribano: no le cuenta."""
+    user = await make_user(db_session)
+    luis = await crear_escribano(db_session, "Ejemplo Gómez", "Luis Alberto", user)
+    await service.cargar(db_session, leer_planilla(planilla_xlsx()), operador, "P", CTX)
+    await db_session.commit()
+
+    async with await _client(app) as notario:
+        await login(notario, user)
+        propio = (await notario.get("/api/v1/previsional/mis-puntos")).json()
+        assert propio["filas"] == [] and propio["total_puntos"] == "0.000000"
+        pdf_propio = await notario.get("/api/v1/previsional/mis-puntos/pdf")
+        assert pdf_propio.status_code == 200
+        staff = (await caja.get(f"/api/v1/previsional/escribanos/{luis.id}/puntos")).json()
+        assert staff["filas"] == [] and staff["origenes"] == []
+        # Tampoco se cuenta como vinculado en el resumen por ejercicio.
+        reporte = (await tesoreria_ac.get("/api/v1/reportes/PUNTOS_EJERCICIOS")).json()
+        assert reporte["totales"]["sin_vincular"] == 4
+
+        # Tesorería no confirma ni rechaza; Caja confirma y recién ahí cuenta.
+        negado = await tesoreria_ac.post(
+            "/api/v1/previsional/puntos/rechazar-sugerencia",
+            json={"nombre_origen": "EJEMPLO GÓMEZ Luis", "motivo": "No corresponde"},
+        )
+        assert negado.status_code == 403
+        ok = await caja.post(
+            "/api/v1/previsional/puntos/vincular",
+            json={"nombre_origen": "EJEMPLO GÓMEZ Luis", "escribano_id": str(luis.id)},
+        )
+        assert ok.status_code == 200
+        propio = (await notario.get("/api/v1/previsional/mis-puntos")).json()
+        assert propio["total_puntos"] == "102.360497"
+        assert propio["origenes"][0]["vinculacion"] == "MANUAL"
+
+
+async def test_rechazar_sugerencia(
+    caja: AsyncClient,
+    db_session: AsyncSession,
+    operador: User,
+    planilla_xlsx: Callable[..., Path],
+) -> None:
+    await crear_escribano(db_session, "Ejemplo Gómez", "Luis Alberto")
+    await service.cargar(db_session, leer_planilla(planilla_xlsx()), operador, "P", CTX)
+    await db_session.commit()
+    url = "/api/v1/previsional/puntos/rechazar-sugerencia"
+
+    corto = await caja.post(url, json={"nombre_origen": "EJEMPLO GÓMEZ Luis", "motivo": "no"})
+    ok = await caja.post(
+        url, json={"nombre_origen": "EJEMPLO GÓMEZ Luis", "motivo": "Otra persona"}
+    )
+    otra_vez = await caja.post(
+        url, json={"nombre_origen": "EJEMPLO GÓMEZ Luis", "motivo": "Otra persona"}
+    )
+
+    assert corto.status_code == 422
+    assert ok.status_code == 200 and ok.json() == {"filas": 1}
+    assert otra_vez.status_code == 404
+    aprox = await caja.get(
+        "/api/v1/previsional/puntos/sin-vincular", params={"estado": "APROXIMADA"}
+    )
+    sin = await caja.get("/api/v1/previsional/puntos/sin-vincular")
+    assert aprox.json()["total"] == 0
+    assert "EJEMPLO GÓMEZ Luis" in [i["nombre_origen"] for i in sin.json()["items"]]

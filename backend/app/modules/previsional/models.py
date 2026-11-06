@@ -4,8 +4,9 @@ El ejercicio va del 1 de septiembre al 31 de agosto y se nombra por el año de c
 es del 01/09/1989 al 31/08/1990. Los puntos determinan los beneficios previsionales.
 
 Regla INM: ninguna fila se borra ni se reescribe. Un ejercicio cargado no cambia; de los puntos
-solo cambia el vínculo con el padrón (escribano, forma de vínculo, quién y cuándo), y ese cambio
-queda auditado. Lo garantiza el trigger `previsional_guard` (migración puntos_ley_7231).
+solo cambia el vínculo con el padrón (escribano, forma de vínculo, quién y cuándo, sugerencia),
+y ese cambio queda auditado. Lo garantiza el trigger `previsional_guard` (migración
+puntos_ley_7231).
 """
 
 import uuid
@@ -56,13 +57,18 @@ class PuntosAfiliado(UUIDMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("ejercicio_id", "nombre_origen", name="uq_previsional_puntos_nombre"),
         CheckConstraint(
-            "vinculacion IS NULL OR vinculacion IN ('EXACTA', 'APROXIMADA', 'MANUAL')",
+            "vinculacion IS NULL OR vinculacion IN ('EXACTA', 'HEREDADA', 'MANUAL')",
             name="vinculacion_valida",
         ),
         CheckConstraint("(escribano_id IS NULL) = (vinculacion IS NULL)", name="vinculo_coherente"),
+        # MANUAL = una persona, siempre con autor; EXACTA y HEREDADA son automáticas, sin autor.
         CheckConstraint(
-            "vinculacion IS DISTINCT FROM 'MANUAL' OR vinculado_por_user_id IS NOT NULL",
+            "(vinculacion = 'MANUAL') = (vinculado_por_user_id IS NOT NULL)",
             name="manual_con_autor",
+        ),
+        # Una sugerencia solo existe mientras la fila no tiene escribano.
+        CheckConstraint(
+            "escribano_sugerido_id IS NULL OR escribano_id IS NULL", name="sugerencia_sin_vinculo"
         ),
         CheckConstraint("aportes <> 0 OR puntos <> 0", name="no_vacia"),
     )
@@ -91,6 +97,17 @@ class PuntosAfiliado(UUIDMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
     )
     vinculado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Coincidencia aproximada: solo la usa la cola de revisión. NO atribuye los puntos.
+    escribano_sugerido_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_escribanos.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    # Sugerencia que una persona rechazó: no se vuelve a proponer al revincular.
+    sugerencia_rechazada_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("padron_escribanos.id", ondelete="RESTRICT"), nullable=True
+    )
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
     )

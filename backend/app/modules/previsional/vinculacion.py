@@ -6,7 +6,8 @@ asignar puntos a otra persona:
    más) con «apellido nombre» de un único escribano.
 2. Si no hay exacta: coincidencia aproximada, solo si es única, cuando todas las palabras del
    nombre de la planilla están en el nombre del escribano (una inicial, «S.», vale por una
-   palabra que empiece con esa letra). Queda marcada APROXIMADA para que alguien la revise.
+   palabra que empiece con esa letra). Es solo una SUGERENCIA: no atribuye puntos hasta que
+   una persona la confirme.
 3. Si hay más de un candidato o ninguno, no se vincula: queda en «Puntos sin vincular».
 """
 
@@ -16,7 +17,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from app.modules.previsional.catalog import Vinculacion
+from app.modules.previsional.catalog import Coincidencia
 
 _NO_ALFANUMERICO = re.compile(r"[^0-9a-z]+")
 
@@ -40,7 +41,7 @@ class Candidato:
 @dataclass(frozen=True)
 class Resultado:
     escribano_id: uuid.UUID | None
-    vinculacion: Vinculacion | None
+    coincidencia: Coincidencia | None
     # Más de un escribano posible: no se vincula.
     ambiguo: bool = False
 
@@ -73,7 +74,7 @@ class Vinculador:
             return Resultado(None, None)
         exactos = self._exactos.get(norm, [])
         if len(exactos) == 1:
-            return Resultado(exactos[0], Vinculacion.EXACTA)
+            return Resultado(exactos[0], Coincidencia.EXACTA)
         if len(exactos) > 1:
             return Resultado(None, None, ambiguo=True)
         palabras = norm.split()
@@ -82,5 +83,5 @@ class Vinculador:
             return Resultado(None, None)
         posibles = [c.escribano_id for c, n in self._candidatos if _contenido(palabras, n.split())]
         if len(posibles) == 1:
-            return Resultado(posibles[0], Vinculacion.APROXIMADA)
+            return Resultado(posibles[0], Coincidencia.APROXIMADA)
         return Resultado(None, None, ambiguo=len(posibles) > 1)

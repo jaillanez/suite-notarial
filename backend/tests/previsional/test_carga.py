@@ -14,9 +14,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from app.common.audit import AuditSecurityLog, RequestContext
+from app.common.pagination import PageParams
+from app.core.errors import ProblemError
 from app.modules.iam.models import User
 from app.modules.previsional import cargar_puntos, service
-from app.modules.previsional.catalog import Vinculacion
+from app.modules.previsional.catalog import EstadoVinculo, Vinculacion
 from app.modules.previsional.models import Ejercicio, PuntosAfiliado
 from app.modules.previsional.planilla import leer_planilla
 from tests.iam.factories import make_user
@@ -52,8 +54,13 @@ async def test_carga_vincula_e_idempotente(
     filas = {(p.nombre_origen, p.puntos): p for p in await _puntos(db_session)}
     ana_90 = filas[("PRUEBA Ana Sintética", Decimal("97.639503"))]
     assert (ana_90.escribano_id, ana_90.vinculacion) == (ana.id, Vinculacion.EXACTA.value)
+    # Un vínculo automático no se atribuye al operador de la carga.
+    assert ana_90.vinculado_por_user_id is None
     assert ana_90.aportes == Decimal("82466.67") and ana_90.fila_origen == 6
-    assert filas[("EJEMPLO GÓMEZ Luis", Decimal("102.360497"))].vinculacion == "APROXIMADA"
+    # La coincidencia aproximada es solo una sugerencia: los puntos no son de nadie todavía.
+    luis_90 = filas[("EJEMPLO GÓMEZ Luis", Decimal("102.360497"))]
+    assert (luis_90.escribano_id, luis_90.vinculacion) == (None, None)
+    assert luis_90.escribano_sugerido_id == luis.id
     assert filas[("FICTICIO Pedro S.", Decimal("150.000000"))].escribano_id is None
     ej = await db_session.scalar(select(Ejercicio).where(Ejercicio.anio == 1990))
     assert ej is not None and ej.total_aportes == Decimal("83466.67")
@@ -105,9 +112,10 @@ async def test_revincular_despues_de_cargar_el_padron(
     r = await service.revincular_auditado(db_session, operador, CTX)
 
     assert r.exactas == 1 and r.aproximadas == [("FICTICIO Pedro S.", pedro.id)]
-    assert r.sin_vincular == ["EJEMPLO GÓMEZ Luis"] and r.filas_vinculadas == 3
+    assert r.sin_vincular == ["EJEMPLO GÓMEZ Luis"] and r.filas_vinculadas == 2
     vinculadas = {p.nombre_origen: p.escribano_id for p in await _puntos(db_session)}
     assert vinculadas["PRUEBA Ana Sintética"] == ana.id
+    assert vinculadas["FICTICIO Pedro S."] is None
     log = await db_session.scalar(
         select(AuditSecurityLog).where(AuditSecurityLog.event_type == "PUNTOS_REVINCULADOS")
     )
@@ -117,8 +125,25 @@ async def test_revincular_despues_de_cargar_el_padron(
         "heredadas": 0,
         "ambiguas": 0,
         "sin_vincular": 1,
-        "filas_vinculadas": 3,
+        "filas_vinculadas": 2,
     }
+
+    # Rechazada la sugerencia, revincular no la vuelve a proponer.
+    await service.rechazar_sugerencia(
+        db_session, "FICTICIO Pedro S.", "No es la misma persona", operador, CTX
+    )
+    r2 = await service.revincular(db_session)
+    assert r2.aproximadas == [] and "FICTICIO Pedro S." in r2.sin_vincular
+    (fila,) = [p for p in await _puntos(db_session) if p.nombre_origen == "FICTICIO Pedro S."]
+    assert (fila.escribano_sugerido_id, fila.sugerencia_rechazada_id) == (None, pedro.id)
+    rechazo = await db_session.scalar(
+        select(AuditSecurityLog).where(AuditSecurityLog.event_type == "PUNTOS_SUGERENCIA_RECHAZADA")
+    )
+    assert rechazo is not None and rechazo.actor_user_id == operador.id
+    with pytest.raises(ProblemError):
+        await service.rechazar_sugerencia(
+            db_session, "FICTICIO Pedro S.", "otra vez", operador, CTX
+        )
 
 
 async def test_ejercicio_nuevo_hereda_el_vinculo_manual(
@@ -137,8 +162,56 @@ async def test_ejercicio_nuevo_hereda_el_vinculo_manual(
     )
 
     assert r.vinculacion.heredadas == 1
-    filas = await _puntos(db_session)
-    assert {(p.escribano_id, p.vinculacion) for p in filas} == {(esc.id, "MANUAL")}
+    filas = {p.aportes: p for p in await _puntos(db_session)}
+    # La decisión humana conserva su autor; la fila nueva cuenta para el mismo escribano pero
+    # como HEREDADA, sin autor (no se atribuye al operador de esta carga).
+    previa, nueva = filas[Decimal("10.00")], filas[Decimal("20.00")]
+    assert (previa.escribano_id, previa.vinculacion, previa.vinculado_por_user_id) == (
+        esc.id,
+        "MANUAL",
+        operador.id,
+    )
+    assert (nueva.escribano_id, nueva.vinculacion, nueva.vinculado_por_user_id) == (
+        esc.id,
+        "HEREDADA",
+        None,
+    )
+    # Cuenta en el informe del escribano y aparece en la cola para confirmarla.
+    informe = await service.informe(db_session, esc)
+    assert informe.total_puntos == Decimal("3.000000")
+    cola, total = await service.sin_vincular(
+        db_session, EstadoVinculo.HEREDADA, None, PageParams(page=1, page_size=10)
+    )
+    assert total == 1 and cola[0].ejercicios == 1 and cola[0].primer_anio == 2021
+    # Confirmarla la convierte en MANUAL con autor y la saca de la cola.
+    await service.vincular_manual(db_session, "ALIAS Planilla", esc.id, None, operador, CTX)
+    operador_id = operador.id
+    db_session.expire_all()
+    assert {(p.vinculacion, p.vinculado_por_user_id) for p in await _puntos(db_session)} == {
+        ("MANUAL", operador_id)
+    }
+
+
+async def test_herencia_de_un_vinculo_exacto_sigue_exacta(
+    db_session: AsyncSession, operador: User, tmp_path: Path
+) -> None:
+    esc = await crear_escribano(db_session, "Uno", "Prueba")
+    hoja = Hoja(anios=[2020], afiliados=[("UNO Prueba", [(10, 1)])], totales=[10])
+    await service.cargar(
+        db_session, leer_planilla(escribir_xlsx(hoja, tmp_path / "a.xlsx")), operador, "A", CTX
+    )
+    # El escribano cambia de nombre en el padrón: la fila nueva ya no coincide, pero hereda.
+    await db_session.refresh(esc, attribute_names=["persona"])
+    esc.persona.nombre = "Otro Nombre"
+    await db_session.flush()
+    otro = Hoja(anios=[2021], afiliados=[("UNO Prueba", [(20, 2)])], totales=[20])
+    r = await service.cargar(
+        db_session, leer_planilla(escribir_xlsx(otro, tmp_path / "b.xlsx")), operador, "B", CTX
+    )
+    assert r.vinculacion.heredadas == 1
+    assert {(p.vinculacion, p.vinculado_por_user_id) for p in await _puntos(db_session)} == {
+        ("EXACTA", None)
+    }
 
 
 async def test_mismo_nombre_vinculado_a_dos_personas_es_ambiguo(
@@ -182,6 +255,20 @@ async def test_la_base_impide_borrar_o_reescribir(
         with pytest.raises(DBAPIError):
             async with db_session.begin_nested():
                 await db_session.execute(text(sql))
+    # MANUAL siempre con autor; EXACTA y HEREDADA, nunca. Una sugerencia no convive con un
+    # vínculo.
+    esc_x = await crear_escribano(db_session, "Check", "Escribano")
+    for sql in (
+        "UPDATE previsional_puntos SET escribano_id = :e, vinculacion = 'MANUAL'",
+        "UPDATE previsional_puntos SET escribano_id = :e, vinculacion = 'HEREDADA', "
+        "vinculado_por_user_id = :u",
+        "UPDATE previsional_puntos SET escribano_id = :e, vinculacion = 'EXACTA', "
+        "escribano_sugerido_id = :e",
+        "UPDATE previsional_puntos SET escribano_id = :e, vinculacion = 'APROXIMADA'",
+    ):
+        with pytest.raises(DBAPIError):
+            async with db_session.begin_nested():
+                await db_session.execute(text(sql), {"e": esc_x.id, "u": operador.id})
     # El vínculo con el padrón sí puede cambiar (lo audita la aplicación).
     esc = await crear_escribano(db_session, "Otro", "Escribano")
     async with db_session.begin_nested():

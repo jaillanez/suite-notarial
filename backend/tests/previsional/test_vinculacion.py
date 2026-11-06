@@ -2,7 +2,7 @@
 
 import uuid
 
-from app.modules.previsional.catalog import Vinculacion
+from app.modules.previsional.catalog import Coincidencia
 from app.modules.previsional.vinculacion import Candidato, Vinculador, normalizar
 
 A, B, C, D = (uuid.uuid4() for _ in range(4))
@@ -26,17 +26,17 @@ def test_normalizar() -> None:
 
 def test_exacta_ignora_tildes_mayusculas_y_espacios() -> None:
     r = _vinculador().vincular("PRUEBA  ana SINTETICA")
-    assert (r.escribano_id, r.vinculacion) == (A, Vinculacion.EXACTA)
+    assert (r.escribano_id, r.coincidencia) == (A, Coincidencia.EXACTA)
 
 
 def test_aproximada_solo_si_es_unica() -> None:
     r = _vinculador().vincular("EJEMPLO GOMEZ Luis")
-    assert (r.escribano_id, r.vinculacion) == (B, Vinculacion.APROXIMADA)
+    assert (r.escribano_id, r.coincidencia) == (B, Coincidencia.APROXIMADA)
     # La inicial vale por una palabra, pero acá hay dos «Ficticio Pedro S…»: no se vincula.
     ambiguo = _vinculador().vincular("FICTICIO Pedro S.")
     assert ambiguo.escribano_id is None and ambiguo.ambiguo
     unico = Vinculador([Candidato(C, "Ficticio Pedro Santos")]).vincular("FICTICIO Pedro S.")
-    assert (unico.escribano_id, unico.vinculacion) == (C, Vinculacion.APROXIMADA)
+    assert (unico.escribano_id, unico.coincidencia) == (C, Coincidencia.APROXIMADA)
 
 
 def test_sin_coincidencia_o_insuficiente() -> None:

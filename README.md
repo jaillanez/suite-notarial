@@ -425,7 +425,7 @@ Ya aplicadas:
 ## Aportes y puntos (Ley 7231)
 
 - **Ejercicios y puntos por afiliado** (`previsional_ejercicios`, `previsional_puntos`), inmutables: un trigger impide borrar o reescribir aportes y puntos; solo cambia el vínculo con el padrón, auditado.
-- **Carga de la planilla histórica** por consola: `.venv/bin/python -m app.modules.previsional.cargar_puntos --planilla ARCHIVO.xls --operador EMAIL --simular` (sin `--simular` confirma; `--revincular` reintenta vincular con el padrón). Idempotente, informa cada redondeo y no muestra nombres en consola.
+- **Carga de la planilla histórica** por consola: `.venv/bin/python -m app.modules.previsional.cargar_puntos --planilla ARCHIVO.xls --operador EMAIL --simular` (sin `--simular` confirma; `--revincular` reintenta vincular con el padrón). Idempotente, informa cada redondeo y no muestra nombres en consola. Solo un vínculo exacto, manual o heredado atribuye puntos; una coincidencia aproximada queda como sugerencia hasta que la Caja la confirme o rechace.
 - **Consulta:** sección «Aportes y puntos (Ley 7231)» en la ficha del escribano, «Mis puntos» para el escribano (403 para los de otro), PDF «Informe de aportes y puntos» y reporte «Aportes y puntos por ejercicio» con exportación.
 - **Cálculo de puntos de ejercicios nuevos:** deshabilitado hasta que la Caja apruebe la regla oficial (TODO(negocio)). Detalle e hipótesis a confirmar en [Docs/previsional-puntos.md](Docs/previsional-puntos.md).
 

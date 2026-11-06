@@ -27,6 +27,7 @@ from app.modules.previsional.schemas import (
     FilaPuntosOut,
     InformePuntosOut,
     OrigenOut,
+    RechazarSugerenciaIn,
     SinVincularOut,
     VincularIn,
     VincularOut,
@@ -181,7 +182,7 @@ async def sin_vincular(
     estado: Annotated[EstadoVinculo, Query()] = EstadoVinculo.SIN_VINCULAR,
     q: Annotated[str | None, Query(max_length=100)] = None,
 ) -> Page[SinVincularOut]:
-    """Nombres de la planilla sin escribano (o con un vínculo aproximado a revisar)."""
+    """Cola de revisión: sin escribano, con sugerencia aproximada o heredadas a confirmar."""
     items, total = await service.sin_vincular(session, estado, q, page)
     return Page(
         items=[
@@ -210,6 +211,17 @@ async def vincular(
     """Vincula (o confirma) a mano todas las filas de un nombre de la planilla. Auditado."""
     filas = await service.vincular_manual(
         session, body.nombre_origen, body.escribano_id, body.motivo, principal.user, ctx
+    )
+    return VincularOut(filas=filas)
+
+
+@router.post("/puntos/rechazar-sugerencia", response_model=VincularOut)
+async def rechazar_sugerencia(
+    body: RechazarSugerenciaIn, principal: CanManage, session: SessionDep, ctx: RequestContextDep
+) -> VincularOut:
+    """Descarta la sugerencia aproximada de un nombre (sigue sin vincular). Auditado."""
+    filas = await service.rechazar_sugerencia(
+        session, body.nombre_origen, body.motivo, principal.user, ctx
     )
     return VincularOut(filas=filas)
 

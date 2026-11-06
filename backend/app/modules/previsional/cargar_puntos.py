@@ -89,7 +89,7 @@ def _escribir_detalle(ruta: Path, planilla: Planilla | None, res: service.Result
             w.writerow(["diferencia", d.fila or "", d.anio, nombres.get(d.fila or 0, ""), cambios])
         v = res.vinculacion
         for nombre, escribano_id in v.aproximadas:
-            w.writerow(["vinculo_aproximado", "", "", nombre, f"escribano {escribano_id}"])
+            w.writerow(["sugerencia_aproximada", "", "", nombre, f"escribano {escribano_id}"])
         for nombre in v.ambiguas:
             w.writerow(["vinculo_ambiguo", "", "", nombre, "más de un escribano posible"])
         for nombre in v.sin_vincular:
@@ -111,8 +111,8 @@ def _informe_resultado(res: service.ResultadoCarga) -> None:
 def _informe_vinculacion(v: service.ResultadoVinculacion) -> None:
     _out("Vínculo con el padrón (nombres distintos de la planilla):")
     _out(f"  exactos: {v.exactas}")
-    _out(f"  aproximados, a revisar en «Puntos sin vincular»: {len(v.aproximadas)}")
-    _out(f"  con el mismo vínculo que en otros ejercicios: {v.heredadas}")
+    _out(f"  aproximados (solo sugerencia, NO vinculados; a revisar): {len(v.aproximadas)}")
+    _out(f"  con el vínculo de otros ejercicios (exacto o heredado a confirmar): {v.heredadas}")
     _out(f"  ambiguos (más de un escribano posible): {len(v.ambiguas)}")
     _out(f"  sin vincular: {len(v.sin_vincular)}")
     _out(f"  filas vinculadas en esta corrida: {v.filas_vinculadas}")

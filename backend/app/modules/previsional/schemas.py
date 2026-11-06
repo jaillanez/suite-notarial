@@ -53,7 +53,7 @@ class SinVincularOut(BaseModel):
     ultimo_anio: int
     total_aportes: Importe
     total_puntos: Puntos
-    # En un vínculo aproximado, el escribano propuesto.
+    # APROXIMADA: el escribano sugerido (sin vínculo). HEREDADA: aquel al que ya cuentan.
     escribano: EscribanoResumen | None
 
 
@@ -61,6 +61,11 @@ class VincularIn(BaseModel):
     nombre_origen: str = Field(min_length=1, max_length=200)
     escribano_id: uuid.UUID
     motivo: str | None = Field(default=None, max_length=1000)
+
+
+class RechazarSugerenciaIn(BaseModel):
+    nombre_origen: str = Field(min_length=1, max_length=200)
+    motivo: str = Field(min_length=5, max_length=1000)
 
 
 class VincularOut(BaseModel):

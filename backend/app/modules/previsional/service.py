@@ -15,7 +15,7 @@ from decimal import Decimal
 from http import HTTPStatus
 from typing import Any, NoReturn
 
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import Select, and_, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
@@ -24,7 +24,12 @@ from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.padron.models import Escribano, Persona
-from app.modules.previsional.catalog import MOTIVO_SIN_REGLA, EstadoVinculo, Vinculacion
+from app.modules.previsional.catalog import (
+    MOTIVO_SIN_REGLA,
+    Coincidencia,
+    EstadoVinculo,
+    Vinculacion,
+)
 from app.modules.previsional.models import Ejercicio, PuntosAfiliado
 from app.modules.previsional.planilla import Planilla
 from app.modules.previsional.vinculacion import Candidato, Vinculador
@@ -52,9 +57,10 @@ class Diferencia:
 @dataclass
 class ResultadoVinculacion:
     exactas: int = 0
-    # (nombre de la planilla, escribano): para revisar.
+    # (nombre de la planilla, escribano sugerido): NO se vinculan; quedan para revisar.
     aproximadas: list[tuple[str, uuid.UUID]] = field(default_factory=list)
-    # Ya vinculado en otros ejercicios: las filas nuevas siguen el mismo vínculo.
+    # Nombre ya vinculado en otros ejercicios: las filas nuevas toman ese escribano (EXACTA si
+    # la decisión previa fue exacta; HEREDADA, a confirmar, si fue de una persona).
     heredadas: int = 0
     ambiguas: list[str] = field(default_factory=list)
     sin_vincular: list[str] = field(default_factory=list)
@@ -174,7 +180,7 @@ async def cargar(
             resultado.puntos_iguales += 1
     await session.flush()
 
-    resultado.vinculacion = await revincular(session, actor)
+    resultado.vinculacion = await revincular(session)
     record_audit(
         session,
         ctx,
@@ -217,10 +223,20 @@ async def _candidatos(session: AsyncSession) -> list[Candidato]:
     return [Candidato(eid, f"{apellido} {nombre}") for eid, apellido, nombre in filas]
 
 
-async def revincular(session: AsyncSession, actor: User) -> ResultadoVinculacion:
+def _forma_heredada(formas: set[Vinculacion]) -> Vinculacion:
+    """Una decisión exacta se hereda como exacta; una humana, como HEREDADA (sin autor)."""
+    return Vinculacion.EXACTA if formas == {Vinculacion.EXACTA} else Vinculacion.HEREDADA
+
+
+async def revincular(session: AsyncSession) -> ResultadoVinculacion:
     """Intenta vincular las filas sin escribano (después de cargar el padrón, por ejemplo).
 
-    Nunca toca una fila ya vinculada: los vínculos existentes solo cambian a mano.
+    - Nunca toca una fila ya vinculada: los vínculos existentes solo cambian a mano.
+    - Solo una coincidencia EXACTA (o la herencia de una decisión previa) atribuye puntos. Una
+      coincidencia aproximada queda como sugerencia (`escribano_sugerido_id`) para la cola de
+      revisión; una sugerencia rechazada no se vuelve a proponer.
+    - Nada de esto se atribuye a una persona: `vinculado_por_user_id` queda vacío (MANUAL es
+      siempre una decisión humana con autor).
     """
     resultado = ResultadoVinculacion()
     pendientes = list(
@@ -257,18 +273,14 @@ async def revincular(session: AsyncSession, actor: User) -> ResultadoVinculacion
             )
     vinculador = Vinculador(await _candidatos(session))
     ahora = datetime.now(UTC)
+    sin_escribano = PuntosAfiliado.escribano_id.is_(None)
     for nombre in pendientes:
         conocido = previos.get(nombre)
         escribano_id: uuid.UUID
         vinculacion: Vinculacion
         if conocido and len(conocido) == 1:
             escribano_id, formas = next(iter(conocido.items()))
-            # La forma más firme decidida para ese nombre.
-            vinculacion = next(
-                v
-                for v in (Vinculacion.MANUAL, Vinculacion.EXACTA, Vinculacion.APROXIMADA)
-                if v in formas
-            )
+            vinculacion = _forma_heredada(formas)
             resultado.heredadas += 1
         elif conocido:
             # El mismo nombre quedó vinculado a personas distintas: lo decide una persona.
@@ -276,25 +288,35 @@ async def revincular(session: AsyncSession, actor: User) -> ResultadoVinculacion
             continue
         else:
             r = vinculador.vincular(nombre)
-            if r.escribano_id is None or r.vinculacion is None:
+            if r.escribano_id is None or r.coincidencia is None:
                 (resultado.ambiguas if r.ambiguo else resultado.sin_vincular).append(nombre)
                 continue
-            escribano_id, vinculacion = r.escribano_id, r.vinculacion
-            if vinculacion is Vinculacion.APROXIMADA:
-                resultado.aproximadas.append((nombre, escribano_id))
-            else:
-                resultado.exactas += 1
+            if r.coincidencia is Coincidencia.APROXIMADA:
+                sugeridas = await session.execute(
+                    update(PuntosAfiliado)
+                    .where(
+                        PuntosAfiliado.nombre_origen == nombre,
+                        sin_escribano,
+                        PuntosAfiliado.sugerencia_rechazada_id.is_distinct_from(r.escribano_id),
+                    )
+                    .values(escribano_sugerido_id=r.escribano_id)
+                )
+                if int(getattr(sugeridas, "rowcount", 0) or 0):
+                    resultado.aproximadas.append((nombre, r.escribano_id))
+                else:
+                    resultado.sin_vincular.append(nombre)
+                continue
+            escribano_id, vinculacion = r.escribano_id, Vinculacion.EXACTA
+            resultado.exactas += 1
         filas = await session.execute(
             update(PuntosAfiliado)
-            .where(
-                PuntosAfiliado.nombre_origen == nombre,
-                PuntosAfiliado.escribano_id.is_(None),
-            )
+            .where(PuntosAfiliado.nombre_origen == nombre, sin_escribano)
             .values(
                 escribano_id=escribano_id,
                 vinculacion=vinculacion.value,
-                vinculado_por_user_id=actor.id,
+                vinculado_por_user_id=None,
                 vinculado_en=ahora,
+                escribano_sugerido_id=None,
             )
         )
         resultado.filas_vinculadas += int(getattr(filas, "rowcount", 0) or 0)
@@ -305,7 +327,7 @@ async def revincular(session: AsyncSession, actor: User) -> ResultadoVinculacion
 async def revincular_auditado(
     session: AsyncSession, actor: User, ctx: RequestContext
 ) -> ResultadoVinculacion:
-    resultado = await revincular(session, actor)
+    resultado = await revincular(session)
     record_audit(
         session,
         ctx,
@@ -428,15 +450,23 @@ class NombreSinVincular:
 
 
 def _sin_vincular_stmt(estado: EstadoVinculo, q: str | None) -> Select[*tuple[Any, ...]]:
-    condicion = (
-        PuntosAfiliado.escribano_id.is_(None)
-        if estado is EstadoVinculo.SIN_VINCULAR
-        else PuntosAfiliado.vinculacion == Vinculacion.APROXIMADA.value
-    )
+    if estado is EstadoVinculo.SIN_VINCULAR:
+        condicion = and_(
+            PuntosAfiliado.escribano_id.is_(None), PuntosAfiliado.escribano_sugerido_id.is_(None)
+        )
+    elif estado is EstadoVinculo.APROXIMADA:
+        condicion = and_(
+            PuntosAfiliado.escribano_id.is_(None),
+            PuntosAfiliado.escribano_sugerido_id.is_not(None),
+        )
+    else:
+        condicion = PuntosAfiliado.vinculacion == Vinculacion.HEREDADA.value
+    # En APROXIMADA, el escribano propuesto; en HEREDADA, aquel al que ya cuentan.
+    escribano = func.coalesce(PuntosAfiliado.escribano_id, PuntosAfiliado.escribano_sugerido_id)
     stmt: Select[*tuple[Any, ...]] = (
         select(
             PuntosAfiliado.nombre_origen.label("nombre_origen"),
-            PuntosAfiliado.escribano_id.label("escribano_id"),
+            escribano.label("escribano_id"),
             func.count().label("ejercicios"),
             func.min(Ejercicio.anio).label("primer_anio"),
             func.max(Ejercicio.anio).label("ultimo_anio"),
@@ -445,7 +475,7 @@ def _sin_vincular_stmt(estado: EstadoVinculo, q: str | None) -> Select[*tuple[An
         )
         .join(Ejercicio, Ejercicio.id == PuntosAfiliado.ejercicio_id)
         .where(condicion)
-        .group_by(PuntosAfiliado.nombre_origen, PuntosAfiliado.escribano_id)
+        .group_by(PuntosAfiliado.nombre_origen, escribano)
     )
     if q and q.strip():
         stmt = stmt.where(PuntosAfiliado.nombre_origen.ilike(f"%{q.strip()}%"))
@@ -459,7 +489,7 @@ async def sin_vincular(
     total = int(await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
     filas = (
         await session.execute(
-            stmt.order_by(PuntosAfiliado.nombre_origen, PuntosAfiliado.escribano_id)
+            stmt.order_by(PuntosAfiliado.nombre_origen, text("escribano_id"))
             .offset(page.offset)
             .limit(page.page_size)
         )
@@ -518,12 +548,9 @@ async def vincular_manual(
         f.escribano_id == escribano.id and f.vinculacion == Vinculacion.MANUAL.value for f in filas
     ):
         raise ProblemError(HTTPStatus.CONFLICT, "Esos puntos ya están vinculados a ese escribano.")
-    reemplaza = any(
-        f.escribano_id is not None
-        and f.escribano_id != escribano.id
-        and f.vinculacion != Vinculacion.APROXIMADA.value
-        for f in filas
-    )
+    # Cambiar a quién cuentan unos puntos (exactos, heredados o manuales) exige motivo. Confirmar
+    # una sugerencia o una herencia hacia el mismo escribano, no.
+    reemplaza = any(f.escribano_id is not None and f.escribano_id != escribano.id for f in filas)
     if reemplaza and motivo is None:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -541,6 +568,7 @@ async def vincular_manual(
             vinculacion=Vinculacion.MANUAL.value,
             vinculado_por_user_id=actor.id,
             vinculado_en=ahora,
+            escribano_sugerido_id=None,
         )
     )
     record_audit(
@@ -552,6 +580,48 @@ async def vincular_manual(
         target_user_id=escribano.user_id,
         old_value={"vinculos": [{"escribano_id": e, "vinculacion": v} for e, v in anteriores]},
         new_value={"escribano_id": str(escribano.id), "vinculacion": Vinculacion.MANUAL.value},
+        details={
+            "nombre_origen": nombre_origen,
+            "filas": len(filas),
+            "motivo": motivo,
+            "sugerido": sorted(
+                {str(f.escribano_sugerido_id) for f in filas if f.escribano_sugerido_id}
+            ),
+        },
+    )
+    await session.commit()
+    return len(filas)
+
+
+async def rechazar_sugerencia(
+    session: AsyncSession, nombre_origen: str, motivo: str, actor: User, ctx: RequestContext
+) -> int:
+    """Descarta la sugerencia aproximada de un nombre: sigue sin vincular y no se repropone."""
+    filas = list(
+        (
+            await session.scalars(
+                select(PuntosAfiliado)
+                .where(
+                    PuntosAfiliado.nombre_origen == nombre_origen,
+                    PuntosAfiliado.escribano_id.is_(None),
+                    PuntosAfiliado.escribano_sugerido_id.is_not(None),
+                )
+                .with_for_update()
+            )
+        ).all()
+    )
+    if not filas:
+        raise ProblemError(HTTPStatus.NOT_FOUND, "Ese nombre no tiene una sugerencia pendiente.")
+    sugeridos = sorted({str(f.escribano_sugerido_id) for f in filas})
+    for f in filas:
+        f.sugerencia_rechazada_id = f.escribano_sugerido_id
+        f.escribano_sugerido_id = None
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PUNTOS_SUGERENCIA_RECHAZADA,
+        actor_user_id=actor.id,
+        old_value={"escribano_sugerido_id": sugeridos},
         details={"nombre_origen": nombre_origen, "filas": len(filas), "motivo": motivo},
     )
     await session.commit()
