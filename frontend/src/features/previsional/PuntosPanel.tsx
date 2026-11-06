@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { formatMoney } from '../../lib/decimal'
+import { useSession } from '../auth/session'
 import { formatDate } from '../padron/labels'
 import { descargarInforme, fetchMisPuntos, fetchPuntosEscribano, type InformePuntos } from './api'
 import { formatPuntos } from './labels'
@@ -98,7 +99,7 @@ function Tabla({ informe }: { informe: InformePuntos }) {
 
 const VINCULO = {
   EXACTA: 'nombre idéntico',
-  APROXIMADA: 'vínculo aproximado, a revisar',
+  HEREDADA: 'mismo nombre que un vínculo manual previo, a confirmar',
   MANUAL: 'vinculado a mano',
 } as const
 
@@ -113,8 +114,10 @@ export function PuntosPanel({
   escribanoId?: string
   className?: string
 }) {
+  const { user } = useSession()
   const query = useQuery({
-    queryKey: ['previsional', 'puntos', escribanoId ?? 'propios'],
+    // La clave incluye a quien consulta: «Mis puntos» de una cuenta nunca sirve a otra.
+    queryKey: ['previsional', 'puntos', user?.id ?? 'anonimo', escribanoId ?? 'propios'],
     queryFn: () => (escribanoId ? fetchPuntosEscribano(escribanoId) : fetchMisPuntos()),
   })
   const pdf = useMutation({

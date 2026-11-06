@@ -6,7 +6,7 @@ import { formatCelda } from '../reportes/formato'
 import * as apiModule from './api'
 import { formatPuntos } from './labels'
 import { MisPuntosPage } from './MisPuntosPage'
-import { PuntosPage } from './PuntosPage'
+import { PuntosPage, VincularDialog } from './PuntosPage'
 import { PuntosPanel } from './PuntosPanel'
 
 vi.mock('./api')
@@ -152,5 +152,38 @@ describe('aportes y puntos (personal)', () => {
     })
     expect(await screen.findByText('FICTICIO Pedro S.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Vincular' })).not.toBeInTheDocument()
+  })
+
+  it('una sugerencia se confirma o se rechaza con motivo', async () => {
+    vi.mocked(apiModule.rechazarSugerencia).mockResolvedValue({ filas: 1 })
+    renderWithProviders(
+      <VincularDialog
+        item={{
+          nombre_origen: 'EJEMPLO GÓMEZ Luis',
+          estado: 'APROXIMADA',
+          ejercicios: 1,
+          primer_anio: 1990,
+          ultimo_anio: 1990,
+          total_aportes: '1000.00',
+          total_puntos: '102.360497',
+          escribano: { ...INFORME.escribano, apellido_nombre: 'Ejemplo Gómez, Luis Alberto' },
+        }}
+        onClose={() => undefined}
+      />,
+      { user: STAFF },
+    )
+
+    expect(screen.getByText('Escribano sugerido (todavía no le cuenta)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirmar vínculo', hidden: true })).toBeEnabled()
+    const rechazar = screen.getByRole('button', { name: 'Rechazar sugerencia', hidden: true })
+    expect(rechazar).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Es otra persona' } })
+    fireEvent.click(rechazar)
+    await waitFor(() => {
+      expect(apiModule.rechazarSugerencia).toHaveBeenCalledWith({
+        nombre_origen: 'EJEMPLO GÓMEZ Luis',
+        motivo: 'Es otra persona',
+      })
+    })
   })
 })

@@ -2,8 +2,8 @@ import { api } from '../../lib/api'
 import type { Page } from '../users/api'
 
 /** Cómo quedó asociado un nombre de la planilla histórica a un escribano del padrón. */
-export type Vinculacion = 'EXACTA' | 'APROXIMADA' | 'MANUAL'
-export type EstadoVinculo = 'SIN_VINCULAR' | 'APROXIMADA'
+export type Vinculacion = 'EXACTA' | 'HEREDADA' | 'MANUAL'
+export type EstadoVinculo = 'SIN_VINCULAR' | 'APROXIMADA' | 'HEREDADA'
 
 export interface EscribanoResumen {
   id: string
@@ -73,6 +73,14 @@ export async function vincular(data: {
   motivo: string | null
 }): Promise<{ filas: number }> {
   return (await api.post<{ filas: number }>(`${P}/puntos/vincular`, data)).data
+}
+
+/** Descarta la sugerencia aproximada de un nombre (sigue sin vincular). */
+export async function rechazarSugerencia(data: {
+  nombre_origen: string
+  motivo: string
+}): Promise<{ filas: number }> {
+  return (await api.post<{ filas: number }>(`${P}/puntos/rechazar-sugerencia`, data)).data
 }
 
 export async function fetchEstadoCalculo(): Promise<EstadoCalculo> {

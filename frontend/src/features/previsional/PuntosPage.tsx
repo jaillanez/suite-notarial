@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calculator, Link2, Search, TableProperties } from 'lucide-react'
+import { Calculator, Link2, Search, TableProperties, Unlink } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
 
@@ -19,6 +19,7 @@ import { EscribanoPicker } from '../prestamos/componentes'
 import {
   fetchEstadoCalculo,
   fetchSinVincular,
+  rechazarSugerencia,
   vincular,
   type EstadoVinculo,
   type SinVincular,
@@ -45,7 +46,9 @@ export function VincularDialog({
   const queryClient = useQueryClient()
   const [escribano, setEscribano] = useState('')
   const [motivo, setMotivo] = useState('')
+  // APROXIMADA: sugerencia sin vínculo (no cuenta). HEREDADA: ya cuenta, falta confirmarla.
   const propuesto = item?.escribano ?? null
+  const heredada = item?.estado === 'HEREDADA'
   const elegido = escribano || propuesto?.id || ''
   const save = useMutation({
     mutationFn: () =>
@@ -61,8 +64,18 @@ export function VincularDialog({
       onClose()
     },
   })
+  const rechazar = useMutation({
+    mutationFn: () =>
+      rechazarSugerencia({ nombre_origen: item?.nombre_origen ?? '', motivo: motivo.trim() }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['previsional'] })
+      setMotivo('')
+      onClose()
+    },
+  })
   const cerrar = () => {
     save.reset()
+    rechazar.reset()
     setEscribano('')
     setMotivo('')
     onClose()
@@ -76,6 +89,20 @@ export function VincularDialog({
       footer={
         <>
           <Button onClick={cerrar}>Cancelar</Button>
+          {propuesto && !heredada && !escribano && (
+            <Button
+              variant="danger"
+              icon={Unlink}
+              disabled={motivo.trim().length < 5}
+              busy={rechazar.isPending}
+              busyLabel="Rechazando…"
+              onClick={() => {
+                rechazar.mutate()
+              }}
+            >
+              Rechazar sugerencia
+            </Button>
+          )}
           <Button
             variant="primary"
             icon={Link2}
@@ -102,7 +129,9 @@ export function VincularDialog({
             </dd>
             {propuesto && (
               <>
-                <dt className="mt-3 text-ink-muted">Escribano propuesto</dt>
+                <dt className="mt-3 text-ink-muted">
+                  {heredada ? 'Ya cuenta para' : 'Escribano sugerido (todavía no le cuenta)'}
+                </dt>
                 <dd className="font-semibold text-ink">
                   {propuesto.apellido_nombre} · Mat. {propuesto.matricula_numero}
                 </dd>
@@ -116,8 +145,8 @@ export function VincularDialog({
             onChange={setEscribano}
           />
           <TextArea
-            label="Motivo (opcional)"
-            hint="Obligatorio si estos puntos ya estaban vinculados a otra persona."
+            label="Motivo"
+            hint="Obligatorio para rechazar la sugerencia o si estos puntos ya contaban para otra persona."
             maxLength={1000}
             value={motivo}
             onChange={(e) => {
@@ -125,6 +154,7 @@ export function VincularDialog({
             }}
           />
           {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
+          {rechazar.isError && <Alert tone="danger">{toProblem(rechazar.error).detail}</Alert>}
         </div>
       )}
     </Dialog>
@@ -144,7 +174,7 @@ function SinVincularPanel() {
     placeholderData: keepPreviousData,
   })
   const puedeVincular = can('puntos:manage')
-  const aproximados = estado === 'APROXIMADA'
+  const aRevisar = estado !== 'SIN_VINCULAR'
 
   return (
     <Panel
@@ -161,7 +191,8 @@ function SinVincularPanel() {
           }}
           options={[
             { value: 'SIN_VINCULAR', label: 'Sin escribano' },
-            { value: 'APROXIMADA', label: 'Vínculos aproximados a revisar' },
+            { value: 'APROXIMADA', label: 'Sugerencias aproximadas a revisar' },
+            { value: 'HEREDADA', label: 'Heredados de un vínculo manual, a confirmar' },
           ]}
         />
         <Field
@@ -194,9 +225,11 @@ function SinVincularPanel() {
           <p className="px-5 py-6 text-sm text-ink-muted sm:px-6">
             {busqueda.trim()
               ? 'Ningún nombre coincide con la búsqueda.'
-              : aproximados
-                ? 'No hay vínculos aproximados pendientes de revisión.'
-                : 'Todos los puntos cargados están vinculados con un escribano.'}
+              : estado === 'HEREDADA'
+                ? 'No hay puntos heredados pendientes de confirmar.'
+                : aRevisar
+                  ? 'No hay sugerencias aproximadas pendientes de revisión.'
+                  : 'Todos los puntos cargados están vinculados con un escribano.'}
           </p>
         )}
         {query.data && query.data.items.length > 0 && (
@@ -214,7 +247,10 @@ function SinVincularPanel() {
                   </p>
                   {item.escribano && (
                     <p className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-                      <StatusIndicator tone="warning" label="Aproximado" />
+                      <StatusIndicator
+                        tone="warning"
+                        label={item.estado === 'HEREDADA' ? 'Heredado' : 'Sugerido'}
+                      />
                       <Link to={`/padron/escribanos/${item.escribano.id}`}>
                         {item.escribano.apellido_nombre} · Mat. {item.escribano.matricula_numero}
                       </Link>
@@ -223,13 +259,13 @@ function SinVincularPanel() {
                 </div>
                 {puedeVincular && (
                   <Button
-                    variant={aproximados ? 'secondary' : 'ghost'}
+                    variant={aRevisar ? 'secondary' : 'ghost'}
                     icon={Link2}
                     onClick={() => {
                       setAbierto(item)
                     }}
                   >
-                    {aproximados ? 'Revisar' : 'Vincular'}
+                    {aRevisar ? 'Revisar' : 'Vincular'}
                   </Button>
                 )}
               </li>
