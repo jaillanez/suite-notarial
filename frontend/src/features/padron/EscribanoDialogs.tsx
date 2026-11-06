@@ -23,6 +23,14 @@ import {
   type EstadoMatricula,
 } from './api'
 import { CAMPO_A_COMPLETAR, CARGO, ESTADO_MATRICULA, ESTADOS_DEFINITIVOS, todayIso } from './labels'
+import { PrimeraEscrituraCampos } from './LicenciaDialogs'
+import {
+  PRIMERA_VACIA,
+  primeraCompleta,
+  primeraEmpezada,
+  primeraInput,
+  type PrimeraEscrituraForm,
+} from './primeraEscritura'
 
 const orNull = (value: string): string | null => (value.trim() ? value.trim() : null)
 
@@ -378,7 +386,7 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
         onClose()
       }}
       title="Editar datos"
-      description="El CUIT y la matrícula no se editan: identifican al escribano (si faltan, se cargan desde «Completar datos»). Cada cambio queda auditado."
+      description="El CUIT identifica al escribano y no se edita; la matrícula y la fecha de juramento tampoco se cambian por acá (si faltan, se cargan desde «Completar datos»). Cada cambio queda auditado."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -488,7 +496,10 @@ export function CuentaDialog({ escribano, open, onClose }: Props) {
   )
 }
 
-/** Carga, una sola vez, los datos que faltaban al migrar (matrícula, fecha, CUIT, DNI). */
+/**
+ * Carga, una sola vez, los datos que faltan (matrícula, fecha de juramento, CUIT, DNI y la
+ * primera escritura, que llega después de la afiliación).
+ */
 export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
   const refresh = useRefresh(escribano.id)
   const faltan = escribano.a_completar
@@ -498,6 +509,8 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
     cuit: '',
     numero_documento: '',
   })
+  const [primera, setPrimera] = useState<PrimeraEscrituraForm>(PRIMERA_VACIA)
+  const conPrimera = primeraEmpezada(primera)
   const save = useMutation({
     mutationFn: () => {
       const matricula = form.matricula_numero.trim()
@@ -508,6 +521,7 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
         ...(form.fecha_matriculacion ? { fecha_matriculacion: form.fecha_matriculacion } : {}),
         ...(cuit ? { cuit } : {}),
         ...(documento ? { numero_documento: documento } : {}),
+        ...(conPrimera ? { primera_escritura: primeraInput(primera) } : {}),
       })
     },
     onSuccess: async () => {
@@ -523,7 +537,9 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
     },
     error: problem?.fieldErrors[key],
   })
-  const algoCargado = Object.values(form).some((v) => v.trim() !== '')
+  const algoCargado = Object.values(form).some((v) => v.trim() !== '') || conPrimera
+  // La primera escritura va completa (fecha, número y registro) o no va.
+  const primeraValida = !conPrimera || primeraCompleta(primera)
   return (
     <Dialog
       open={open}
@@ -541,7 +557,7 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
             icon={Save}
             busy={save.isPending}
             busyLabel="Guardando…"
-            disabled={!algoCargado}
+            disabled={!algoCargado || !primeraValida}
             onClick={() => {
               save.mutate()
             }}
@@ -582,6 +598,15 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
         )}
         {faltan.includes('numero_documento') && (
           <Field label="Número de documento" inputMode="numeric" {...bind('numero_documento')} />
+        )}
+        {faltan.includes('primera_escritura') && (
+          <fieldset className="grid gap-4 border-t border-line pt-4 sm:col-span-2 sm:grid-cols-2">
+            <legend className="sr-only">Primera escritura</legend>
+            <p className="text-sm text-ink-muted sm:col-span-2">
+              Primera escritura: determina la antigüedad. Fecha, número y registro van juntos.
+            </p>
+            <PrimeraEscrituraCampos form={primera} onChange={setPrimera} />
+          </fieldset>
         )}
       </div>
     </Dialog>

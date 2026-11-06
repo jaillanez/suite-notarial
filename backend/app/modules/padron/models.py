@@ -89,6 +89,44 @@ class RegistroNotarial(UUIDMixin, TimestampMixin, AuthorMixin, Base):
     circunscripcion: Mapped[Circunscripcion] = relationship(lazy="joined")
 
 
+class DomicilioRegistro(UUIDMixin, Base):
+    """Historia del domicilio de un registro. `RegistroNotarial.domicilio_legal` conserva el
+    vigente (compatibilidad); todo cambio pasa por el servicio, que cierra la fila vigente y
+    abre una nueva. Nunca se borra. Sin solapamiento por registro (exclusión GiST en la
+    migración padron_ajustes_caja)."""
+
+    __tablename__ = "padron_registro_domicilios"
+    __table_args__ = (
+        CheckConstraint("fecha_hasta IS NULL OR fecha_hasta >= fecha_desde", name="fechas"),
+        # Un solo domicilio vigente por registro.
+        Index(
+            "uq_padron_registro_domicilios_vigente",
+            "registro_id",
+            unique=True,
+            postgresql_where=text("fecha_hasta IS NULL"),
+        ),
+    )
+
+    registro_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_registros_notariales.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    domicilio: Mapped[str] = mapped_column(Text, nullable=False)
+    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_hasta: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Ordena los INSERT (registro antes que su domicilio) cuando van en el mismo flush.
+    registro: Mapped[RegistroNotarial] = relationship(lazy="raise")
+
+
 class Escribano(UUIDMixin, TimestampMixin, AuthorMixin, Base):
     __tablename__ = "padron_escribanos"
     __table_args__ = (
@@ -96,6 +134,16 @@ class Escribano(UUIDMixin, TimestampMixin, AuthorMixin, Base):
         CheckConstraint(
             "estado_matricula IN ('ACTIVO', 'SUSPENDIDO', 'CESANTE', 'JUBILADO', 'FALLECIDO')",
             name="estado_valido",
+        ),
+        # La primera escritura se carga completa (fecha, número y registro) o no se carga.
+        CheckConstraint(
+            "(primera_escritura_fecha IS NULL) = (primera_escritura_numero IS NULL) AND "
+            "(primera_escritura_fecha IS NULL) = (primera_escritura_registro IS NULL)",
+            name="primera_escritura_completa",
+        ),
+        CheckConstraint(
+            "primera_escritura_registro IS NULL OR primera_escritura_registro > 0",
+            name="primera_escritura_registro_positivo",
         ),
     )
 
@@ -112,13 +160,30 @@ class Escribano(UUIDMixin, TimestampMixin, AuthorMixin, Base):
         unique=True,
         nullable=True,
     )
-    # Matrícula y fecha de matriculación pueden faltar en escribanos migrados del sistema
-    # anterior: quedan «a completar» y se cargan una sola vez desde la ficha. El alta manual
-    # las exige. UNIQUE admite varios NULL; el CHECK de positividad pasa con NULL.
-    matricula_numero: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+    # La matrícula NO identifica al escribano (decisión de la Caja): el Colegio puede reasignar
+    # el número de un escribano retirado a uno nuevo. Es un dato informativo, sin unicidad; lo
+    # que identifica es el CUIT de la persona. Puede faltar en escribanos migrados («a
+    # completar»); el CHECK de positividad pasa con NULL.
+    matricula_numero: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     tomo: Mapped[str | None] = mapped_column(String(20), nullable=True)
     folio: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Fecha de juramento (la columna conserva su nombre histórico `fecha_matriculacion`). Puede
+    # faltar en escribanos migrados: queda «a completar».
     fecha_matriculacion: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Primera escritura autorizada: determina la antigüedad para la jubilación. La Caja recibe
+    # la escritura después de la afiliación, así que se carga más tarde (y se puede corregir,
+    # con auditoría). El registro es un número, no una FK: puede ser un registro que ya no
+    # existe. TODO(negocio): reglas de antigüedad para la jubilación (no se implementan acá).
+    primera_escritura_fecha: Mapped[date | None] = mapped_column(Date, nullable=True)
+    primera_escritura_numero: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    primera_escritura_registro: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    primera_escritura_folio: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    primera_escritura_cargada_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    primera_escritura_cargada_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     estado_matricula: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="ACTIVO", index=True
     )
@@ -269,3 +334,38 @@ class AjustesPadron(Base):
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
     )
+
+
+class Licencia(UUIDMixin, TimestampMixin, AuthorMixin, Base):
+    """Licencia de un escribano: deja de ejercer un tiempo y vuelve; su cargo sigue siendo suyo.
+
+    No cambia el estado de la matrícula ni cierra cargos. `fecha_hasta` NULL = vigente. No se
+    borra: se termina (fecha_hasta) o se anula con motivo. Sin solapamiento entre licencias no
+    anuladas del mismo escribano (exclusión GiST en la migración padron_ajustes_caja).
+    """
+
+    __tablename__ = "padron_licencias"
+    __table_args__ = (
+        CheckConstraint("fecha_hasta IS NULL OR fecha_hasta >= fecha_desde", name="fechas"),
+        CheckConstraint(
+            "NOT anulada OR (motivo_anulacion IS NOT NULL AND anulada_en IS NOT NULL)",
+            name="anulacion_con_motivo",
+        ),
+    )
+
+    escribano_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_escribanos.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_hasta: Mapped[date | None] = mapped_column(Date, nullable=True)
+    motivo: Mapped[str] = mapped_column(Text, nullable=False)
+    resolucion_respaldo: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    anulada: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    motivo_anulacion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anulada_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    anulada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

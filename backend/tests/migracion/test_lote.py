@@ -95,16 +95,24 @@ def test_defectos_observados_con_su_cascada(lote: Callable[..., Path]) -> None:
     codigos = {o.codigo for o in st.observaciones}
     assert {
         "VALOR_INVALIDO",  # CUIT con dígito inválido e importe con 3 decimales
-        "MATRICULA_DUPLICADA",
+        "CUIT_DUPLICADO",
         "SIN_HOMOLOGACION",
         "TITULARES_MULTIPLES",
         "CARGOS_VIGENTES_MULTIPLES",
         "ESCRIBANO_NO_MIGRADO",  # cargos de los escribanos rechazados
         "REGISTRO_NO_MIGRADO",  # boletas del registro con estado sin homologar
         "BOLETA_NO_MIGRADA",  # pagos de boletas rechazadas o inexistentes
+        "LICENCIAS_SUPERPUESTAS",
     } <= codigos
-    # Las dos filas con la misma matrícula se observan (no se elige una).
-    assert sum(o.codigo == "MATRICULA_DUPLICADA" for o in st.observaciones) == 2
+    # Las dos filas con el mismo CUIT se observan (no se elige una).
+    assert sum(o.codigo == "CUIT_DUPLICADO" for o in st.observaciones) == 2
+    # La matrícula repetida no es un defecto (el Colegio la reasigna): ya no se observa.
+    assert not {"MATRICULA_DUPLICADA", "MATRICULA_EXISTENTE"} & codigos
+    repetidas = [e.matricula for e in st.escribanos if e.matricula is not None]
+    assert len(repetidas) > len(set(repetidas))
+    # La licencia del escribano rechazado cae en cascada; las superpuestas, las dos.
+    rechazadas = {o.codigo_legado for o in st.observaciones if o.entidad is Entidad.LICENCIAS}
+    assert {"LIC-ESCRIBANO-RECHAZADO", "LIC-SUPERPUESTA-0", "LIC-SUPERPUESTA-1"} <= rechazadas
     # Cada fila leída está cargable o rechazada, nunca en el limbo.
     for entidad in Entidad:
         cargables = len(getattr(st, entidad.value))
@@ -119,12 +127,11 @@ def test_choques_con_la_suite(lote: Callable[..., Path]) -> None:
     primera = lote_leido.filas[Entidad.ESCRIBANOS][0].datos
     existentes = Existentes(
         cuits=frozenset({primera["cuit"]}),
-        matriculas=frozenset({int(lote_leido.filas[Entidad.ESCRIBANOS][1].datos["matricula"])}),
         registros=frozenset({int(lote_leido.filas[Entidad.REGISTROS][0].datos["numero_registro"])}),
     )
     st = validar(lote_leido, homologacion.cargar(), existentes)
     codigos = {o.codigo for o in st.observaciones if o.severidad is Severidad.BLOQUEANTE}
-    assert {"CUIT_EXISTENTE", "MATRICULA_EXISTENTE", "REGISTRO_EXISTENTE"} <= codigos
+    assert {"CUIT_EXISTENTE", "REGISTRO_EXISTENTE"} <= codigos
 
 
 def test_homologacion_invalida(tmp_path: Path) -> None:

@@ -1,14 +1,15 @@
 """Carga del staging validado en la Suite, dentro de la transacción del llamador.
 
-Inserta en orden de dependencias (circunscripciones, registros, personas y escribanos, cargos,
-boletas, pagos y créditos históricos) con ids generados acá, y deja el mapeo código del
-origen → id.
+Inserta en orden de dependencias (circunscripciones, registros y su domicilio vigente,
+personas y escribanos, cargos, licencias, boletas, pagos y créditos históricos) con ids
+generados acá, y deja el mapeo código del origen → id.
 No borra ni actualiza nada existente: lo que choca con datos de la Suite ya quedó observado.
 """
 
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +20,9 @@ from app.modules.migracion.validacion import Staging
 from app.modules.padron.models import (
     Adscripcion,
     Circunscripcion,
+    DomicilioRegistro,
     Escribano,
+    Licencia,
     Persona,
     RegistroNotarial,
 )
@@ -87,9 +90,26 @@ async def cargar(
             }
         )
     await _insertar(session, RegistroNotarial, registros)
+    # Historia del domicilio: el que trae el origen queda vigente desde la creación del registro
+    # (o desde el día de la corrida, si el origen no la tiene).
+    await _insertar(
+        session,
+        DomicilioRegistro,
+        [
+            {
+                "id": uuid.uuid4(),
+                "registro_id": c.ids[Entidad.REGISTROS][r.codigo],
+                "domicilio": r.domicilio,
+                "fecha_desde": r.fecha_creacion or st.fecha_corrida,
+                "created_by_user_id": operador_id,
+            }
+            for r in st.registros
+        ],
+    )
 
     personas: list[dict[str, object]] = []
     escribanos: list[dict[str, object]] = []
+    ahora = datetime.now(UTC)
     for e in st.escribanos:
         pid, eid = uuid.uuid4(), uuid.uuid4()
         c.ids[Entidad.ESCRIBANOS][e.codigo] = eid
@@ -113,6 +133,14 @@ async def cargar(
                 "matricula_numero": e.matricula,
                 "fecha_matriculacion": e.fecha_matriculacion,
                 "estado_matricula": e.estado,
+                "primera_escritura_fecha": e.primera_escritura_fecha,
+                "primera_escritura_numero": e.primera_escritura_numero,
+                "primera_escritura_registro": e.primera_escritura_registro,
+                "primera_escritura_folio": e.primera_escritura_folio,
+                "primera_escritura_cargada_por_user_id": (
+                    operador_id if e.primera_escritura_fecha else None
+                ),
+                "primera_escritura_cargada_en": ahora if e.primera_escritura_fecha else None,
                 "created_by_user_id": operador_id,
             }
         )
@@ -137,6 +165,23 @@ async def cargar(
             }
         )
     await _insertar(session, Adscripcion, cargos)
+
+    licencias = []
+    for lic in st.licencias:
+        lid = uuid.uuid4()
+        c.ids[Entidad.LICENCIAS][lic.codigo] = lid
+        licencias.append(
+            {
+                "id": lid,
+                "escribano_id": c.ids[Entidad.ESCRIBANOS][lic.escribano],
+                "fecha_desde": lic.desde,
+                "fecha_hasta": lic.hasta,
+                "motivo": lic.motivo,
+                "anulada": False,
+                "created_by_user_id": operador_id,
+            }
+        )
+    await _insertar(session, Licencia, licencias)
 
     boletas = []
     for b in st.boletas:

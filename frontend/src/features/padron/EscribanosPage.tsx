@@ -141,10 +141,15 @@ export function EscribanosPage() {
                       Mat. {matriculaTexto(row.matricula_numero)} · {row.cuit ?? CUIT_A_COMPLETAR}
                     </span>
                   </span>
-                  <StatusIndicator
-                    tone={ESTADO_MATRICULA[row.estado_matricula].tone}
-                    label={ESTADO_MATRICULA[row.estado_matricula].label}
-                  />
+                  <span className="flex flex-col items-end gap-1">
+                    <StatusIndicator
+                      tone={ESTADO_MATRICULA[row.estado_matricula].tone}
+                      label={ESTADO_MATRICULA[row.estado_matricula].label}
+                    />
+                    {row.en_licencia_desde && (
+                      <StatusIndicator tone="warning" label="En licencia" />
+                    )}
+                  </span>
                 </span>
                 <span className="mt-1 block text-sm text-ink-muted">
                   {row.registro_actual && row.cargo_actual
@@ -224,10 +229,15 @@ export function EscribanosPage() {
                     )}
                   </td>
                   <td className="px-3 py-3">
-                    <StatusIndicator
-                      tone={ESTADO_MATRICULA[row.estado_matricula].tone}
-                      label={ESTADO_MATRICULA[row.estado_matricula].label}
-                    />
+                    <span className="flex flex-wrap gap-1">
+                      <StatusIndicator
+                        tone={ESTADO_MATRICULA[row.estado_matricula].tone}
+                        label={ESTADO_MATRICULA[row.estado_matricula].label}
+                      />
+                      {row.en_licencia_desde && (
+                        <StatusIndicator tone="warning" label="En licencia" />
+                      )}
+                    </span>
                   </td>
                   <td className="px-5 py-3 text-right sm:px-6">
                     <ChevronRight

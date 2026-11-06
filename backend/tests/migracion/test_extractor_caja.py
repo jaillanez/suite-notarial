@@ -343,3 +343,152 @@ def test_mismo_apellido_sin_confirmacion_no_se_une(tmp_path: Path) -> None:
     pagos = _libro(tmp_path / "p.xlsx", "aportes", ENCABEZADO_PAGOS, [])
     lote = ex.extraer(listado, pagos)
     assert len(lote.archivos["escribanos"]) == 2
+
+
+def _con_licencia(fila: list[object], alta: object, baja: object = None) -> list[object]:
+    fila = list(fila)
+    fila[12], fila[13], fila[15] = alta, baja, "CON LICENCIA" if baja is None else None
+    return fila
+
+
+def test_licencias_del_listado(tmp_path: Path) -> None:
+    listado = _libro(
+        tmp_path / "l.xlsx",
+        "TODOS",
+        ENCABEZADO_LISTADO,
+        [
+            # La misma licencia en las dos filas de la persona (una por registro): una sola.
+            _con_licencia(
+                _fila_listado(
+                    10,
+                    "ADSCRIPTO",
+                    "PEREZ",
+                    "ANA",
+                    CUIT_A,
+                    date(2005, 3, 1),
+                    date(2010, 2, 1),
+                    "DESADSCRIPTO",
+                ),
+                date(2008, 1, 10),
+                date(2008, 6, 30),
+            ),
+            _con_licencia(
+                _fila_listado(
+                    11, "TITULAR", "PEREZ", "ANA", CUIT_A, date(2010, 2, 1), None, "ACTIVO"
+                ),
+                date(2008, 1, 10),
+                date(2008, 6, 30),
+            ),
+            # Licencia vigente (sin baja de licencia).
+            _con_licencia(
+                _fila_listado(
+                    12,
+                    "TITULAR",
+                    "SOSA",
+                    "RAUL",
+                    CUIT_C,
+                    date(2012, 1, 1),
+                    None,
+                    "ACTIVO con LICENCIA",
+                ),
+                date(2025, 8, 1),
+            ),
+            # Vigente de alguien que ya no ejerce: se emite, anotada para revisar.
+            _con_licencia(
+                _fila_listado(
+                    13,
+                    "TITULAR",
+                    "GOMEZ",
+                    "LUCIA",
+                    CUIT_B,
+                    date(1990, 1, 1),
+                    date(2015, 1, 1),
+                    "FALLECIDO",
+                ),
+                date(2014, 3, 1),
+            ),
+            # Baja de licencia sin alta: no se migra.
+            _con_licencia(
+                _fila_listado(
+                    14, "TITULAR", "DIAZ", "JOSE", None, date(2000, 1, 1), None, "ACTIVO"
+                ),
+                None,
+                date(2001, 1, 1),
+            ),
+        ],
+    )
+    pagos = _libro(tmp_path / "p.xlsx", "aportes", ENCABEZADO_PAGOS, [])
+    salida = tmp_path / "lote"
+    ex.guardar(ex.extraer(listado, pagos), salida)
+
+    licencias = {
+        (lic["escribano"], lic["fecha_desde"], lic["fecha_hasta"])
+        for lic in _leer(salida, "licencias")
+    }
+    assert licencias == {
+        (f"ESC-{CUIT_A}", "2008-01-10", "2008-06-30"),
+        (f"ESC-{CUIT_C}", "2025-08-01", ""),
+        (f"ESC-{CUIT_B}", "2014-03-01", ""),
+    }
+    acciones = {(a["accion"], a["codigo_legado"]) for a in _leer(salida, "extraccion")}
+    assert ("LICENCIA_A_REVISAR", "LIC-7") in acciones  # fila 7 del Excel: GOMEZ
+    assert any(accion == "LICENCIA_SIN_INICIO" for accion, _ in acciones)
+    control = {c["entidad"]: c for c in _leer(salida, "control")}
+    assert control["licencias"]["filas"] == "3"
+    # Una sola circunscripción: todos los registros van a «San Juan».
+    assert {r["circunscripcion"] for r in _leer(salida, "registros")} == {"San Juan"}
+
+    # El lote respeta el formato de intercambio (columnas y orden) y se lee entero.
+    obligatorias, opcionales = formato.COLUMNAS[Entidad.LICENCIAS]
+    assert ex.COLUMNAS["licencias"] == (*obligatorias, *opcionales)
+    leido = formato.leer_lote(salida)
+    assert Entidad.LICENCIAS in leido.presentes
+    assert len(leido.filas[Entidad.LICENCIAS]) == 3
+
+
+def test_licencia_repetida_con_otra_baja_queda_anotada(tmp_path: Path) -> None:
+    listado = _libro(
+        tmp_path / "l.xlsx",
+        "TODOS",
+        ENCABEZADO_LISTADO,
+        [
+            _con_licencia(
+                _fila_listado(
+                    10,
+                    "ADSCRIPTO",
+                    "PEREZ",
+                    "ANA",
+                    CUIT_A,
+                    date(2005, 3, 1),
+                    date(2010, 2, 1),
+                    "DESADSCRIPTO",
+                ),
+                date(2008, 1, 10),
+                date(2008, 6, 30),
+            ),
+            _con_licencia(
+                _fila_listado(
+                    11, "TITULAR", "PEREZ", "ANA", CUIT_A, date(2010, 2, 1), None, "ACTIVO"
+                ),
+                date(2008, 1, 10),
+                date(2008, 7, 31),
+            ),
+        ],
+    )
+    pagos = _libro(tmp_path / "p.xlsx", "aportes", ENCABEZADO_PAGOS, [])
+    lote = ex.extraer(listado, pagos)
+    assert [lic["fecha_hasta"] for lic in lote.archivos["licencias"]] == ["2008-06-30"]
+    assert any(a["accion"] == "LICENCIA_REPETIDA_DISTINTA" for a in lote.extraccion)
+
+
+def test_circunscripcion_de_la_caja_se_respeta(tmp_path: Path) -> None:
+    listado, pagos = _planillas(tmp_path)
+    archivo = tmp_path / "registros.csv"
+    archivo.write_text(
+        "numero_registro;departamento;circunscripcion\n11;Rivadavia;\n", encoding="utf-8"
+    )
+    registros = {
+        r["numero_registro"]: r for r in ex.extraer(listado, pagos, archivo).archivos["registros"]
+    }
+    assert registros["11"]["circunscripcion"] == "San Juan"
+    assert registros["10"]["circunscripcion"] == "San Juan"

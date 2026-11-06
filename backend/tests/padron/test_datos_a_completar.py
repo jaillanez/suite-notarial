@@ -1,4 +1,4 @@
-"""Escribanos migrados sin matrícula, fecha de matriculación, CUIT o documento («a completar»)."""
+"""Escribanos migrados sin matrícula, fecha de juramento, CUIT o documento («a completar»)."""
 
 import uuid
 from typing import Any
@@ -15,6 +15,8 @@ from tests.iam.test_rbac import login
 from tests.padron.conftest import Factory, valid_cuit
 
 TODOS = ["matricula_numero", "fecha_matriculacion", "cuit", "numero_documento"]
+# La primera escritura llega después de la afiliación: también figura «a completar».
+PRIMERA = "primera_escritura"
 
 
 async def _vaciar(db_session: AsyncSession, escribano_id: str, *campos: str) -> None:
@@ -45,7 +47,7 @@ async def test_ficha_y_listado_con_datos_a_completar(
     await _vaciar(db_session, b["id"], *TODOS)
 
     detalle = (await caja.get(_url(a))).json()
-    assert detalle["a_completar"] == TODOS
+    assert detalle["a_completar"] == [*TODOS, PRIMERA]
     assert detalle["matricula_numero"] is None
     assert detalle["fecha_matriculacion"] is None
     assert detalle["cuit"] is None and detalle["persona"]["cuit"] is None
@@ -77,7 +79,7 @@ async def test_completar_una_vez_y_auditado(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["a_completar"] == []
+    assert body["a_completar"] == [PRIMERA]
     assert body["matricula_numero"] == 654_321
     assert body["fecha_matriculacion"] == "2001-03-01"
     assert body["persona"]["cuit"].replace("-", "") == cuit
@@ -113,10 +115,10 @@ async def test_completar_solo_lo_que_falta(
     assert (await caja.post(f"{_url(item)}/completar", json={})).status_code == 422
     ok = await caja.post(f"{_url(item)}/completar", json={"matricula_numero": 777_777})
     assert ok.status_code == 200
-    assert ok.json()["a_completar"] == []
+    assert ok.json()["a_completar"] == [PRIMERA]
 
 
-async def test_completar_valida_cuit_y_unicidad(
+async def test_completar_valida_cuit_y_matricula_repetible(
     caja: AsyncClient, escribano: Factory, db_session: AsyncSession
 ) -> None:
     otro = await escribano()
@@ -132,10 +134,11 @@ async def test_completar_valida_cuit_y_unicidad(
     )
     assert cuit_repetido.status_code == 409
     assert "CUIT" in cuit_repetido.json()["detail"]
+    # La matrícula no es única: se puede completar con una que ya tiene otro escribano.
     matricula_repetida = await caja.post(
         f"{_url(item)}/completar", json={"matricula_numero": otro["matricula_numero"]}
     )
-    assert matricula_repetida.status_code == 409
+    assert matricula_repetida.status_code == 200, matricula_repetida.text
     assert (
         await caja.post(f"{_url(item)}/completar", json={"matricula_numero": 0})
     ).status_code == 422
@@ -151,7 +154,7 @@ async def test_fecha_no_posterior_al_primer_cargo(
         json={"registro_id": reg["id"], "cargo": "TITULAR", "fecha_desde": "2018-01-01"},
     )
     assert cargo.status_code == 201, cargo.text
-    # Escribano migrado con cargo y sin fecha de matriculación.
+    # Escribano migrado con cargo y sin fecha de juramento.
     await _vaciar(db_session, item["id"], "fecha_matriculacion")
 
     tarde = await caja.post(f"{_url(item)}/completar", json={"fecha_matriculacion": "2019-01-01"})
@@ -160,7 +163,7 @@ async def test_fecha_no_posterior_al_primer_cargo(
     assert ok.status_code == 200
 
 
-async def test_sin_fecha_de_matriculacion_no_se_asignan_cargos_ni_estados(
+async def test_sin_fecha_de_juramento_no_se_asignan_cargos_ni_estados(
     caja: AsyncClient, escribano: Factory, registro: Factory, db_session: AsyncSession
 ) -> None:
     item = await escribano()
