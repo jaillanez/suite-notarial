@@ -67,6 +67,9 @@ FECHAS = (
 
 # --------------------------------------------------------------------------- escribanos
 
+# Dato que faltaba en el sistema anterior y la Caja todavía no cargó.
+A_COMPLETAR = "A completar"
+
 CARGO_TEXTO = {
     Cargo.TITULAR.value: "Titular",
     Cargo.ADSCRIPTO.value: "Adscripto",
@@ -117,14 +120,16 @@ ESCRIBANOS = Reporte(
     permiso=Perm.ESCRIBANOS_READ,
     sensible=True,
     columnas=(
-        Columna("matricula", "Matrícula", Tipo.ENTERO),
+        Columna("matricula", "Matrícula", Tipo.ENTERO, vacio=A_COMPLETAR),
         Columna("apellido_nombre", "Apellido y nombre"),
-        Columna("cuit", "CUIT", Tipo.CUIT),
+        Columna("cuit", "CUIT", Tipo.CUIT, vacio=A_COMPLETAR),
         Columna("estado", "Estado"),
         Columna("registro", "Registro", Tipo.ENTERO),
         Columna("cargo", "Cargo"),
         Columna("departamento", "Departamento", visible=False),
-        Columna("fecha_matriculacion", "Matriculación", Tipo.FECHA, visible=False),
+        Columna(
+            "fecha_matriculacion", "Matriculación", Tipo.FECHA, visible=False, vacio=A_COMPLETAR
+        ),
         Columna("email", "Correo", visible=False),
         Columna("telefono", "Teléfono", visible=False),
     ),

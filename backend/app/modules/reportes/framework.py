@@ -55,6 +55,8 @@ class Columna:
     total: bool = False
     # Visible por defecto en pantalla; todas salen en la exportación.
     visible: bool = True
+    # Texto para un valor vacío (p. ej. «A completar»): el mismo en pantalla y en la exportación.
+    vacio: str | None = None
 
 
 @dataclass(frozen=True)

@@ -40,7 +40,7 @@ def _decimal_ar(valor: Decimal) -> str:
 def texto(col: Columna, valor: Any) -> str:
     """Representación textual (CSV y descripción de filtros)."""
     if valor is None:
-        return ""
+        return col.vacio or ""
     if col.tipo is Tipo.MONEDA:
         return _decimal_ar(Decimal(valor))
     if col.tipo is Tipo.FECHA and isinstance(valor, date):
@@ -168,6 +168,9 @@ def a_xlsx(
 
 def _escribir(cell: Any, col: Columna, valor: Any) -> None:
     if valor is None:
+        if col.vacio:
+            cell.value = col.vacio
+            cell.data_type = "s"
         return
     if col.tipo is Tipo.MONEDA:
         # openpyxl escribe el Decimal tal cual en el XML (sin conversión binaria).
