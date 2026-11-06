@@ -7,13 +7,14 @@ from typing import Annotated
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from app.modules.parametros.schemas import Money, Rate
-from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Sistema
+from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Moneda, Sistema
 
 Codigo = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Z][A-Z0-9_]{2,49}$")]
 Nombre = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=150)]
 Texto = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)]
 Motivo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1000)]
 Plazo = Annotated[int, Field(gt=0, le=360)]
+Porcentaje = Annotated[Rate, Field(gt=0, le=100)]
 
 
 class LineaIn(BaseModel):
@@ -28,6 +29,14 @@ class LineaIn(BaseModel):
     tna: Rate
     afectacion_maxima: Annotated[Rate, Field(gt=0)]
     requiere_garante: bool = False
+    moneda: Moneda = Moneda.ARS
+    garantia: Texto | None = None
+    requisito_conducta: Texto | None = None
+    # Capital sobre el valor del inmueble hipotecado, en %.
+    relacion_capital_hipoteca: Porcentaje | None = None
+    requiere_certificado_ingresos: bool = False
+    requiere_certificado_bienes: bool = False
+    antiguedad_minima_meses: Annotated[int, Field(gt=0, le=600)] | None = None
     es_ejemplo: bool = False
     is_active: bool = True
 
@@ -94,6 +103,7 @@ class Totales(BaseModel):
 
 
 class EvaluacionOut(BaseModel):
+    moneda: Moneda
     sistema: Sistema
     tna: Rate
     tasa_es_ejemplo: bool
@@ -106,6 +116,8 @@ class EvaluacionOut(BaseModel):
     requiere_garante: bool
     # Motivos por los que no se puede otorgar (vacío = viable).
     impedimentos: list[str]
+    # Avisos que no impiden otorgar pero hay que revisar (p. ej. antigüedad no verificable).
+    avisos: list[str]
     plan: list[CuotaOut]
     totales: Totales
 
@@ -124,6 +136,7 @@ class PrestamoOut(BaseModel):
     linea_id: uuid.UUID
     linea_nombre: str
     estado: EstadoPrestamo
+    moneda: Moneda
     sistema: Sistema
     tna: Rate
     tasa_es_ejemplo: bool
@@ -152,4 +165,5 @@ class PrestamoDetalle(PrestamoOut):
     totales: Totales
     # Solo en solicitudes: cómo quedaría hoy la evaluación (puede cambiar hasta otorgar).
     impedimentos_actuales: list[str]
+    avisos_actuales: list[str]
     puede_resolver: bool
