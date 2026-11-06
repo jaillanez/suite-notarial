@@ -10,6 +10,7 @@ import { Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { useSession } from '../auth/session'
+import { PuntosPanel } from '../previsional/PuntosPanel'
 import { fetchEscribano, type CargoItem } from './api'
 import {
   AsignarCargoDialog,
@@ -235,6 +236,8 @@ export function EscribanoPage() {
           </ul>
         )}
       </Panel>
+
+      {can('puntos:read_all') && <PuntosPanel className="mt-6" escribanoId={e.id} />}
 
       <Panel
         className="mt-6"

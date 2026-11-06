@@ -33,13 +33,15 @@ const NAV: NavItem[] = [
   {
     to: '/reportes',
     label: 'Reportes',
-    permission: ['reports:financial', 'audit:read', 'escribanos:read'],
+    permission: ['reports:financial', 'audit:read', 'escribanos:read', 'puntos:read_all'],
   },
   {
     to: '/prestamos',
     label: 'Préstamos',
     permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
   },
+  { to: '/mis-puntos', label: 'Mis puntos', permission: 'puntos:read_own' },
+  { to: '/previsional/puntos', label: 'Aportes y puntos', permission: 'puntos:read_all' },
   { to: '/cms', label: 'Sitio', permission: 'cms:publish' },
   { to: '/migracion', label: 'Migración', permission: 'migracion:read' },
   { to: '/usuarios', label: 'Usuarios', permission: 'users:read' },
