@@ -1,8 +1,19 @@
+import type { QueryClient } from '@tanstack/react-query'
 import { createContext, useContext } from 'react'
 
 import type { SessionUser } from './api'
 
 export const SESSION_KEY = ['session'] as const
+
+/**
+ * Borra de memoria todo lo cacheado con la sesión anterior (consultas y mutaciones), salvo la
+ * sesión misma. Se llama al cerrar sesión, cuando la sesión vence y cuando cambia la persona:
+ * otra cuenta en el mismo navegador nunca ve datos de la anterior.
+ */
+export function clearUserData(queryClient: QueryClient): void {
+  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] })
+  queryClient.getMutationCache().clear()
+}
 
 export interface SessionState {
   user: SessionUser | null

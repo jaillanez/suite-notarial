@@ -9,6 +9,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 MONEY_QUANT = Decimal("0.01")
 RATE_QUANT = Decimal("0.0001")
+# Puntos previsionales y aporte medio del ejercicio (Ley 7231): columnas `Numeric(18,6)`.
+POINTS_QUANT = Decimal("0.000001")
 
 type DecimalInput = Decimal | int | str
 
@@ -33,6 +35,11 @@ def to_money(value: DecimalInput) -> Decimal:
 def to_rate(value: DecimalInput) -> Decimal:
     """Cuantiza a 4 decimales con ROUND_HALF_UP (columnas `Numeric(18,4)` / `Numeric(6,4)`)."""
     return _to_decimal(value).quantize(RATE_QUANT, rounding=ROUND_HALF_UP)
+
+
+def to_points(value: DecimalInput) -> Decimal:
+    """Cuantiza a 6 decimales con ROUND_HALF_UP (puntos y aporte medio, `Numeric(18,6)`)."""
+    return _to_decimal(value).quantize(POINTS_QUANT, rounding=ROUND_HALF_UP)
 
 
 def format_pesos(monto: Decimal) -> str:

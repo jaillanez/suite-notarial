@@ -39,6 +39,9 @@ class Perm(StrEnum):
     MIGRACION_READ = "migracion:read"
     MIGRACION_CONFORMAR = "migracion:conformar"
     MIGRACION_EJECUTAR = "migracion:ejecutar"
+    PUNTOS_READ_OWN = "puntos:read_own"
+    PUNTOS_READ_ALL = "puntos:read_all"
+    PUNTOS_MANAGE = "puntos:manage"
 
 
 PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
@@ -71,6 +74,9 @@ PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
     Perm.MIGRACION_READ: "Consultar corridas de migración, cuadratura y observaciones",
     Perm.MIGRACION_CONFORMAR: "Firmar la conformidad de un simulacro de migración",
     Perm.MIGRACION_EJECUTAR: "Ejecutar simulacros y la carga definitiva de la migración",
+    Perm.PUNTOS_READ_OWN: "Consultar el informe propio de aportes y puntos (Ley 7231)",
+    Perm.PUNTOS_READ_ALL: "Consultar aportes y puntos (Ley 7231) de cualquier afiliado",
+    Perm.PUNTOS_MANAGE: "Cargar la planilla de puntos y vincular puntos con escribanos del padrón",
 }
 
 
@@ -90,6 +96,7 @@ _OWN = frozenset(
         Perm.BOLETAS_READ_OWN,
         Perm.COMPROBANTES_UPLOAD,
         Perm.PRESTAMOS_READ_OWN,
+        Perm.PUNTOS_READ_OWN,
     }
 )
 
@@ -121,6 +128,8 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.PRESTAMOS_MANAGE,
                 Perm.MIGRACION_READ,
                 Perm.MIGRACION_CONFORMAR,
+                Perm.PUNTOS_READ_ALL,
+                Perm.PUNTOS_MANAGE,
             }
         ),
     ),
@@ -141,6 +150,7 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.PRESTAMOS_COBRAR,
                 Perm.MIGRACION_READ,
                 Perm.MIGRACION_CONFORMAR,
+                Perm.PUNTOS_READ_ALL,
             }
         ),
     ),
@@ -167,6 +177,7 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.REPORTS_FINANCIAL,
                 Perm.AUDIT_READ,
                 Perm.MIGRACION_READ,
+                Perm.PUNTOS_READ_ALL,
             }
         ),
     ),
@@ -206,5 +217,7 @@ SENSITIVE_PERMISSIONS: frozenset[Perm] = frozenset(
         Perm.MIGRACION_READ,
         Perm.MIGRACION_CONFORMAR,
         Perm.MIGRACION_EJECUTAR,
+        Perm.PUNTOS_READ_ALL,
+        Perm.PUNTOS_MANAGE,
     }
 )
