@@ -37,7 +37,7 @@ SIMBOLO_MONEDA: dict[Moneda, str] = {Moneda.ARS: "$", Moneda.USD: "US$"}
 
 # TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
 # Mientras tanto, en un préstamo en dólares el ingreso neto se declara en dólares y la
-# afectación solo suma cuotas de préstamos en la misma moneda.
+# afectación solo suma cuotas de la misma moneda (préstamos en otra moneda impiden otorgar).
 AVISO_TIPO_CAMBIO = (
     "Préstamo en dólares: el ingreso neto se declara en dólares. La Caja todavía no definió "
     "el tipo de cambio para evaluar la afectación con ingresos o préstamos en pesos."

@@ -8,8 +8,9 @@ Reglas (los valores concretos —tasas, plazos, topes— son parámetros de cada
 - Quien carga la solicitud no la resuelve (cuatro ojos). Al otorgar se reevalúa todo con los
   datos del día y se genera el plan de cuotas, inmutable.
 - Las cuotas se cobran en orden. TODO(negocio): interés punitorio por pago fuera de término.
-- Moneda: cada préstamo está en la moneda de su línea (pesos o dólares). La afectación suma solo
-  cuotas de la misma moneda; en dólares el ingreso neto se declara en dólares.
+- Moneda: cada préstamo está en la moneda de su línea (pesos o dólares); en dólares el ingreso
+  neto se declara en dólares. Quien tiene préstamos vigentes o solicitados en otra moneda no
+  puede solicitar ni recibir uno nuevo: sin tipo de cambio la afectación no se puede evaluar.
   TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
 - Antigüedad en la matrícula: se exige si la línea la fija y se conoce la fecha de
   matriculación; si falta, no bloquea y queda como aviso para quien resuelve.
@@ -242,7 +243,7 @@ async def compromiso_vigente(
     """Suma de la próxima cuota impaga de cada préstamo vigente del escribano en `moneda`.
 
     Nunca mezcla monedas. TODO(negocio): definir tipo de cambio para evaluar la afectación de
-    préstamos en dólares (hoy los préstamos en la otra moneda solo se avisan).
+    préstamos en dólares (hoy tener préstamos en otra moneda impide otorgar).
     """
     proxima = (
         select(CuotaPrestamo.prestamo_id, func.min(CuotaPrestamo.numero).label("numero"))
@@ -271,18 +272,33 @@ async def compromiso_vigente(
     return Decimal(await session.scalar(stmt) or 0).quantize(Decimal("0.01"))
 
 
-async def vigentes_en_otra_moneda(
-    session: AsyncSession, escribano_id: uuid.UUID, moneda: str
+OTRA_MONEDA = (
+    "Tiene préstamos vigentes en otra moneda: hasta que la Caja defina el tipo de cambio no se "
+    "puede evaluar la afectación."
+)
+
+
+async def prestamos_en_otra_moneda(
+    session: AsyncSession,
+    escribano_id: uuid.UUID,
+    moneda: str,
+    *,
+    excluir: uuid.UUID | None = None,
 ) -> bool:
-    return bool(
-        await session.scalar(
-            select(func.count()).where(
-                Prestamo.escribano_id == escribano_id,
-                Prestamo.estado == VIGENTE,
-                Prestamo.moneda != moneda,
-            )
-        )
+    """Préstamos vigentes o solicitados (pendientes de otorgar) en otra moneda.
+
+    TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
+    Sin él, la afectación de un escribano con préstamos en pesos y en dólares no se puede
+    calcular, y mezclar monedas permitiría superar el tope: se bloquea.
+    """
+    stmt = select(func.count()).where(
+        Prestamo.escribano_id == escribano_id,
+        Prestamo.estado.in_((VIGENTE, EstadoPrestamo.SOLICITADO.value)),
+        Prestamo.moneda != moneda,
     )
+    if excluir is not None:
+        stmt = stmt.where(Prestamo.id != excluir)
+    return bool(await session.scalar(stmt))
 
 
 def antiguedad_suficiente(fecha_matriculacion: date, meses: int, hoy: date) -> bool:
@@ -441,11 +457,9 @@ async def evaluar(
         otras = await compromiso_vigente(
             session, escribano.id, moneda=moneda.value, excluir=excluir
         )
-        if await vigentes_en_otra_moneda(session, escribano.id, moneda.value):
-            avisos.append(
-                "El solicitante tiene préstamos vigentes en otra moneda: no se suman a la "
-                "afectación hasta que la Caja defina el tipo de cambio."
-            )
+        # Bloqueante (no aviso): sin tipo de cambio, mezclar monedas evadiría el tope.
+        if await prestamos_en_otra_moneda(session, escribano.id, moneda.value, excluir=excluir):
+            impedimentos.append(OTRA_MONEDA)
     if ingreso_neto is not None:
         afectacion = motor.afectacion(cuota_maxima + otras, ingreso_neto)
         if afectacion > linea.afectacion_maxima:

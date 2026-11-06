@@ -16,7 +16,7 @@ from app.common.money import format_importe, format_pesos
 from app.modules.padron.models import Escribano
 from app.modules.prestamos import service
 from app.modules.prestamos.catalog import AVISO_TIPO_CAMBIO
-from app.modules.prestamos.models import Linea
+from app.modules.prestamos.models import Linea, Prestamo
 from tests.ddjj.conftest import HOY, Escenario
 from tests.prestamos.test_prestamos import _otorgado, solicitud
 
@@ -93,16 +93,16 @@ async def test_linea_en_dolares_simula_y_otorga_en_dolares(
     assert {x["moneda"] for x in listado if x["id"] == p["id"]} == {"USD"}
 
 
-async def test_la_afectacion_no_mezcla_monedas(
+async def test_prestamo_vigente_en_otra_moneda_impide_solicitar(
     staff: AsyncClient,
     admin: AsyncClient,
     escenario: Escenario,
     crear_linea: Callable[..., Any],
     reloj: Callable[[date], None],
 ) -> None:
+    """Sin tipo de cambio no se puede sumar pesos y dólares: mezclar monedas evadiría el tope."""
     pesos = await crear_linea()
     dolares = await crear_linea(**LINEA_USD)
-    # 8.884,88 / 30.000 = 29,6163 % en pesos.
     await _otorgado(staff, admin, solicitud(escenario, pesos, ingreso_neto="30000"))
 
     sim = await staff.post(
@@ -115,20 +115,78 @@ async def test_la_afectacion_no_mezcla_monedas(
             "escribano_id": str(escenario.titular.id),
         },
     )
-    s = sim.json()
-    # La cuota en pesos no se suma a dólares: sin tipo de cambio, solo se avisa.
-    assert s["otras_cuotas"] == "0.00"
-    assert s["impedimentos"] == []
-    assert any("préstamos vigentes en otra moneda" in a for a in s["avisos"])
+    assert sim.json()["otras_cuotas"] == "0.00"
+    assert service.OTRA_MONEDA in sim.json()["impedimentos"]
 
+    rechazada = await staff.post(
+        "/api/v1/prestamos",
+        json=solicitud(escenario, dolares, capital="50000", cuotas=60, ingreso_neto="3301"),
+    )
+    assert rechazada.status_code == 422
+    assert service.OTRA_MONEDA in rechazada.json()["impedimentos"]
+
+    # En la misma moneda sigue valiendo el tope habitual (suma las cuotas en pesos).
+    misma = await staff.post(
+        "/api/v1/prestamos", json=solicitud(escenario, pesos, ingreso_neto="60000")
+    )
+    assert misma.status_code == 201, misma.text
+
+
+async def test_solicitud_en_otra_moneda_impide_otorgar(
+    staff: AsyncClient,
+    admin: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+    db_session: AsyncSession,
+) -> None:
+    pesos = await crear_linea()
+    dolares = await crear_linea(**LINEA_USD)
+    creado = await staff.post("/api/v1/prestamos", json=solicitud(escenario, pesos))
+    assert creado.status_code == 201, creado.text
+    # Mientras tanto aparece otra solicitud en dólares (p. ej. cargada antes por otra vía).
+    db_session.add(
+        Prestamo(
+            escribano_id=escenario.titular.id,
+            linea_id=uuid.UUID(dolares["id"]),
+            estado="SOLICITADO",
+            moneda="USD",
+            sistema="FRANCES",
+            tna=D("7.0000"),
+            capital=D("50000.00"),
+            cuotas=60,
+            tasa_es_ejemplo=False,
+            ingreso_neto=D("3301.00"),
+            otras_cuotas=D("0.00"),
+            cuota_maxima=D("990.06"),
+            afectacion=D("29.9927"),
+            afectacion_maxima=D("30.0000"),
+            creado_por_user_id=escenario.titular_user.id,
+        )
+    )
+    await db_session.commit()
+
+    detalle = (await admin.get(f"/api/v1/prestamos/{creado.json()['id']}")).json()
+    assert service.OTRA_MONEDA in detalle["impedimentos_actuales"]
+    otorgar = await admin.post(f"/api/v1/prestamos/{creado.json()['id']}/otorgar")
+    assert otorgar.status_code == 409
+    assert service.OTRA_MONEDA in otorgar.json()["impedimentos"]
+
+
+async def test_solicitud_en_dolares_avisa_el_tipo_de_cambio(
+    staff: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+) -> None:
+    dolares = await crear_linea(**LINEA_USD)
     creado = await staff.post(
         "/api/v1/prestamos",
         json=solicitud(escenario, dolares, capital="50000", cuotas=60, ingreso_neto="3301"),
     )
     assert creado.status_code == 201, creado.text
-    detalle = creado.json()
-    assert detalle["moneda"] == "USD"
-    assert AVISO_TIPO_CAMBIO in detalle["avisos_actuales"]
+    assert creado.json()["moneda"] == "USD"
+    assert AVISO_TIPO_CAMBIO in creado.json()["avisos_actuales"]
 
 
 async def test_la_moneda_de_un_prestamo_no_cambia(
