@@ -1,8 +1,10 @@
 """Validación del lote: normaliza cada fila y registra observaciones (sin base de datos).
 
 Reglas de calidad de la matriz de homologación (módulo 11 §3): CUIT por Módulo 11, unicidad de
-CUIT, matrícula, número de registro y códigos del origen, un único titular vigente por registro,
-un único cargo vigente por escribano, estados homologados, fechas y períodos válidos e importes
+CUIT, matrícula, número de registro y códigos del origen (CUIT, documento, matrícula y fecha de
+matriculación pueden faltar: se cargan vacíos, «a completar»; si vienen, se validan), un único
+titular vigente por registro, un único cargo vigente por escribano (por su código del origen),
+estados homologados, fechas y períodos válidos e importes
 exactos. Una fila con observación BLOQUEANTE no se carga, ni tampoco las que dependen de ella.
 
 Las observaciones no llevan datos personales: identifican la fila y el código del origen.
@@ -61,22 +63,23 @@ class RegistroN:
 @dataclass(frozen=True)
 class EscribanoN:
     codigo: str
-    cuit: str
+    # None: el origen no lo tiene; se carga vacío («a completar»).
+    cuit: str | None
     tipo_documento: str
-    numero_documento: str
+    numero_documento: str | None
     apellido: str
     nombre: str
     fecha_nacimiento: date | None
     email: str | None
-    matricula: int
-    fecha_matriculacion: date
+    matricula: int | None
+    fecha_matriculacion: date | None
     estado: str
 
 
 @dataclass(frozen=True)
 class CargoN:
     codigo: str
-    matricula: int
+    escribano: str  # codigo_legado del escribano
     numero_registro: int
     cargo: str
     desde: date
@@ -282,7 +285,7 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
         f = _Fila(st, Entidad.ESCRIBANOS, fila)
         if fila.numero in codigos:
             f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
-        cuit = f.campo("cuit", _cuit)
+        cuit = f.campo("cuit", _cuit, obligatorio=False)
         if fila.numero in cuits:
             f.observar("CUIT_DUPLICADO", "El CUIT se repite en el archivo.")
         elif cuit is not None and cuit in existentes.cuits:
@@ -290,7 +293,7 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
         tipo = (fila.datos.get("tipo_documento") or "DNI").strip().upper()
         if tipo not in {t.value for t in TipoDocumento}:
             f.observar("VALOR_INVALIDO", "«tipo_documento» no es DNI, LC, LE ni PASAPORTE.")
-        documento = f.campo("numero_documento", _texto(15))
+        documento = f.campo("numero_documento", _texto(15), obligatorio=False)
         if tipo == "DNI" and cuit and documento and documento.zfill(8) != cuit[2:10]:
             f.observar(
                 "DNI_DISTINTO_DEL_CUIT",
@@ -306,14 +309,14 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
                 "EMAIL_INVALIDO", "El correo no es válido: no se migra.", Severidad.ADVERTENCIA
             )
             email = None
-        matricula = f.campo("matricula", valores.entero)
+        matricula = f.campo("matricula", valores.entero, obligatorio=False)
         if fila.numero in matriculas:
             f.observar("MATRICULA_DUPLICADA", "La matrícula se repite en el archivo.")
         elif matricula is not None and matricula in existentes.matriculas:
             f.observar("MATRICULA_EXISTENTE", "La matrícula ya existe en la Suite.")
         if matricula == 0:
             f.observar("VALOR_INVALIDO", "«matricula» tiene que ser mayor que cero.")
-        matriculacion = f.campo("fecha_matriculacion", valores.fecha)
+        matriculacion = f.campo("fecha_matriculacion", valores.fecha, obligatorio=False)
         estado = f.homologar(hom, "estado_escribano", "estado")
         if _cerrar(st, Entidad.ESCRIBANOS, f):
             st.escribanos.append(
@@ -339,19 +342,19 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
 def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
     filas = lote.filas[Entidad.CARGOS]
     codigos = _duplicados(filas, lambda f: f.codigo)
-    escribanos = {e.matricula: e for e in st.escribanos}
+    escribanos = {e.codigo: e for e in st.escribanos}
     registros = {r.numero for r in st.registros}
     candidatos: list[tuple[_Fila, CargoN]] = []
     for fila in filas:
         f = _Fila(st, Entidad.CARGOS, fila)
         if fila.numero in codigos:
             f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
-        matricula = f.campo("matricula", valores.entero)
+        codigo_escribano = f.campo("escribano", _texto(100))
         numero = f.campo("numero_registro", valores.entero)
-        if matricula is not None and matricula not in escribanos:
+        if codigo_escribano is not None and codigo_escribano not in escribanos:
             f.observar(
                 "ESCRIBANO_NO_MIGRADO",
-                "La matrícula no corresponde a un escribano del lote que se pueda cargar.",
+                "«escribano» no corresponde a un escribano del lote que se pueda cargar.",
             )
         if numero is not None and numero not in registros:
             f.observar(
@@ -363,7 +366,7 @@ def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
         hasta = f.campo("fecha_hasta", valores.fecha, obligatorio=False)
         if desde and hasta and hasta < desde:
             f.observar("FECHAS_INVERTIDAS", "«fecha_hasta» es anterior a «fecha_desde».")
-        escribano = escribanos.get(matricula) if matricula is not None else None
+        escribano = escribanos.get(codigo_escribano) if codigo_escribano else None
         if (
             escribano is not None
             and hasta is None
@@ -375,18 +378,18 @@ def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
             )
         if not f.bloqueada:
             candidatos.append(
-                (f, CargoN(fila.codigo, matricula, numero, cargo or "", desde, hasta))
+                (f, CargoN(fila.codigo, codigo_escribano, numero, cargo or "", desde, hasta))
             )
         else:
             _cerrar(st, Entidad.CARGOS, f)
 
     # Unicidad de vigentes: se observan todas las filas en conflicto (no se elige una).
-    vigentes_escribano = Counter(c.matricula for _, c in candidatos if c.hasta is None)
+    vigentes_escribano = Counter(c.escribano for _, c in candidatos if c.hasta is None)
     titulares = Counter(
         c.numero_registro for _, c in candidatos if c.hasta is None and c.cargo == Cargo.TITULAR
     )
     for f, c in candidatos:
-        if c.hasta is None and vigentes_escribano[c.matricula] > 1:
+        if c.hasta is None and vigentes_escribano[c.escribano] > 1:
             f.observar("CARGOS_VIGENTES_MULTIPLES", "El escribano tiene más de un cargo vigente.")
         if c.hasta is None and c.cargo == Cargo.TITULAR and titulares[c.numero_registro] > 1:
             f.observar("TITULARES_MULTIPLES", "El registro tiene más de un titular vigente.")

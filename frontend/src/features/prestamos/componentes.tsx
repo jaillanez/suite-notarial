@@ -8,7 +8,7 @@ import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import { compararDecimal, formatMoney, formatPercent } from '../../lib/decimal'
 import { fetchEscribanos } from '../padron/api'
-import { formatDate } from '../padron/labels'
+import { formatDate, matriculaTexto } from '../padron/labels'
 import type { Cuota, Evaluacion, Totales } from './api'
 import { SISTEMA, estadoCuota } from './labels'
 
@@ -282,7 +282,7 @@ export function EscribanoPicker({
           },
           ...opciones.map((e) => ({
             value: e.id,
-            label: `${e.apellido_nombre} · Mat. ${String(e.matricula_numero)}${e.estado_matricula !== 'ACTIVO' ? ` · ${e.estado_matricula.toLowerCase()}` : ''}`,
+            label: `${e.apellido_nombre} · Mat. ${matriculaTexto(e.matricula_numero)}${e.estado_matricula !== 'ACTIVO' ? ` · ${e.estado_matricula.toLowerCase()}` : ''}`,
           })),
         ]}
       />

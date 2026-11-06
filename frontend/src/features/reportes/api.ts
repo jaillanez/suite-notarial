@@ -10,6 +10,8 @@ export interface Columna {
   tipo: TipoColumna
   total: boolean
   visible: boolean
+  /** Texto de un valor vacío (p. ej. «A completar»): el mismo que en la exportación. */
+  vacio: string | null
 }
 
 export interface Filtro {

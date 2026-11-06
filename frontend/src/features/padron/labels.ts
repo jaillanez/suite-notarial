@@ -1,5 +1,5 @@
 import type { Tone } from '../../components/StatusIndicator'
-import type { Cargo, EstadoMatricula, EstadoRegistro } from './api'
+import type { CampoACompletar, Cargo, EstadoMatricula, EstadoRegistro } from './api'
 
 export const ESTADO_MATRICULA: Record<EstadoMatricula, { label: string; tone: Tone }> = {
   ACTIVO: { label: 'Activo', tone: 'success' },
@@ -19,6 +19,22 @@ export const CARGO: Record<Cargo, string> = {
   TITULAR: 'Titular',
   ADSCRIPTO: 'Adscripto',
   SUPLENTE_INTERINO: 'A cargo',
+}
+
+/** Dato que faltaba en el sistema anterior y la Caja todavía no cargó. */
+export const A_COMPLETAR = 'A completar'
+export const CUIT_A_COMPLETAR = 'CUIT a completar'
+
+export const CAMPO_A_COMPLETAR: Record<CampoACompletar, string> = {
+  matricula_numero: 'Matrícula',
+  fecha_matriculacion: 'Fecha de matriculación',
+  cuit: 'CUIT',
+  numero_documento: 'DNI',
+}
+
+/** Matrícula para mostrar: el número o «A completar». */
+export function matriculaTexto(numero: number | null): string {
+  return numero === null ? A_COMPLETAR : String(numero)
 }
 
 export const ESTADOS_DEFINITIVOS: EstadoMatricula[] = ['CESANTE', 'JUBILADO', 'FALLECIDO']

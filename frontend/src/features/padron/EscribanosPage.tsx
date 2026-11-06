@@ -12,7 +12,7 @@ import { Select } from '../../components/ui/Select'
 import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { fetchDepartamentos, fetchEscribanos, type EscribanoFilters } from './api'
-import { CARGO, ESTADO_MATRICULA } from './labels'
+import { A_COMPLETAR, CARGO, CUIT_A_COMPLETAR, ESTADO_MATRICULA, matriculaTexto } from './labels'
 
 const PAGE_SIZE = 20
 
@@ -138,7 +138,7 @@ export function EscribanosPage() {
                   <span className="min-w-0">
                     <span className="block font-semibold">{row.apellido_nombre}</span>
                     <span className="block text-sm text-ink-muted tabular-nums">
-                      Mat. {row.matricula_numero} · {row.cuit}
+                      Mat. {matriculaTexto(row.matricula_numero)} · {row.cuit ?? CUIT_A_COMPLETAR}
                     </span>
                   </span>
                   <StatusIndicator
@@ -197,7 +197,7 @@ export function EscribanosPage() {
               {rows.map((row) => (
                 <tr key={row.id} className="group hover:bg-brand-50">
                   <td className="px-5 py-3 font-semibold text-ink tabular-nums sm:px-6">
-                    {row.matricula_numero}
+                    {matriculaTexto(row.matricula_numero)}
                   </td>
                   <td className="px-3 py-3">
                     <Link
@@ -207,7 +207,8 @@ export function EscribanosPage() {
                       {row.apellido_nombre}
                     </Link>
                     <span className="block text-ink-muted tabular-nums">
-                      {row.cuit} · DNI {row.numero_documento}
+                      {row.cuit ?? CUIT_A_COMPLETAR} · DNI{' '}
+                      {row.numero_documento ?? A_COMPLETAR.toLowerCase()}
                     </span>
                   </td>
                   <td className="px-3 py-3 text-ink">

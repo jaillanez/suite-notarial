@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.common.audit import AuditSecurityLog
 from app.modules.iam.models import User
 from app.modules.migracion import service
-from app.modules.migracion.catalog import EstadoCorrida, ModoCorrida
+from app.modules.migracion.catalog import Entidad, EstadoCorrida, ModoCorrida
 from app.modules.migracion.models import (
     Corrida,
     HistoricoBoleta,
@@ -270,14 +270,12 @@ async def test_deuda_historica_inhabilita_como_garante(
     r = await _simulacro(maker, lote(), operador)
     st = validar(formato.leer_lote(lote("cargado")), homologacion.cargar(), Existentes())
     async with db_session.begin_nested():
-        await carga.cargar(db_session, st, r.corrida_id, operador.id)
+        cargado = await carga.cargar(db_session, st, r.corrida_id, operador.id)
     impaga = next(b for b in st.boletas if b.estado == "IMPAGA")
     titular = next(
         c for c in st.cargos if c.numero_registro == impaga.numero_registro and c.cargo == "TITULAR"
     )
-    escribano = await db_session.scalar(
-        select(Escribano).where(Escribano.matricula_numero == titular.matricula)
-    )
+    escribano = await db_session.get(Escribano, cargado.ids[Entidad.ESCRIBANOS][titular.escribano])
     assert escribano is not None
     assert not await prestamos_service.deuda_aportes(db_session, escribano.id, impaga.vencimiento)
     despues = date.fromordinal(impaga.vencimiento.toordinal() + 1)

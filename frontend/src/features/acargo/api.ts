@@ -10,7 +10,7 @@ export interface Designacion {
   departamento: string
   escribano_id: string
   apellido_nombre: string
-  matricula_numero: number
+  matricula_numero: number | null
   fecha_desde: string
   fecha_hasta: string
   motivo: string
@@ -49,7 +49,7 @@ export interface RegistroGestionable {
 export interface Elegible {
   id: string
   apellido_nombre: string
-  matricula_numero: number
+  matricula_numero: number | null
   numero_registro: number | null
   departamento: string | null
 }

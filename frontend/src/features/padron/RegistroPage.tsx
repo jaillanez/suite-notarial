@@ -10,7 +10,7 @@ import { Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { fetchRegistro } from './api'
-import { CARGO, ESTADO_MATRICULA, ESTADO_REGISTRO, formatDate } from './labels'
+import { CARGO, ESTADO_MATRICULA, ESTADO_REGISTRO, formatDate, matriculaTexto } from './labels'
 import { CerrarRegistroDialog, RegistroFormDialog } from './RegistroDialogs'
 
 export function RegistroPage() {
@@ -117,7 +117,7 @@ export function RegistroPage() {
                       </span>
                       <span className="block text-sm text-ink-muted tabular-nums">
                         {CARGO[c.cargo]} desde el {formatDate(c.fecha_desde)} · Mat.{' '}
-                        {c.matricula_numero}
+                        {matriculaTexto(c.matricula_numero)}
                       </span>
                     </span>
                     {c.estado_matricula !== 'ACTIVO' && (

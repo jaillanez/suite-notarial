@@ -4,6 +4,10 @@ Ningún dato es real: nombres de una lista ficticia, CUIT generados con dígito 
 números de documento altos y matrículas y registros en rangos que no usa la demostración. El
 `control.csv` se calcula con todas las filas, como lo declararía el sistema anterior.
 
+Como en el origen real, algunos escribanos vienen sin matrícula, sin fecha de matriculación o
+sin CUIT ni documento (formato v2: se cargan vacíos, «a completar»). Los cargos referencian al
+escribano por su `codigo_legado`.
+
 Con `defectos=True` se inyectan problemas conocidos (un CUIT inválido, una matrícula repetida,
 un importe con decimales de punto flotante, un estado sin homologar, dos titulares vigentes y
 un pago de una boleta inexistente) para ver la validación y la cuadratura con rechazos.
@@ -110,15 +114,23 @@ def generar(
         for cargo in ("T", *(("A",) if i % 3 == 0 else ()), *(("AC",) if i % 7 == 0 else ())):
             matricula += 1
             dni = DNI_BASE + matricula
+            n = len(filas_esc)
+            # Datos que el origen no tiene (quedan «a completar»); nunca en los primeros tres,
+            # que usan los defectos.
+            sin_matricula = n >= 3 and n % 5 == 3
+            sin_identidad = n >= 3 and n % 11 == 4
+            sin_fecha = n >= 3 and n % 13 == 5
             filas_esc.append(
                 {
                     "codigo_legado": f"ESC-{matricula}",
-                    "cuit": _cuit(dni, rng),
-                    "numero_documento": str(dni),
+                    "cuit": "" if sin_identidad else _cuit(dni, rng),
+                    "numero_documento": "" if sin_identidad else str(dni),
                     "apellido": rng.choice(APELLIDOS),
                     "nombre": rng.choice(NOMBRES),
-                    "matricula": str(matricula),
-                    "fecha_matriculacion": _fecha(date(2000 + rng.randint(0, 20), 3, 1)),
+                    "matricula": "" if sin_matricula else str(matricula),
+                    "fecha_matriculacion": (
+                        "" if sin_fecha else _fecha(date(2000 + rng.randint(0, 20), 3, 1))
+                    ),
                     "estado": "A",
                     "tipo_documento": "DNI",
                     "fecha_nacimiento": _fecha(date(1960 + rng.randint(0, 30), 6, 15)),
@@ -128,7 +140,7 @@ def generar(
             filas_car.append(
                 {
                     "codigo_legado": f"CAR-{matricula}",
-                    "matricula": str(matricula),
+                    "escribano": f"ESC-{matricula}",
                     "numero_registro": str(numero),
                     "cargo": cargo,
                     "fecha_desde": _fecha(date(2015, 1, 1)),
@@ -180,7 +192,7 @@ def generar(
         filas_car.append(
             {
                 "codigo_legado": "CAR-EXTRA",
-                "matricula": filas_esc[-1]["matricula"],
+                "escribano": filas_esc[-1]["codigo_legado"],
                 "numero_registro": filas_reg[-1]["numero_registro"],
                 "cargo": "T",
                 "fecha_desde": _fecha(date(2020, 1, 1)),

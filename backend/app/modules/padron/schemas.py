@@ -98,9 +98,10 @@ class PersonaUpdate(BaseModel):
 
 class PersonaOut(BaseModel):
     id: uuid.UUID
-    cuit: str
+    # None: migrada sin CUIT o sin documento («a completar»).
+    cuit: str | None
     tipo_documento: str
-    numero_documento: str
+    numero_documento: str | None
     apellido: str
     nombre: str
     fecha_nacimiento: date | None
@@ -150,7 +151,7 @@ class RegistroCierre(BaseModel):
 class CargoResumen(BaseModel):
     adscripcion_id: uuid.UUID
     escribano_id: uuid.UUID
-    matricula_numero: int
+    matricula_numero: int | None
     apellido_nombre: str
     cargo: Cargo
     fecha_desde: date
@@ -192,6 +193,27 @@ class EscribanoUpdate(BaseModel):
     folio: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
     fecha_matriculacion: date | None = None
     persona: PersonaUpdate | None = None
+
+
+class DatosACompletar(BaseModel):
+    """Datos que faltaban al migrar del sistema anterior. Se cargan una sola vez: cada campo
+    enviado tiene que estar hoy vacío (cambiar uno ya cargado no se hace por acá)."""
+
+    matricula_numero: int | None = Field(default=None, gt=0, lt=1_000_000)
+    fecha_matriculacion: date | None = None
+    cuit: str | None = None
+    numero_documento: Documento | None = None
+
+    @field_validator("cuit")
+    @classmethod
+    def _v_cuit(cls, value: str | None) -> str | None:
+        return None if value is None else _cuit(value)
+
+    @model_validator(mode="after")
+    def _alguno(self) -> "DatosACompletar":
+        if all(getattr(self, f) is None for f in type(self).model_fields):
+            raise ValueError("Indicá al menos un dato a completar.")
+        return self
 
 
 class EstadoCambio(BaseModel):
@@ -238,14 +260,15 @@ class HistorialOut(BaseModel):
 
 class EscribanoOut(BaseModel):
     id: uuid.UUID
-    matricula_numero: int
+    # None: dato que faltaba en el sistema anterior («a completar»).
+    matricula_numero: int | None
     tomo: str | None
     folio: str | None
-    fecha_matriculacion: date
+    fecha_matriculacion: date | None
     estado_matricula: EstadoMatricula
     apellido_nombre: str
-    cuit: str
-    numero_documento: str
+    cuit: str | None
+    numero_documento: str | None
     registro_actual: int | None
     cargo_actual: Cargo | None
     tiene_cuenta: bool
@@ -257,6 +280,8 @@ class EscribanoDetalle(EscribanoOut):
     transiciones_con_resolucion: list[EstadoMatricula]
     motivo_ultimo_cambio_estado: str | None
     fecha_ultimo_cambio_estado: datetime | None
+    # Datos que faltaban al migrar y se pueden completar una vez.
+    a_completar: list[str]
     cargos: list[CargoOut]
     historial: list[HistorialOut]
 
@@ -304,7 +329,7 @@ class DesignacionOut(BaseModel):
     departamento: str
     escribano_id: uuid.UUID
     apellido_nombre: str
-    matricula_numero: int
+    matricula_numero: int | None
     fecha_desde: date
     fecha_hasta: date
     motivo: str
@@ -338,7 +363,7 @@ class EscribanoElegible(BaseModel):
 
     id: uuid.UUID
     apellido_nombre: str
-    matricula_numero: int
+    matricula_numero: int | None
     numero_registro: int | None
     departamento: str | None
 

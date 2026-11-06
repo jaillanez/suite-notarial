@@ -59,8 +59,8 @@ def test_lote_incompleto(tmp_path: Path, lote: Callable[..., Path]) -> None:
 
     directorio = lote("sin-columna")
     texto = (directorio / "escribanos.csv").read_text(encoding="utf-8")
-    (directorio / "escribanos.csv").write_text(texto.replace("cuit;", "c_u_i_t;", 1))
-    with pytest.raises(formato.FormatoInvalidoError, match="faltan las columnas cuit"):
+    (directorio / "escribanos.csv").write_text(texto.replace("apellido;", "a_p_e_llido;", 1))
+    with pytest.raises(formato.FormatoInvalidoError, match="faltan las columnas apellido"):
         formato.leer_lote(directorio)
 
 

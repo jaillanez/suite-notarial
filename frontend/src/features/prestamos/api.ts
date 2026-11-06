@@ -63,7 +63,7 @@ export interface Evaluacion {
 export interface PersonaResumen {
   id: string
   apellido_nombre: string
-  matricula_numero: number
+  matricula_numero: number | null
 }
 
 export interface Prestamo {

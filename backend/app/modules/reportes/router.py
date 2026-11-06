@@ -40,6 +40,7 @@ class ColumnaOut(BaseModel):
     tipo: Tipo
     total: bool
     visible: bool
+    vacio: str | None
 
 
 class OpcionOut(BaseModel):
@@ -88,7 +89,14 @@ def reporte_out(r: Reporte) -> ReporteOut:
         descripcion=r.descripcion,
         sensible=r.sensible,
         columnas=[
-            ColumnaOut(key=c.key, label=c.label, tipo=c.tipo, total=c.total, visible=c.visible)
+            ColumnaOut(
+                key=c.key,
+                label=c.label,
+                tipo=c.tipo,
+                total=c.total,
+                visible=c.visible,
+                vacio=c.vacio,
+            )
             for c in r.columnas
         ],
         filtros=[

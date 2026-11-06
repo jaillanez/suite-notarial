@@ -24,7 +24,7 @@ import { fetchDeclaracion, type DeclaracionDetalle } from '../ddjj/api'
 import { CATEGORIA, formatPeriodo, registroLabel } from '../ddjj/labels'
 import { useVerificacionActo } from '../ddjj/verificacion'
 import { ResultadoVerificacion } from '../ddjj/VerificacionActo'
-import { CARGO, formatDate } from '../padron/labels'
+import { CARGO, formatDate, matriculaTexto } from '../padron/labels'
 import {
   analizarIndice,
   descartarSugerencia,
@@ -442,7 +442,7 @@ function Revision({
               ...(escribanoLote ? [] : [{ value: '', label: 'Elegí el escribano…' }]),
               ...ddjj.escribanos.map((e) => ({
                 value: e.id,
-                label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${String(e.matricula_numero)}`,
+                label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${matriculaTexto(e.matricula_numero)}`,
               })),
             ]}
           />
