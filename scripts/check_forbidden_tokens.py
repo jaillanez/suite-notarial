@@ -11,7 +11,16 @@ import tokenize
 from pathlib import Path
 
 # Rutas consideradas lógica monetaria (regla FIN). Mantener en sync con backend/tests/test_guards.py.
-MONEY_HINTS = ("money", "aportes", "boletas", "pagos", "prestamos", "liquidacion", "parametros")
+MONEY_HINTS = (
+    "money",
+    "aportes",
+    "boletas",
+    "pagos",
+    "prestamos",
+    "liquidacion",
+    "parametros",
+    "previsional",
+)
 # Módulos monetarios que se reconocen por nombre exacto de carpeta (la IA propone bases imponibles).
 MONEY_DIRS = ("ia",)
 

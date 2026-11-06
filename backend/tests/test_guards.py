@@ -16,6 +16,7 @@ MONEY_DIR_HINTS = (
     "prestamos",
     "liquidacion",
     "parametros",
+    "previsional",
     "ia",
 )
 

@@ -28,6 +28,8 @@ dependencies = [
     "qrcode[pil]>=7.4",
     "python-barcode>=0.15",
     "openpyxl>=3.1",
+    # Planillas .xls (formato binario anterior a 2007) de la Caja: aportes y puntos históricos.
+    "xlrd>=2.0",
     "pypdf>=5.0",
     "zxing-cpp>=3.1",
     # Servicios externos (Mercado Pago, visión de DeepSeek)
@@ -46,6 +48,8 @@ dev = [
     "mypy>=1.11",
     "types-qrcode",
     "types-openpyxl",
+    # Solo para armar planillas .xls sintéticas en los tests.
+    "xlwt>=1.3",
 ]
 
 [tool.setuptools.packages.find]
@@ -80,7 +84,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["alembic/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["magic", "barcode.*", "weasyprint.*", "pyotp.*"]
+module = ["magic", "barcode.*", "weasyprint.*", "pyotp.*", "xlrd.*", "xlwt.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
