@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  CalendarOff,
   ClipboardPen,
+  FilePen,
   Pencil,
   RefreshCw,
   ShieldPlus,
@@ -11,7 +13,7 @@ import {
 import { useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 
-import { StatusIndicator } from '../../components/StatusIndicator'
+import { StatusIndicator, type Tone } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Panel } from '../../components/ui/Panel'
@@ -19,7 +21,7 @@ import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { useSession } from '../auth/session'
 import { PuntosPanel } from '../previsional/PuntosPanel'
-import { fetchEscribano, type CargoItem } from './api'
+import { fetchEscribano, type CargoItem, type EstadoDesignacion, type LicenciaItem } from './api'
 import {
   AsignarCargoDialog,
   CerrarCargoDialog,
@@ -28,7 +30,27 @@ import {
   EditarEscribanoDialog,
   EstadoDialog,
 } from './EscribanoDialogs'
-import { A_COMPLETAR, CAMPO_A_COMPLETAR, CARGO, ESTADO_MATRICULA, formatDate } from './labels'
+import {
+  A_COMPLETAR,
+  CAMPO_A_COMPLETAR,
+  CARGO,
+  ESTADO_MATRICULA,
+  aniosMeses,
+  formatDate,
+} from './labels'
+import {
+  AnularLicenciaDialog,
+  LicenciaNuevaDialog,
+  PrimeraEscrituraDialog,
+  TerminarLicenciaDialog,
+} from './LicenciaDialogs'
+
+const ESTADO_DESIGNACION: Record<EstadoDesignacion, { label: string; tone: Tone }> = {
+  PENDIENTE: { label: 'Pendiente', tone: 'warning' },
+  APROBADA: { label: 'Aprobada', tone: 'success' },
+  RECHAZADA: { label: 'Rechazada', tone: 'unknown' },
+  ANULADA: { label: 'Anulada', tone: 'unknown' },
+}
 
 /** Dato que no vino del sistema anterior: se ve como pendiente, no como vacío. */
 function ACompletar() {
@@ -51,7 +73,8 @@ function Rows({ items }: { items: [string, ReactNode][] }) {
   )
 }
 
-type DialogName = 'editar' | 'estado' | 'cargo' | 'cuenta' | 'completar' | null
+type DialogName =
+  'editar' | 'estado' | 'cargo' | 'cuenta' | 'completar' | 'primera' | 'licencia' | null
 
 export function EscribanoPage() {
   const { id = '' } = useParams()
@@ -59,6 +82,8 @@ export function EscribanoPage() {
   const query = useQuery({ queryKey: ['escribano', id], queryFn: () => fetchEscribano(id) })
   const [dialog, setDialog] = useState<DialogName>(null)
   const [cerrando, setCerrando] = useState<CargoItem | null>(null)
+  const [terminando, setTerminando] = useState<LicenciaItem | null>(null)
+  const [anulando, setAnulando] = useState<LicenciaItem | null>(null)
 
   if (query.isPending) {
     return (
@@ -101,6 +126,12 @@ export function EscribanoPage() {
             <span aria-hidden="true">·</span>
             <span>{e.cuit === null ? 'CUIT a completar' : `CUIT ${e.cuit}`}</span>
             <StatusIndicator tone={estado.tone} label={estado.label} />
+            {e.en_licencia_desde && (
+              <StatusIndicator
+                tone="warning"
+                label={`En licencia desde el ${formatDate(e.en_licencia_desde)}`}
+              />
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -145,8 +176,7 @@ export function EscribanoPage() {
               ) : undefined
             }
           >
-            No venían del sistema anterior:{' '}
-            {e.a_completar.map((c) => CAMPO_A_COMPLETAR[c].toLowerCase()).join(', ')}.
+            Falta cargar: {e.a_completar.map((c) => CAMPO_A_COMPLETAR[c].toLowerCase()).join(', ')}.
             {e.a_completar.includes('cuit') && ' Sin CUIT no se le puede crear la cuenta.'}
           </Alert>
         </div>
@@ -183,7 +213,7 @@ export function EscribanoPage() {
               ['Número', e.matricula_numero ?? <ACompletar />],
               ['Tomo / folio', [e.tomo, e.folio].filter(Boolean).join(' / ') || '—'],
               [
-                'Matriculación',
+                'Fecha de juramento',
                 e.fecha_matriculacion ? formatDate(e.fecha_matriculacion) : <ACompletar />,
               ],
               [
@@ -221,6 +251,117 @@ export function EscribanoPage() {
                 </p>
               )}
             </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Panel
+          title="Primera escritura"
+          description="Determina la antigüedad para la jubilación."
+          actions={
+            canWrite ? (
+              <Button
+                icon={FilePen}
+                onClick={() => {
+                  setDialog('primera')
+                }}
+              >
+                {e.primera_escritura ? 'Corregir' : 'Cargar'}
+              </Button>
+            ) : undefined
+          }
+        >
+          <Rows
+            items={
+              e.primera_escritura
+                ? [
+                    ['Fecha', formatDate(e.primera_escritura.fecha)],
+                    [
+                      'Escritura',
+                      `Nº ${e.primera_escritura.numero} · Registro ${String(e.primera_escritura.registro)}${e.primera_escritura.folio ? ` · Folio ${e.primera_escritura.folio}` : ''}`,
+                    ],
+                    [
+                      'Antigüedad (desde la primera escritura)',
+                      e.antiguedad ? aniosMeses(e.antiguedad.anios, e.antiguedad.meses) : '—',
+                    ],
+                  ]
+                : [
+                    ['Primera escritura', <ACompletar key="pe" />],
+                    ['Antigüedad (desde la primera escritura)', <ACompletar key="an" />],
+                  ]
+            }
+          />
+        </Panel>
+
+        <Panel
+          title="Licencias"
+          description="No cambian el estado de la matrícula ni el cargo."
+          actions={
+            canWrite && !e.en_licencia_desde ? (
+              <Button
+                icon={CalendarOff}
+                onClick={() => {
+                  setDialog('licencia')
+                }}
+              >
+                Registrar licencia
+              </Button>
+            ) : undefined
+          }
+        >
+          {e.licencias.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-ink-muted sm:px-6">Nunca tuvo licencias.</p>
+          ) : (
+            <ol className="divide-y divide-line">
+              {e.licencias.map((l) => (
+                <li
+                  key={l.id}
+                  className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5 sm:px-6"
+                >
+                  <div className="min-w-0">
+                    <p
+                      className={`tabular-nums ${l.anulada ? 'text-ink-muted line-through' : 'font-semibold text-ink'}`}
+                    >
+                      {formatDate(l.fecha_desde)} —{' '}
+                      {l.fecha_hasta ? formatDate(l.fecha_hasta) : 'sin fecha de regreso'}
+                    </p>
+                    <p className="max-w-[65ch] text-sm text-ink-muted">
+                      {l.motivo}
+                      {l.resolucion_respaldo ? ` · ${l.resolucion_respaldo}` : ''}
+                    </p>
+                    {l.anulada && l.motivo_anulacion && (
+                      <p className="text-sm text-ink-muted">Anulada: {l.motivo_anulacion}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {l.vigente && <StatusIndicator tone="warning" label="Vigente" />}
+                    {l.anulada && <StatusIndicator tone="unknown" label="Anulada" />}
+                    {canWrite && !l.anulada && (
+                      <>
+                        {(l.fecha_hasta === null || l.vigente) && (
+                          <Button
+                            onClick={() => {
+                              setTerminando(l)
+                            }}
+                          >
+                            Terminar
+                          </Button>
+                        )}
+                        <Button
+                          variant="danger"
+                          onClick={() => {
+                            setAnulando(l)
+                          }}
+                        >
+                          Anular
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
           )}
         </Panel>
       </div>
@@ -288,6 +429,39 @@ export function EscribanoPage() {
         )}
       </Panel>
 
+      {e.designaciones_a_cargo.length > 0 && (
+        <Panel
+          className="mt-6"
+          title="A cargo de otros registros"
+          description="Designaciones durante la ausencia de un titular. Conviven con su cargo propio."
+        >
+          <ul className="divide-y divide-line">
+            {e.designaciones_a_cargo.map((d) => (
+              <li
+                key={d.id}
+                className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5 sm:px-6"
+              >
+                <div className="min-w-0">
+                  <Link
+                    to={`/padron/registros/${d.registro_id}`}
+                    className="font-semibold no-underline hover:underline"
+                  >
+                    Registro {d.numero_registro}
+                  </Link>
+                  <p className="text-sm text-ink-muted tabular-nums">
+                    {formatDate(d.fecha_desde)} — {formatDate(d.fecha_hasta)} · {d.motivo}
+                  </p>
+                </div>
+                <StatusIndicator
+                  tone={ESTADO_DESIGNACION[d.estado].tone}
+                  label={ESTADO_DESIGNACION[d.estado].label}
+                />
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+
       {can('puntos:read_all') && <PuntosPanel className="mt-6" escribanoId={e.id} />}
 
       <Panel
@@ -297,7 +471,7 @@ export function EscribanoPage() {
       >
         {e.historial.length === 0 ? (
           <p className="px-5 py-6 text-sm text-ink-muted sm:px-6">
-            Sin cambios de estado desde la matriculación.
+            Sin cambios de estado desde el juramento.
           </p>
         ) : (
           <ol className="divide-y divide-line">
@@ -375,6 +549,38 @@ export function EscribanoPage() {
         cargo={cerrando}
         onClose={() => {
           setCerrando(null)
+        }}
+      />
+      <PrimeraEscrituraDialog
+        key={`primera-${String(dialog === 'primera')}`}
+        escribano={e}
+        open={dialog === 'primera'}
+        onClose={() => {
+          setDialog(null)
+        }}
+      />
+      <LicenciaNuevaDialog
+        key={`licencia-${String(dialog === 'licencia')}`}
+        escribano={e}
+        open={dialog === 'licencia'}
+        onClose={() => {
+          setDialog(null)
+        }}
+      />
+      <TerminarLicenciaDialog
+        key={`terminar-${terminando?.id ?? ''}`}
+        escribano={e}
+        licencia={terminando}
+        onClose={() => {
+          setTerminando(null)
+        }}
+      />
+      <AnularLicenciaDialog
+        key={`anular-${anulando?.id ?? ''}`}
+        escribano={e}
+        licencia={anulando}
+        onClose={() => {
+          setAnulando(null)
         }}
       />
     </>

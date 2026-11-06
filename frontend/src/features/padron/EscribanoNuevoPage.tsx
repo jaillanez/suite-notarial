@@ -306,7 +306,7 @@ export function EscribanoNuevoPage() {
             <Field label="Tomo" autoComplete="off" {...bind('tomo')} />
             <Field label="Folio" autoComplete="off" {...bind('folio')} />
             <Field
-              label="Fecha de matriculación"
+              label="Fecha de juramento"
               type="date"
               required
               error={err('fecha_matriculacion')}

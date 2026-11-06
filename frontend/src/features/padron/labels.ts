@@ -27,9 +27,17 @@ export const CUIT_A_COMPLETAR = 'CUIT a completar'
 
 export const CAMPO_A_COMPLETAR: Record<CampoACompletar, string> = {
   matricula_numero: 'Matrícula',
-  fecha_matriculacion: 'Fecha de matriculación',
+  fecha_matriculacion: 'Fecha de juramento',
   cuit: 'CUIT',
   numero_documento: 'DNI',
+  primera_escritura: 'Primera escritura',
+}
+
+/** «N años M meses» (antigüedad calendario). */
+export function aniosMeses(anios: number, meses: number): string {
+  const a = `${String(anios)} ${anios === 1 ? 'año' : 'años'}`
+  const m = `${String(meses)} ${meses === 1 ? 'mes' : 'meses'}`
+  return `${a} ${m}`
 }
 
 /** Matrícula para mostrar: el número o «A completar». */
