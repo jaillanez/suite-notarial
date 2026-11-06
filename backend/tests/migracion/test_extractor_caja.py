@@ -292,3 +292,18 @@ def test_consola(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def
         == 0
     )
     assert "escribanos: 4" in capsys.readouterr().out
+
+
+def test_mismo_apellido_sin_confirmacion_no_se_une(tmp_path: Path) -> None:
+    listado = _libro(
+        tmp_path / "l.xlsx",
+        "TODOS",
+        ENCABEZADO_LISTADO,
+        [
+            _fila_listado(11, "TITULAR", "PEREZ", "ANA", CUIT_A, date(2010, 2, 1), None, "ACTIVO"),
+            _fila_listado(None, None, "PEREZ", "JUAN", None, None, None, "FALLECIDO"),
+        ],
+    )
+    pagos = _libro(tmp_path / "p.xlsx", "aportes", ENCABEZADO_PAGOS, [])
+    lote = ex.extraer(listado, pagos)
+    assert len(lote.archivos["escribanos"]) == 2

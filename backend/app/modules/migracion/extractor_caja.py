@@ -325,11 +325,33 @@ def leer_listado(
                     texto(f.get("DOMICILIO ESCRIBANIA")),
                 )
             )
-    # La misma persona puede figurar con CUIT en una fila y sin CUIT en otra: se unen por nombre.
+    # La misma persona puede figurar con CUIT en una fila y sin CUIT en otra. Se unen sólo con
+    # el mismo apellido y nombre completos (al menos dos palabras) y sin fechas de nacimiento
+    # distintas; un parecido sin esa confirmación queda anotado y sin unir.
     for codigo in [c for c, p in personas.items() if not p.cuit]:
         sin_cuit = personas[codigo]
-        iguales = [p for p in personas.values() if p.cuit and p.variantes & sin_cuit.variantes]
+        clave = clave_nombre(f"{sin_cuit.apellido} {sin_cuit.nombre}")
+        parecidos = [p for p in personas.values() if p.cuit and p.variantes & sin_cuit.variantes]
+        iguales = [
+            p
+            for p in parecidos
+            if len(clave.split()) >= 2
+            and clave_nombre(f"{p.apellido} {p.nombre}") == clave
+            and (
+                p.nacimiento is None
+                or sin_cuit.nacimiento is None
+                or p.nacimiento == sin_cuit.nacimiento
+            )
+        ]
         if len(iguales) != 1:
+            if parecidos:
+                lote.anotar(
+                    LISTADO,
+                    sin_cuit.filas[0],
+                    codigo,
+                    "IDENTIDAD_A_CONFIRMAR",
+                    "Se parece a otra persona del listado que tiene CUIT: no se unen, revisar.",
+                )
             continue
         destino = iguales[0]
         lote.anotar(
