@@ -1,11 +1,14 @@
 """Validación del lote: normaliza cada fila y registra observaciones (sin base de datos).
 
 Reglas de calidad de la matriz de homologación (módulo 11 §3): CUIT por Módulo 11, unicidad de
-CUIT, matrícula, número de registro y códigos del origen (CUIT, documento, matrícula y fecha de
-matriculación pueden faltar: se cargan vacíos, «a completar»; si vienen, se validan), un único
-titular vigente por registro, un único cargo vigente por escribano (por su código del origen),
-estados homologados, fechas y períodos válidos e importes
-exactos. Una fila con observación BLOQUEANTE no se carga, ni tampoco las que dependen de ella.
+CUIT, número de registro y códigos del origen (CUIT, documento, matrícula y fecha de juramento
+pueden faltar: se cargan vacíos, «a completar»; si vienen, se validan), un único titular vigente
+por registro, un único cargo vigente por escribano (por su código del origen), licencias sin
+solapamiento, estados homologados, fechas y períodos válidos e importes exactos. Una fila con
+observación BLOQUEANTE no se carga, ni tampoco las que dependen de ella.
+
+La matrícula NO es única (decisión de la Caja): el Colegio reasigna el número de un escribano
+retirado a uno nuevo. Es un dato informativo; identifica el CUIT.
 
 Las observaciones no llevan datos personales: identifican la fila y el código del origen.
 """
@@ -23,7 +26,7 @@ from app.common.cuit import InvalidCuitError, normalize_cuit
 from app.common.dates import today_local
 from app.modules.migracion import valores
 from app.modules.migracion.catalog import Entidad, EstadoBoletaHistorica, Severidad
-from app.modules.migracion.formato import Fila, Lote
+from app.modules.migracion.formato import CIRCUNSCRIPCION_POR_DEFECTO, Fila, Lote
 from app.modules.migracion.homologacion import Homologacion
 from app.modules.migracion.valores import ValorInvalidoError
 from app.modules.padron.catalog import (
@@ -75,6 +78,20 @@ class EscribanoN:
     matricula: int | None
     fecha_matriculacion: date | None
     estado: str
+    # Primera escritura: completa (fecha, número y registro) o toda en None.
+    primera_escritura_fecha: date | None = None
+    primera_escritura_numero: str | None = None
+    primera_escritura_registro: int | None = None
+    primera_escritura_folio: str | None = None
+
+
+@dataclass(frozen=True)
+class LicenciaN:
+    codigo: str
+    escribano: str  # codigo_legado del escribano
+    desde: date
+    hasta: date | None
+    motivo: str
 
 
 @dataclass(frozen=True)
@@ -123,7 +140,6 @@ class Existentes:
     """Lo que ya está en la Suite: lo migrado no puede chocar con eso."""
 
     cuits: frozenset[str] = frozenset()
-    matriculas: frozenset[int] = frozenset()
     registros: frozenset[int] = frozenset()
 
 
@@ -132,6 +148,7 @@ class Staging:
     registros: list[RegistroN] = field(default_factory=list)
     escribanos: list[EscribanoN] = field(default_factory=list)
     cargos: list[CargoN] = field(default_factory=list)
+    licencias: list[LicenciaN] = field(default_factory=list)
     boletas: list[BoletaN] = field(default_factory=list)
     pagos: list[PagoN] = field(default_factory=list)
     creditos: list[CreditoN] = field(default_factory=list)
@@ -260,7 +277,11 @@ def _registros(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagin
             f.observar("REGISTRO_EXISTENTE", "El número de registro ya existe en la Suite.")
         if numero == 0:
             f.observar("VALOR_INVALIDO", "«numero_registro» tiene que ser mayor que cero.")
-        circ = f.campo("circunscripcion", _texto(100))
+        # La Caja tiene una sola circunscripción: vacía = la de San Juan.
+        circ = (
+            f.campo("circunscripcion", _texto(100), obligatorio=False)
+            or CIRCUNSCRIPCION_POR_DEFECTO
+        )
         depto_crudo = f.campo("departamento", _texto(100))
         departamento = _DEPARTAMENTOS.get(_clave(depto_crudo)) if depto_crudo else None
         if depto_crudo and departamento is None:
@@ -305,7 +326,6 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
             return None
 
     cuits = _duplicados(filas, cuit_de)
-    matriculas = _duplicados(filas, lambda f: f.datos.get("matricula", "").strip())
     for fila in filas:
         f = _Fila(st, Entidad.ESCRIBANOS, fila)
         if fila.numero in codigos:
@@ -334,15 +354,13 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
                 "EMAIL_INVALIDO", "El correo no es válido: no se migra.", Severidad.ADVERTENCIA
             )
             email = None
+        # Informativa: puede repetirse (matrícula reasignada) y no choca con la Suite.
         matricula = f.campo("matricula", valores.entero, obligatorio=False)
-        if fila.numero in matriculas:
-            f.observar("MATRICULA_DUPLICADA", "La matrícula se repite en el archivo.")
-        elif matricula is not None and matricula in existentes.matriculas:
-            f.observar("MATRICULA_EXISTENTE", "La matrícula ya existe en la Suite.")
         if matricula == 0:
             f.observar("VALOR_INVALIDO", "«matricula» tiene que ser mayor que cero.")
         matriculacion = f.campo("fecha_matriculacion", valores.fecha, obligatorio=False)
         estado = f.homologar(hom, "estado_escribano", "estado")
+        primera = _primera_escritura(f, matriculacion)
         if _cerrar(st, Entidad.ESCRIBANOS, f):
             st.escribanos.append(
                 EscribanoN(
@@ -357,8 +375,59 @@ def _escribanos(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagi
                     matricula,
                     matriculacion,
                     estado or "",
+                    *primera,
                 )
             )
+
+
+_PRIMERA = (
+    "primera_escritura_fecha",
+    "primera_escritura_numero",
+    "primera_escritura_registro",
+    "primera_escritura_folio",
+)
+_SIN_PRIMERA: tuple[None, None, None, None] = (None, None, None, None)
+
+
+def _primera_escritura(
+    f: _Fila, juramento: date | None
+) -> tuple[date | None, str | None, int | None, str | None]:
+    """Primera escritura de la fila. Un dato inválido o incompleto no rechaza al escribano:
+    se advierte y la primera escritura queda «a completar» (la carga después la Caja)."""
+    crudos = {c: f.fila.datos.get(c, "").strip() for c in _PRIMERA}
+    if not any(crudos.values()):
+        return _SIN_PRIMERA
+
+    def no_migra(motivo: str) -> tuple[None, None, None, None]:
+        f.observar(
+            "PRIMERA_ESCRITURA_NO_MIGRADA",
+            f"Primera escritura no migrada ({motivo}): queda a completar.",
+            Severidad.ADVERTENCIA,
+        )
+        return _SIN_PRIMERA
+
+    faltan = [c for c in _PRIMERA[:3] if not crudos[c]]
+    if faltan:
+        return no_migra(f"falta {', '.join(faltan)}")
+    try:
+        fecha = valores.fecha(crudos["primera_escritura_fecha"])
+        registro = valores.entero(crudos["primera_escritura_registro"])
+        numero = valores.texto(crudos["primera_escritura_numero"], 20)
+        folio_crudo = crudos["primera_escritura_folio"]
+        folio = valores.texto(folio_crudo, 20) if folio_crudo else None
+    except ValorInvalidoError as exc:
+        return no_migra(str(exc))
+    if registro <= 0:
+        return no_migra("el registro tiene que ser mayor que cero")
+    if fecha > f.st.fecha_corrida:
+        return no_migra("la fecha es posterior al día de la corrida")
+    if juramento is not None and fecha < juramento:
+        f.observar(
+            "PRIMERA_ESCRITURA_ANTERIOR_AL_JURAMENTO",
+            "La primera escritura es anterior a la fecha de juramento: verificar.",
+            Severidad.ADVERTENCIA,
+        )
+    return fecha, numero, registro, folio
 
 
 # --------------------------------------------------------------------------- cargos
@@ -436,6 +505,71 @@ def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
                     "Registro activo sin titular vigente.",
                 )
             )
+
+
+# --------------------------------------------------------------------------- licencias
+
+
+MOTIVO_LICENCIA_MIGRADA = "Migrada del sistema anterior"
+
+
+def _licencias(lote: Lote, st: Staging) -> None:
+    """Licencias de escribanos (archivo opcional). Una licencia de un escribano que no se carga
+    cae en cascada; dos licencias del mismo escribano que se superponen se observan las dos."""
+    filas = lote.filas[Entidad.LICENCIAS]
+    codigos = _duplicados(filas, lambda f: f.codigo)
+    escribanos = {e.codigo: e for e in st.escribanos}
+    candidatas: list[tuple[_Fila, LicenciaN]] = []
+    for fila in filas:
+        f = _Fila(st, Entidad.LICENCIAS, fila)
+        if fila.numero in codigos:
+            f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
+        codigo_escribano = f.campo("escribano", _texto(100))
+        escribano = escribanos.get(codigo_escribano) if codigo_escribano else None
+        if codigo_escribano is not None and escribano is None:
+            f.observar(
+                "ESCRIBANO_NO_MIGRADO",
+                "«escribano» no corresponde a un escribano del lote que se pueda cargar.",
+            )
+        desde = f.campo("fecha_desde", valores.fecha)
+        hasta = f.campo("fecha_hasta", valores.fecha, obligatorio=False)
+        if desde and hasta and hasta < desde:
+            f.observar("FECHAS_INVERTIDAS", "«fecha_hasta» es anterior a «fecha_desde».")
+        motivo = f.campo("motivo", _texto(1000), obligatorio=False) or MOTIVO_LICENCIA_MIGRADA
+        if escribano is not None and desde is not None:
+            sigue = hasta is None or hasta >= st.fecha_corrida
+            if sigue and EstadoMatricula(escribano.estado) in ESTADOS_DEFINITIVOS:
+                f.observar(
+                    "LICENCIA_VIGENTE_SIN_EJERCICIO",
+                    "Licencia vigente de un escribano cesante, jubilado o fallecido: falta la "
+                    "fecha de regreso.",
+                )
+            juramento = escribano.fecha_matriculacion
+            if juramento is not None and desde < juramento:
+                f.observar(
+                    "LICENCIA_ANTERIOR_AL_JURAMENTO",
+                    "La licencia empieza antes de la fecha de juramento: verificar.",
+                    Severidad.ADVERTENCIA,
+                )
+        if f.bloqueada:
+            _cerrar(st, Entidad.LICENCIAS, f)
+        else:
+            candidatas.append((f, LicenciaN(fila.codigo, codigo_escribano, desde, hasta, motivo)))
+
+    # Sin solapamiento por escribano: se observan todas las filas en conflicto (no se elige).
+    por_escribano: dict[str, list[LicenciaN]] = defaultdict(list)
+    for _, lic in candidatas:
+        por_escribano[lic.escribano].append(lic)
+    for f, lic in candidatas:
+        if any(
+            otra is not lic
+            and otra.desde <= (lic.hasta or date.max)
+            and lic.desde <= (otra.hasta or date.max)
+            for otra in por_escribano[lic.escribano]
+        ):
+            f.observar("LICENCIAS_SUPERPUESTAS", "La licencia se superpone con otra del escribano.")
+        if _cerrar(st, Entidad.LICENCIAS, f):
+            st.licencias.append(lic)
 
 
 # --------------------------------------------------------------------------- boletas y pagos
@@ -583,6 +717,7 @@ def validar(
     _registros(lote, hom, existentes, st)
     _escribanos(lote, hom, existentes, st)
     _cargos(lote, hom, st)
+    _licencias(lote, st)
     _boletas(lote, hom, st)
     _pagos(lote, st)
     _creditos(lote, st)

@@ -73,7 +73,7 @@ class Linea(UUIDMixin, TimestampMixin, Base):
     # Moneda de los montos de la línea y de sus préstamos (catalog.Moneda).
     moneda: Mapped[str] = mapped_column(String(3), nullable=False, server_default="ARS")
     # Requisitos de la línea (Resolución N° 273). Informativos salvo la antigüedad, que se
-    # controla al evaluar cuando se conoce la fecha de matriculación.
+    # controla al evaluar cuando se conoce la fecha de juramento.
     garantia: Mapped[str | None] = mapped_column(Text, nullable=True)
     requisito_conducta: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Capital sobre el valor del inmueble hipotecado, en % (70.0000 = 70 %).

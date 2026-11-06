@@ -10,6 +10,13 @@ tabulador, con encabezado) más `control.csv` con los totales que informa el sis
 
 `creditos.csv` es opcional (agregado a la versión 2): los créditos a favor del escribano que el
 sistema anterior registra como importes negativos. Si viene, `control.csv` declara sus totales.
+
+`licencias.csv` es opcional (agregado a la versión 2): licencias de escribanos (el escribano por
+su `codigo_legado`; `fecha_hasta` vacía = vigente). Si viene, `control.csv` declara sus filas.
+
+Otros agregados compatibles a la versión 2: en `registros.csv`, `circunscripcion` es opcional
+(vacía = «San Juan», la única circunscripción de la Caja) y `escribanos.csv` admite los datos de
+la primera escritura (`primera_escritura_fecha`, `_numero`, `_registro`, `_folio`).
 """
 
 import csv
@@ -25,15 +32,9 @@ VERSION_FORMATO = "2"
 # (obligatorias, opcionales) por entidad.
 COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
     Entidad.REGISTROS: (
-        (
-            "codigo_legado",
-            "numero_registro",
-            "circunscripcion",
-            "departamento",
-            "domicilio_legal",
-            "estado",
-        ),
-        ("nombre_fantasia", "fecha_creacion"),
+        ("codigo_legado", "numero_registro", "departamento", "domicilio_legal", "estado"),
+        # `circunscripcion` vacía o ausente: CIRCUNSCRIPCION_POR_DEFECTO.
+        ("circunscripcion", "nombre_fantasia", "fecha_creacion"),
     ),
     Entidad.ESCRIBANOS: (
         ("codigo_legado", "apellido", "nombre", "estado"),
@@ -47,12 +48,23 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "fecha_matriculacion",
             "fecha_nacimiento",
             "email",
+            # Primera escritura autorizada (antigüedad). Va completa (fecha, número y registro)
+            # o vacía; el folio es opcional.
+            "primera_escritura_fecha",
+            "primera_escritura_numero",
+            "primera_escritura_registro",
+            "primera_escritura_folio",
         ),
     ),
     Entidad.CARGOS: (
         # v2: el escribano se referencia por su `codigo_legado` (no todos tienen matrícula).
         ("codigo_legado", "escribano", "numero_registro", "cargo", "fecha_desde"),
         ("fecha_hasta",),
+    ),
+    # El escribano por su `codigo_legado`; `fecha_hasta` vacía = licencia vigente.
+    Entidad.LICENCIAS: (
+        ("codigo_legado", "escribano", "fecha_desde"),
+        ("fecha_hasta", "motivo"),
     ),
     Entidad.BOLETAS: (
         (
@@ -77,6 +89,8 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
 }
 COLUMNAS_CONTROL = ("entidad", "filas", "importe")
+# La Caja tiene una sola circunscripción: es la que se usa si el registro no trae ninguna.
+CIRCUNSCRIPCION_POR_DEFECTO = "San Juan"
 MAX_FILAS = 500_000
 
 
@@ -154,7 +168,8 @@ def leer_lote(directorio: Path) -> Lote:
         archivo = directorio / f"{entidad.value}.csv"
         if not archivo.is_file():
             if entidad in OPCIONALES:
-                # Sin el archivo la huella no cambia: un lote sin créditos es el mismo de antes.
+                # Sin el archivo la huella no cambia: un lote sin créditos (o sin licencias) es
+                # el mismo de antes.
                 filas[entidad] = []
                 continue
             raise FormatoInvalidoError(f"Falta {archivo.name} en el lote.")

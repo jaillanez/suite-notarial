@@ -4,7 +4,7 @@ Nada se borra (INM): las bajas son cambios de estado o cierres de cargo con fech
 """
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 from typing import Any
 
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
+from app.common.dates import today_local
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
@@ -31,8 +32,10 @@ from app.modules.padron.catalog import (
 from app.modules.padron.models import (
     Adscripcion,
     Circunscripcion,
+    DomicilioRegistro,
     Escribano,
     HistorialEstado,
+    Licencia,
     Persona,
     RegistroNotarial,
 )
@@ -42,21 +45,28 @@ from app.modules.padron.schemas import (
     CircunscripcionIn,
     CircunscripcionUpdate,
     DatosACompletar,
+    DomicilioCambio,
     EscribanoIn,
     EscribanoUpdate,
     EstadoCambio,
+    PrimeraEscrituraDatos,
+    PrimeraEscrituraIn,
     RegistroIn,
     RegistroUpdate,
 )
 
 _UNIQUE_MESSAGES = {
     "uq_padron_personas_cuit": "Ya hay una persona registrada con ese CUIT.",
-    "uq_padron_escribanos_matricula_numero": "Ese número de matrícula ya está asignado.",
     "uq_padron_escribanos_persona_id": "Esa persona ya figura como escribano.",
     "uq_padron_registros_notariales_numero_registro": "Ese número de registro ya existe.",
     "uq_padron_circunscripciones_nombre": "Ya existe una circunscripción con ese nombre.",
     "uq_padron_adscripciones_titular_vigente": "El registro ya tiene un titular vigente.",
     "uq_padron_adscripciones_cargo_vigente": "El escribano ya tiene un cargo vigente.",
+    "uq_padron_registro_domicilios_vigente": "El registro ya tiene un domicilio vigente.",
+    "ex_padron_registro_domicilios_sin_solapamiento": (
+        "El domicilio se superpone con otro de la historia del registro."
+    ),
+    "ex_padron_licencias_sin_solapamiento": "La licencia se superpone con otra del escribano.",
 }
 
 
@@ -252,6 +262,14 @@ async def create_registro(
         created_by_user_id=actor.id,
     )
     session.add(item)
+    session.add(
+        DomicilioRegistro(
+            registro_id=item.id,
+            domicilio=item.domicilio_legal,
+            fecha_desde=data.fecha_creacion or today_local(),
+            created_by_user_id=actor.id,
+        )
+    )
     record_audit(
         session,
         ctx,
@@ -276,6 +294,13 @@ async def update_registro(
     if item.estado == EstadoRegistro.CERRADO:
         raise _conflict("El registro está cerrado: no admite cambios.")
     changes = data.model_dump(exclude_unset=True)
+    nuevo_domicilio = changes.pop("domicilio_legal", None)
+    if nuevo_domicilio is not None and nuevo_domicilio != item.domicilio_legal:
+        # El domicilio tiene historia: cambia con fecha, por «Cambiar domicilio».
+        raise _conflict(
+            "El domicilio se cambia con «Cambiar domicilio», indicando desde cuándo rige: así "
+            "queda la historia."
+        )
     if "circunscripcion_id" in changes and changes["circunscripcion_id"] is not None:
         await _active_circunscripcion(session, changes["circunscripcion_id"])
     old = _snapshot(item, REG_FIELDS)
@@ -324,9 +349,104 @@ async def close_registro(
     return item
 
 
+# --------------------------------------------------------------------------- domicilios
+
+
+async def list_domicilios(
+    session: AsyncSession, registro_id: uuid.UUID
+) -> list[tuple[DomicilioRegistro, str | None]]:
+    result = await session.execute(
+        select(DomicilioRegistro, User.email)
+        .outerjoin(User, User.id == DomicilioRegistro.created_by_user_id)
+        .where(DomicilioRegistro.registro_id == registro_id)
+        .order_by(DomicilioRegistro.fecha_desde.desc())
+    )
+    return [(row, email) for row, email in result.all()]
+
+
+async def cambiar_domicilio(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    registro_id: uuid.UUID,
+    data: DomicilioCambio,
+) -> RegistroNotarial:
+    """Cierra el domicilio vigente el día anterior a `fecha_desde` y abre el nuevo. El registro
+    conserva el vigente en `domicilio_legal` (lo leen boletas, reportes y el sitio)."""
+    result = await session.execute(
+        select(RegistroNotarial)
+        .where(RegistroNotarial.id == registro_id)
+        .with_for_update(of=RegistroNotarial)
+    )
+    registro = result.unique().scalars().first()
+    if registro is None:
+        raise _not_found("El registro notarial")
+    if registro.estado == EstadoRegistro.CERRADO:
+        raise _conflict("El registro está cerrado: no admite cambios.")
+    if data.domicilio == registro.domicilio_legal:
+        raise _conflict("Es el mismo domicilio que tiene hoy el registro.")
+    if data.fecha_desde > today_local():
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "El nuevo domicilio no puede regir desde una fecha futura: cargalo cuando cambie.",
+        )
+    vigente = await session.scalar(
+        select(DomicilioRegistro)
+        .where(
+            DomicilioRegistro.registro_id == registro.id, DomicilioRegistro.fecha_hasta.is_(None)
+        )
+        .with_for_update()
+    )
+    anterior: dict[str, Any] = {"domicilio": registro.domicilio_legal}
+    if vigente is not None:
+        if data.fecha_desde <= vigente.fecha_desde:
+            raise ProblemError(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                f"El nuevo domicilio tiene que regir después del {vigente.fecha_desde:%d/%m/%Y}, "
+                "desde cuando rige el actual.",
+            )
+        vigente.fecha_hasta = data.fecha_desde - timedelta(days=1)
+        anterior |= {
+            "domicilio_id": str(vigente.id),
+            "fecha_desde": vigente.fecha_desde.isoformat(),
+            "fecha_hasta": vigente.fecha_hasta.isoformat(),
+        }
+    nuevo = DomicilioRegistro(
+        id=uuid.uuid4(),
+        registro_id=registro.id,
+        domicilio=data.domicilio,
+        fecha_desde=data.fecha_desde,
+        created_by_user_id=actor.id,
+    )
+    session.add(nuevo)
+    registro.domicilio_legal = data.domicilio
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PADRON_REGISTRO_DOMICILIO_CAMBIADO,
+        actor_user_id=actor.id,
+        old_value=anterior,
+        new_value={
+            "domicilio": data.domicilio,
+            "domicilio_id": str(nuevo.id),
+            "fecha_desde": data.fecha_desde.isoformat(),
+        },
+        details={"registro_id": str(registro.id), "numero_registro": registro.numero_registro},
+    )
+    await _commit_unique(session)
+    await session.refresh(registro, attribute_names=["circunscripcion"])
+    return registro
+
+
 # --------------------------------------------------------------------------- escribanos
 
 ESC_FIELDS = ("matricula_numero", "tomo", "folio", "fecha_matriculacion", "estado_matricula")
+PRIMERA_FIELDS = (
+    "primera_escritura_fecha",
+    "primera_escritura_numero",
+    "primera_escritura_registro",
+    "primera_escritura_folio",
+)
 PER_FIELDS = (
     "cuit",
     "tipo_documento",
@@ -480,7 +600,7 @@ async def update_escribano(
             )
     if cambios.get("fecha_matriculacion") is not None:
         await _exigir_matriculacion_antes_de_todo(
-            session, escribano.id, cambios["fecha_matriculacion"]
+            session, escribano, cambios["fecha_matriculacion"]
         )
     old = {**_snapshot(persona, PER_FIELDS), **_snapshot(escribano, ESC_FIELDS)}
     for field, value in data.model_dump(exclude_unset=True, exclude={"persona"}).items():
@@ -514,44 +634,133 @@ async def update_escribano(
 
 
 async def _exigir_matriculacion_antes_de_todo(
-    session: AsyncSession, escribano_id: uuid.UUID, fecha: date
+    session: AsyncSession, escribano: Escribano, fecha: date
 ) -> None:
-    """La matriculación no puede ser posterior a ningún cargo, designación a cargo ni cambio
-    de estado ya registrado del escribano (lo usan la edición y «Completar datos»)."""
+    """El juramento no puede ser posterior a ningún cargo, designación a cargo, cambio de
+    estado, licencia ni a la primera escritura ya registrados del escribano (lo usan la
+    edición y «Completar datos»)."""
     from app.modules.padron.models import DesignacionACargo
 
-    primeras = [
-        await session.scalar(select(func.min(columna)).where(dueno == escribano_id))
-        for columna, dueno in (
-            (Adscripcion.fecha_desde, Adscripcion.escribano_id),
-            (DesignacionACargo.fecha_desde, DesignacionACargo.escribano_id),
-            (HistorialEstado.fecha_efectiva, HistorialEstado.escribano_id),
+    primeras: list[date | None] = [
+        await session.scalar(select(func.min(columna)).where(dueno == escribano.id, *extra))
+        for columna, dueno, extra in (
+            (Adscripcion.fecha_desde, Adscripcion.escribano_id, ()),
+            (DesignacionACargo.fecha_desde, DesignacionACargo.escribano_id, ()),
+            (HistorialEstado.fecha_efectiva, HistorialEstado.escribano_id, ()),
+            (Licencia.fecha_desde, Licencia.escribano_id, (Licencia.anulada.is_(False),)),
         )
     ]
+    primeras.append(escribano.primera_escritura_fecha)
     primera = min((f for f in primeras if f is not None), default=None)
     if primera is not None and primera < fecha:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "La fecha de matriculación no puede ser posterior a su primer cargo, designación "
-            "o cambio de estado.",
+            "La fecha de juramento no puede ser posterior a su primer cargo, designación, "
+            "cambio de estado, licencia o primera escritura.",
         )
 
 
 # Campo a completar → (objeto que lo tiene, mensaje si ya está cargado).
 _A_COMPLETAR = {
     "matricula_numero": ("escribano", "La matrícula ya está cargada"),
-    "fecha_matriculacion": ("escribano", "La fecha de matriculación ya está cargada"),
+    "fecha_matriculacion": ("escribano", "La fecha de juramento ya está cargada"),
     "cuit": ("persona", "El CUIT ya está cargado"),
     "numero_documento": ("persona", "El número de documento ya está cargado"),
 }
 
 
+# La primera escritura llega a la Caja después de la afiliación: también queda «a completar».
+PRIMERA_ESCRITURA = "primera_escritura"
+
+
 def datos_a_completar(escribano: Escribano) -> list[str]:
-    """Campos que faltan (migrados del sistema anterior sin ese dato)."""
+    """Campos que faltan (migrados del sistema anterior sin ese dato, o la primera escritura
+    que todavía no se recibió)."""
     duenos = {"escribano": escribano, "persona": escribano.persona}
-    return [
+    faltan = [
         campo for campo, (dueno, _) in _A_COMPLETAR.items() if getattr(duenos[dueno], campo) is None
     ]
+    if escribano.primera_escritura_fecha is None:
+        faltan.append(PRIMERA_ESCRITURA)
+    return faltan
+
+
+def antiguedad(desde: date, hoy: date) -> tuple[int, int]:
+    """Años y meses calendario cumplidos entre `desde` y `hoy` (0, 0 si `desde` es futura)."""
+    meses = (hoy.year - desde.year) * 12 + (hoy.month - desde.month)
+    if hoy.day < desde.day:
+        meses -= 1
+    meses = max(meses, 0)
+    return meses // 12, meses % 12
+
+
+def _validar_primera_escritura(escribano: Escribano, datos: PrimeraEscrituraDatos) -> None:
+    if datos.fecha > today_local():
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La fecha de la primera escritura no puede ser futura.",
+        )
+    juramento = escribano.fecha_matriculacion
+    if juramento is not None and datos.fecha < juramento:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La primera escritura no puede ser anterior a la fecha de juramento "
+            f"({juramento:%d/%m/%Y}).",
+        )
+
+
+def _poner_primera_escritura(
+    escribano: Escribano, actor: User, datos: PrimeraEscrituraDatos
+) -> None:
+    escribano.primera_escritura_fecha = datos.fecha
+    escribano.primera_escritura_numero = datos.numero
+    escribano.primera_escritura_registro = datos.registro
+    escribano.primera_escritura_folio = datos.folio
+    escribano.primera_escritura_cargada_por_user_id = actor.id
+    escribano.primera_escritura_cargada_en = datetime.now(UTC)
+
+
+async def guardar_primera_escritura(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    escribano_id: uuid.UUID,
+    data: PrimeraEscrituraIn,
+) -> Escribano:
+    """Carga la primera escritura o la corrige. Corregirla exige motivo; todo queda auditado
+    con el valor anterior y el nuevo."""
+    escribano = await get_escribano_for_update(session, escribano_id)
+    corrige = escribano.primera_escritura_fecha is not None
+    if corrige and not data.motivo:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La primera escritura ya está cargada: indicá el motivo de la corrección.",
+        )
+    _validar_primera_escritura(escribano, data)
+    old = _snapshot(escribano, PRIMERA_FIELDS)
+    if old == {
+        "primera_escritura_fecha": data.fecha.isoformat(),
+        "primera_escritura_numero": data.numero,
+        "primera_escritura_registro": data.registro,
+        "primera_escritura_folio": data.folio,
+    }:
+        raise _conflict("La primera escritura ya tiene esos datos.")
+    _poner_primera_escritura(escribano, actor, data)
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PADRON_PRIMERA_ESCRITURA_CORREGIDA
+        if corrige
+        else AuditEvent.PADRON_PRIMERA_ESCRITURA_CARGADA,
+        severity=Severity.WARNING if corrige else Severity.INFO,
+        actor_user_id=actor.id,
+        old_value=old,
+        new_value=_snapshot(escribano, PRIMERA_FIELDS),
+        details={"escribano_id": str(escribano.id), "motivo": data.motivo},
+    )
+    await session.commit()
+    await session.refresh(escribano, attribute_names=["persona"])
+    return escribano
 
 
 async def completar_escribano(
@@ -565,25 +774,39 @@ async def completar_escribano(
     escribano = await get_escribano_for_update(session, escribano_id)
     persona = escribano.persona
     duenos: dict[str, Escribano | Persona] = {"escribano": escribano, "persona": persona}
-    cambios = data.model_dump(exclude_none=True)
+    cambios = data.model_dump(exclude_none=True, exclude={"primera_escritura"})
+    primera = data.primera_escritura
+    if primera is not None and escribano.primera_escritura_fecha is not None:
+        raise _conflict(
+            "La primera escritura ya está cargada: se corrige desde «Primera escritura», con "
+            "motivo."
+        )
     for campo in cambios:
         dueno, mensaje = _A_COMPLETAR[campo]
         if getattr(duenos[dueno], campo) is not None:
             raise _conflict(f"{mensaje}: no se cambia desde «a completar».")
     fecha = cambios.get("fecha_matriculacion")
     if fecha is not None:
-        await _exigir_matriculacion_antes_de_todo(session, escribano.id, fecha)
-    old = {campo: None for campo in cambios}
+        await _exigir_matriculacion_antes_de_todo(session, escribano, fecha)
+    old: dict[str, Any] = {campo: None for campo in cambios}
     for campo, valor in cambios.items():
         setattr(duenos[_A_COMPLETAR[campo][0]], campo, valor)
+    nuevos: dict[str, Any] = {campo: _jsonable(valor) for campo, valor in cambios.items()}
+    if primera is not None:
+        # Se valida después de cargar el juramento que pueda venir en el mismo envío.
+        _validar_primera_escritura(escribano, primera)
+        old |= _snapshot(escribano, PRIMERA_FIELDS)
+        _poner_primera_escritura(escribano, actor, primera)
+        nuevos |= _snapshot(escribano, PRIMERA_FIELDS)
+    campos = sorted(cambios) + ([PRIMERA_ESCRITURA] if primera is not None else [])
     record_audit(
         session,
         ctx,
         AuditEvent.PADRON_ESCRIBANO_COMPLETADO,
         actor_user_id=actor.id,
         old_value=old,
-        new_value={campo: _jsonable(valor) for campo, valor in cambios.items()},
-        details={"escribano_id": str(escribano.id), "campos": sorted(cambios)},
+        new_value=nuevos,
+        details={"escribano_id": str(escribano.id), "campos": campos},
     )
     await _commit_unique(session)
     await session.refresh(escribano, attribute_names=["persona"])
@@ -615,13 +838,13 @@ async def change_estado(
         )
     if escribano.fecha_matriculacion is None:
         raise _conflict(
-            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "Falta la fecha de juramento: completala desde «Completar datos» antes de "
             "esta operación."
         )
     if data.fecha_efectiva < escribano.fecha_matriculacion:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "La fecha efectiva no puede ser anterior a la matriculación.",
+            "La fecha efectiva no puede ser anterior al juramento.",
         )
     if nuevo in ESTADOS_DEFINITIVOS:
         vigente = await current_cargo(session, escribano.id)
@@ -740,7 +963,7 @@ async def list_cargos(session: AsyncSession, escribano_id: uuid.UUID) -> list[Ad
     result = await session.execute(
         select(Adscripcion)
         .where(Adscripcion.escribano_id == escribano_id)
-        .order_by(Adscripcion.fecha_desde.desc())
+        .order_by(Adscripcion.fecha_desde.desc(), Adscripcion.created_at.desc())
     )
     return list(result.unique().scalars())
 
@@ -769,13 +992,13 @@ async def assign_cargo(
         raise _conflict("Solo un escribano con matrícula ACTIVA puede asumir un cargo.")
     if escribano.fecha_matriculacion is None:
         raise _conflict(
-            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "Falta la fecha de juramento: completala desde «Completar datos» antes de "
             "esta operación."
         )
     if data.fecha_desde < escribano.fecha_matriculacion:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "La designación no puede ser anterior a la matriculación.",
+            "La designación no puede ser anterior al juramento.",
         )
     registro = await get_registro(session, data.registro_id)
     if registro.estado == EstadoRegistro.CERRADO:

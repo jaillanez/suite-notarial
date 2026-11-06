@@ -485,17 +485,20 @@ def _escribano(texto: str, p: str, ctx: ContextoMinuta, alertas: list[Alerta]) -
         p,
     ):
         numero = int(m.group(1))
-        for c in ctx.candidatos:
-            if c.matricula == numero:
-                return _identificado(
-                    texto,
-                    c,
-                    "0.90",
-                    "Por la matrícula que menciona el texto.",
-                    _cita(texto, m.start(), m.end()),
-                    mencion,
-                    alertas,
-                )
+        # La matrícula no es única (el Colegio la reasigna): solo identifica si, dentro del
+        # equipo del registro en el período, la tiene un único escribano. Si no, decide el
+        # apellido (o queda sin identificar).
+        con_matricula = [c for c in ctx.candidatos if c.matricula == numero]
+        if len(con_matricula) == 1:
+            return _identificado(
+                texto,
+                con_matricula[0],
+                "0.90",
+                "Por la matrícula que menciona el texto.",
+                _cita(texto, m.start(), m.end()),
+                mencion,
+                alertas,
+            )
     por_apellido = []
     for c in ctx.candidatos:
         nombrado = re.search(r"\b" + re.escape(plano(c.apellido)) + r"\b", p)

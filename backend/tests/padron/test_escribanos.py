@@ -76,8 +76,17 @@ async def test_duplicates_are_conflicts(caja: AsyncClient, escribano: Factory) -
 
     assert dup_cuit.status_code == 409
     assert dup_cuit.json()["detail"] == "Ya hay una persona registrada con ese CUIT."
-    assert dup_matricula.status_code == 409
-    assert dup_matricula.json()["detail"] == "Ese número de matrícula ya está asignado."
+    # La matrícula no identifica (el Colegio la reasigna): otra persona puede tenerla.
+    assert dup_matricula.status_code == 201, dup_matricula.text
+    assert dup_matricula.json()["matricula_numero"] == first["matricula_numero"]
+    # La búsqueda por esa matrícula trae a los dos: nunca elige uno.
+    encontrados = await caja.get(
+        "/api/v1/padron/escribanos", params={"q": str(first["matricula_numero"])}
+    )
+    assert {i["id"] for i in encontrados.json()["items"]} == {
+        first["id"],
+        dup_matricula.json()["id"],
+    }
 
 
 async def test_status_change_keeps_row_and_writes_history(

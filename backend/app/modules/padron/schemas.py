@@ -173,19 +173,80 @@ class RegistroOut(BaseModel):
     cantidad_adscriptos: int = 0
 
 
+class DomicilioCambio(BaseModel):
+    """Nuevo domicilio del registro: cierra el vigente el día anterior a `fecha_desde`."""
+
+    domicilio: Texto
+    fecha_desde: date
+
+
+class DomicilioOut(BaseModel):
+    id: uuid.UUID
+    domicilio: str
+    fecha_desde: date
+    # None: vigente.
+    fecha_hasta: date | None
+    cargado_por: str | None
+    created_at: datetime
+
+
 class RegistroDetalle(RegistroOut):
     cargos_vigentes: list[CargoResumen]
+    # Historia del domicilio, del más reciente al más antiguo.
+    domicilios: list[DomicilioOut] = []
 
 
 # --------------------------------------------------------------------------- escribanos
 
 
+Corto20 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+
+
 class EscribanoIn(BaseModel):
     persona: PersonaIn
+    # Dato informativo: no identifica (el Colegio puede reasignarla). Identifica el CUIT.
     matricula_numero: int = Field(gt=0, lt=1_000_000)
     tomo: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
     folio: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
-    fecha_matriculacion: date
+    # Fecha de juramento (el campo conserva su nombre histórico).
+    fecha_matriculacion: date = Field(description="Fecha de juramento.")
+
+
+class PrimeraEscrituraDatos(BaseModel):
+    """Primera escritura autorizada: determina la antigüedad para la jubilación."""
+
+    fecha: date
+    numero: Corto20
+    # Número de registro (no tiene que existir en la Suite: puede ser uno ya cerrado).
+    registro: int = Field(gt=0, lt=100_000)
+    folio: Corto20 | None = None
+
+
+class PrimeraEscrituraIn(PrimeraEscrituraDatos):
+    """Carga o corrección. Corregir una ya cargada exige motivo (queda auditado)."""
+
+    motivo: Motivo | None = None
+
+
+class PrimeraEscrituraOut(BaseModel):
+    fecha: date
+    numero: str
+    registro: int
+    folio: str | None
+    cargada_por: str | None
+    cargada_en: datetime | None
+
+
+class AntiguedadOut(BaseModel):
+    """Tiempo transcurrido desde la primera escritura hasta hoy.
+
+    TODO(negocio): las reglas de antigüedad para la jubilación (licencias, interrupciones) no
+    están definidas; esto es el cálculo calendario, informativo.
+    """
+
+    desde: date
+    anios: int
+    meses: int
 
 
 class EscribanoUpdate(BaseModel):
@@ -197,12 +258,14 @@ class EscribanoUpdate(BaseModel):
 
 class DatosACompletar(BaseModel):
     """Datos que faltaban al migrar del sistema anterior. Se cargan una sola vez: cada campo
-    enviado tiene que estar hoy vacío (cambiar uno ya cargado no se hace por acá)."""
+    enviado tiene que estar hoy vacío (cambiar uno ya cargado no se hace por acá; la primera
+    escritura se corrige desde su propia acción, con motivo)."""
 
     matricula_numero: int | None = Field(default=None, gt=0, lt=1_000_000)
-    fecha_matriculacion: date | None = None
+    fecha_matriculacion: date | None = Field(default=None, description="Fecha de juramento.")
     cuit: str | None = None
     numero_documento: Documento | None = None
+    primera_escritura: PrimeraEscrituraDatos | None = None
 
     @field_validator("cuit")
     @classmethod
@@ -258,13 +321,65 @@ class HistorialOut(BaseModel):
     operador_email: str | None
 
 
+class LicenciaIn(BaseModel):
+    fecha_desde: date
+    # None: sin fecha de regreso (vigente hasta que se la termine).
+    fecha_hasta: date | None = None
+    motivo: Motivo
+    resolucion_respaldo: Corto | None = None
+
+    @model_validator(mode="after")
+    def _fechas(self) -> "LicenciaIn":
+        if self.fecha_hasta is not None and self.fecha_hasta < self.fecha_desde:
+            raise ValueError("La fecha de regreso no puede ser anterior al inicio de la licencia.")
+        return self
+
+
+class LicenciaFin(BaseModel):
+    """Termina la licencia: el escribano vuelve a ejercer después de `fecha_hasta`."""
+
+    fecha_hasta: date
+
+
+class LicenciaAnulacion(BaseModel):
+    motivo: Motivo
+
+
+class LicenciaOut(BaseModel):
+    id: uuid.UUID
+    fecha_desde: date
+    fecha_hasta: date | None
+    motivo: str
+    resolucion_respaldo: str | None
+    anulada: bool
+    motivo_anulacion: str | None
+    anulada_en: datetime | None
+    # No anulada y con la fecha de hoy dentro del rango.
+    vigente: bool
+    cargada_por: str | None
+    created_at: datetime
+
+
+class DesignacionResumen(BaseModel):
+    """Designación del escribano a cargo de un registro (convive con su cargo propio)."""
+
+    id: uuid.UUID
+    registro_id: uuid.UUID
+    numero_registro: int
+    fecha_desde: date
+    fecha_hasta: date
+    estado: EstadoDesignacion
+    motivo: str
+
+
 class EscribanoOut(BaseModel):
     id: uuid.UUID
-    # None: dato que faltaba en el sistema anterior («a completar»).
+    # None: dato que faltaba en el sistema anterior («a completar»). Informativa: no es única.
     matricula_numero: int | None
     tomo: str | None
     folio: str | None
-    fecha_matriculacion: date | None
+    # Fecha de juramento (el campo conserva su nombre histórico).
+    fecha_matriculacion: date | None = Field(description="Fecha de juramento.")
     estado_matricula: EstadoMatricula
     apellido_nombre: str
     cuit: str | None
@@ -272,6 +387,8 @@ class EscribanoOut(BaseModel):
     registro_actual: int | None
     cargo_actual: Cargo | None
     tiene_cuenta: bool
+    # Inicio de la licencia vigente hoy (None: no está de licencia).
+    en_licencia_desde: date | None = None
 
 
 class EscribanoDetalle(EscribanoOut):
@@ -282,8 +399,15 @@ class EscribanoDetalle(EscribanoOut):
     fecha_ultimo_cambio_estado: datetime | None
     # Datos que faltaban al migrar y se pueden completar una vez.
     a_completar: list[str]
+    # Historia completa de cargos (titular / adscripto por registro), del más reciente al más
+    # antiguo, vigentes y cerrados.
     cargos: list[CargoOut]
     historial: list[HistorialOut]
+    primera_escritura: PrimeraEscrituraOut | None = None
+    # None: falta la primera escritura («a completar»).
+    antiguedad: AntiguedadOut | None = None
+    licencias: list[LicenciaOut] = []
+    designaciones_a_cargo: list[DesignacionResumen] = []
 
 
 class CuentaIn(BaseModel):

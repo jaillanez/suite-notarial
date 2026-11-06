@@ -426,11 +426,11 @@ async def designar(
         raise _conflict("Solo un escribano con matrícula ACTIVA puede quedar a cargo.")
     if escribano.fecha_matriculacion is None:
         raise _conflict(
-            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "Falta la fecha de juramento: completala desde «Completar datos» antes de "
             "esta operación."
         )
     if data.fecha_desde < escribano.fecha_matriculacion:
-        raise _invalid("La designación no puede ser anterior a la matriculación.")
+        raise _invalid("La designación no puede ser anterior al juramento.")
     personal = es_personal(principal)
     if not personal:
         # El titular no delega más de lo que tiene: nada anterior a su propio cargo.

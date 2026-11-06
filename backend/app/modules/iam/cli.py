@@ -269,6 +269,7 @@ async def _seed_padron_demo(session: AsyncSession) -> None:
     from app.modules.padron.models import (
         Adscripcion,
         Circunscripcion,
+        DomicilioRegistro,
         Escribano,
         Persona,
         RegistroNotarial,
@@ -293,6 +294,13 @@ async def _seed_padron_demo(session: AsyncSession) -> None:
             estado=EstadoRegistro.VACANTE.value,
         )
         session.add(registros[numero])
+        session.add(
+            DomicilioRegistro(
+                registro_id=registros[numero].id,
+                domicilio=registros[numero].domicilio_legal,
+                fecha_desde=date(2020, 1, 1),
+            )
+        )
     escribano_user = await session.scalar(
         select(User).where(User.email == "escribano@suite-notarial.example")
     )

@@ -1,6 +1,6 @@
 """Consola de la migración: `python -m app.modules.migracion.cli <comando>`.
 
-sintetico   --salida DIR [--registros N] [--defectos] [--sin-creditos]
+sintetico   --salida DIR [--registros N] [--defectos] [--sin-creditos] [--sin-licencias]
                                                          lote de prueba (nunca datos reales)
 simulacro   --lote DIR --operador EMAIL [--homologacion JSON]
 definitiva  --lote DIR --operador EMAIL --homologacion JSON
@@ -66,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--sin-creditos", action="store_true", help="Sin creditos.csv (archivo opcional)"
     )
+    p.add_argument(
+        "--sin-licencias", action="store_true", help="Sin licencias.csv (archivo opcional)"
+    )
     for nombre in ("simulacro", "definitiva"):
         p = sub.add_parser(nombre)
         p.add_argument("--lote", type=Path, required=True)
@@ -94,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
             semilla=args.semilla,
             defectos=args.defectos,
             creditos=not args.sin_creditos,
+            licencias=not args.sin_licencias,
         )
         _out(f"Lote sintético en {args.salida}: {resumen}")
         return 0
