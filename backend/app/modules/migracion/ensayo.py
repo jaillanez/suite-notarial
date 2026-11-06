@@ -36,7 +36,13 @@ from app.modules.iam.models import Role, User, UserRole
 from app.modules.migracion import reversa, service, sintetico
 from app.modules.migracion.catalog import AreaConformidad, EstadoCorrida, ModoCorrida
 from app.modules.migracion.homologacion import EJEMPLO
-from app.modules.migracion.models import Conformidad, Corrida, HistoricoBoleta, HistoricoPago
+from app.modules.migracion.models import (
+    Conformidad,
+    Corrida,
+    HistoricoBoleta,
+    HistoricoCredito,
+    HistoricoPago,
+)
 from app.modules.padron.models import Adscripcion, Escribano, Persona, RegistroNotarial
 
 BACKEND = Path(__file__).resolve().parents[3]
@@ -48,6 +54,7 @@ TABLAS_CONTADAS = (
     Adscripcion,
     HistoricoBoleta,
     HistoricoPago,
+    HistoricoCredito,
 )
 
 

@@ -1,6 +1,7 @@
 """Consola de la migración: `python -m app.modules.migracion.cli <comando>`.
 
-sintetico   --salida DIR [--registros N] [--defectos]    lote de prueba (nunca datos reales)
+sintetico   --salida DIR [--registros N] [--defectos] [--sin-creditos]
+                                                         lote de prueba (nunca datos reales)
 simulacro   --lote DIR --operador EMAIL [--homologacion JSON]
 definitiva  --lote DIR --operador EMAIL --homologacion JSON
 respaldo    --salida ARCHIVO                             pg_dump del esquema (rol dueño)
@@ -62,6 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--registros", type=int, default=20)
     p.add_argument("--semilla", type=int, default=42)
     p.add_argument("--defectos", action="store_true")
+    p.add_argument(
+        "--sin-creditos", action="store_true", help="Sin creditos.csv (archivo opcional)"
+    )
     for nombre in ("simulacro", "definitiva"):
         p = sub.add_parser(nombre)
         p.add_argument("--lote", type=Path, required=True)
@@ -85,7 +89,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.comando == "sintetico":
         resumen = sintetico.generar(
-            args.salida, registros=args.registros, semilla=args.semilla, defectos=args.defectos
+            args.salida,
+            registros=args.registros,
+            semilla=args.semilla,
+            defectos=args.defectos,
+            creditos=not args.sin_creditos,
         )
         _out(f"Lote sintético en {args.salida}: {resumen}")
         return 0

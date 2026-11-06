@@ -53,6 +53,7 @@ async def test_ensayo_de_corte_y_reversa(tmp_path: Path) -> None:
     assert informe.reversa_s < ensayo.OBJETIVO_REVERSA_S
     assert informe.conteos_restaurados == informe.conteos_previos
     assert informe.conteos_cargados["historico_boletas"] > 0
+    assert informe.conteos_cargados["historico_creditos"] > 0
     assert (
         informe.conteos_cargados["padron_escribanos"] > informe.conteos_previos["padron_escribanos"]
     )

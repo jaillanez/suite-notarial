@@ -36,7 +36,7 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
-from app.modules.migracion.models import HistoricoBoleta
+from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
 from app.modules.padron.catalog import EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano
 from app.modules.prestamos import motor
@@ -340,8 +340,9 @@ async def garantiza_en_mora(session: AsyncSession, escribano_id: uuid.UUID, hoy:
 
 
 async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: date) -> bool:
-    """Boletas impagas y vencidas de los registros donde el escribano tiene cargo vigente,
-    incluidas las del sistema anterior (histórico migrado)."""
+    """Deuda vencida en los registros donde el escribano tiene cargo vigente: boletas de la
+    Suite pendientes y vencidas, o saldo vencido positivo del sistema anterior (boletas no
+    anuladas - pagos - créditos; ver `registros_con_deuda_historica`)."""
     registros = select(Adscripcion.registro_id).where(
         Adscripcion.escribano_id == escribano_id, Adscripcion.is_current.is_(True)
     )
@@ -354,14 +355,46 @@ async def deuda_aportes(session: AsyncSession, escribano_id: uuid.UUID, hoy: dat
     )
     if actuales:
         return True
-    historicas = await session.scalar(
-        select(func.count()).where(
-            HistoricoBoleta.registro_id.in_(registros),
-            HistoricoBoleta.estado == EstadoBoletaHistorica.IMPAGA.value,
-            HistoricoBoleta.fecha_vencimiento < hoy,
+    return bool(await registros_con_deuda_historica(session, registros, hoy))
+
+
+async def registros_con_deuda_historica(
+    session: AsyncSession, registros: Any, hoy: date
+) -> list[uuid.UUID]:
+    """Registros con saldo vencido positivo en el sistema anterior.
+
+    Saldo de cada registro = boletas no anuladas vencidas - sus pagos - créditos a favor del
+    escribano (con fecha hasta hoy). Un saldo negativo es un saldo a favor: cuenta como deuda
+    cero, nunca como ingreso, y no compensa la deuda de otro registro ni las boletas de la Suite.
+
+    TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
+    """
+    vencida = and_(
+        HistoricoBoleta.registro_id.in_(registros),
+        HistoricoBoleta.estado != EstadoBoletaHistorica.ANULADA.value,
+        HistoricoBoleta.fecha_vencimiento < hoy,
+    )
+    movimientos = (
+        select(HistoricoBoleta.registro_id.label("registro_id"), HistoricoBoleta.importe.label("m"))
+        .where(vencida)
+        .union_all(
+            select(HistoricoBoleta.registro_id, -HistoricoPago.importe)
+            .join(HistoricoBoleta, HistoricoBoleta.id == HistoricoPago.boleta_id)
+            .where(vencida),
+            select(HistoricoCredito.registro_id, -HistoricoCredito.importe).where(
+                HistoricoCredito.registro_id.in_(registros), HistoricoCredito.fecha <= hoy
+            ),
+        )
+        .subquery()
+    )
+    return list(
+        await session.scalars(
+            select(movimientos.c.registro_id)
+            .group_by(movimientos.c.registro_id)
+            .having(func.sum(movimientos.c.m) > 0)
+            .order_by(movimientos.c.registro_id)
         )
     )
-    return bool(historicas)
 
 
 async def inhabilidades_garante(session: AsyncSession, garante: Escribano, hoy: date) -> list[str]:

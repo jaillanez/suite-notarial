@@ -64,6 +64,11 @@ def _dec(valor: Any) -> Decimal:
 async def test_paridad_pantalla_xlsx_csv(
     auditor: AsyncClient, datos: dict[str, Any], codigo: str, filtros: dict[str, str]
 ) -> None:
+    await verificar_paridad(auditor, codigo, filtros)
+
+
+async def verificar_paridad(auditor: AsyncClient, codigo: str, filtros: dict[str, str]) -> None:
+    """Pantalla (paginada), XLSX y CSV: mismas filas, mismo orden y mismos totales."""
     reporte = REPORTES[codigo]
     pantalla = await _pantalla(auditor, codigo, **filtros)
     xlsx = await auditor.get(
@@ -197,6 +202,7 @@ async def test_permisos(
         "PAGOS",
         "RECAUDACION",
         "BOLETAS_HISTORICAS",
+        "CREDITOS_HISTORICOS",
         "AUDITORIA",
         "SUGERENCIAS_IA",
     }

@@ -15,9 +15,16 @@ def test_genera_un_lote_sintetico(tmp_path: Path, capsys: pytest.CaptureFixture[
         "cargos.csv",
         "boletas.csv",
         "pagos.csv",
+        "creditos.csv",
         "control.csv",
     }
     assert "Lote sintético" in capsys.readouterr().out
+
+
+def test_genera_un_lote_sin_creditos(tmp_path: Path) -> None:
+    assert cli.main(["sintetico", "--salida", str(tmp_path), "--sin-creditos"]) == 0
+    assert not (tmp_path / "creditos.csv").exists()
+    assert "creditos" not in (tmp_path / "control.csv").read_text(encoding="utf-8")
 
 
 def test_la_reversa_exige_confirmacion(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

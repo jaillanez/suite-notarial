@@ -108,6 +108,16 @@ class PagoN:
 
 
 @dataclass(frozen=True)
+class CreditoN:
+    codigo: str
+    numero_registro: int
+    fecha: date
+    periodo: str | None
+    importe: Decimal  # en positivo: a favor del escribano
+    concepto: str | None
+
+
+@dataclass(frozen=True)
 class Existentes:
     """Lo que ya está en la Suite: lo migrado no puede chocar con eso."""
 
@@ -123,6 +133,7 @@ class Staging:
     cargos: list[CargoN] = field(default_factory=list)
     boletas: list[BoletaN] = field(default_factory=list)
     pagos: list[PagoN] = field(default_factory=list)
+    creditos: list[CreditoN] = field(default_factory=list)
     observaciones: list[Observacion] = field(default_factory=list)
     # Por entidad: filas leídas, rechazadas e importe legible de cada grupo (cuadratura).
     leidas: Counter[str] = field(default_factory=Counter)
@@ -514,6 +525,42 @@ def _pagos(lote: Lote, st: Staging) -> None:
         )
 
 
+# --------------------------------------------------------------------------- créditos
+
+
+def _creditos(lote: Lote, st: Staging) -> None:
+    """Créditos a favor del escribano (importes negativos del libro del origen, en positivo).
+
+    TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
+    """
+    filas = lote.filas[Entidad.CREDITOS]
+    codigos = _duplicados(filas, lambda f: f.codigo)
+    registros = {r.numero for r in st.registros}
+    for fila in filas:
+        f = _Fila(st, Entidad.CREDITOS, fila)
+        if fila.numero in codigos:
+            f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
+        numero = f.campo("numero_registro", valores.entero)
+        if numero is not None and numero not in registros:
+            f.observar(
+                "REGISTRO_NO_MIGRADO",
+                "El registro no corresponde a un registro del lote que se pueda cargar.",
+            )
+        fecha = f.campo("fecha", valores.fecha)
+        periodo = f.campo("periodo", valores.periodo, obligatorio=False)
+        importe = f.campo("importe", valores.importe)
+        if importe is None and fila.datos.get("importe", "").strip():
+            st.importe_ilegible[Entidad.CREDITOS.value] += 1
+        if importe is not None and importe <= 0:
+            f.observar(
+                "IMPORTE_NO_POSITIVO",
+                "El importe del crédito va en positivo y tiene que ser mayor que cero.",
+            )
+        concepto = f.campo("concepto", _texto(100), obligatorio=False)
+        if _cerrar(st, Entidad.CREDITOS, f, importe):
+            st.creditos.append(CreditoN(fila.codigo, numero, fecha, periodo, importe, concepto))
+
+
 def validar(lote: Lote, hom: Homologacion, existentes: Existentes) -> Staging:
     st = Staging()
     _registros(lote, hom, existentes, st)
@@ -521,4 +568,5 @@ def validar(lote: Lote, hom: Homologacion, existentes: Existentes) -> Staging:
     _cargos(lote, hom, st)
     _boletas(lote, hom, st)
     _pagos(lote, st)
+    _creditos(lote, st)
     return st

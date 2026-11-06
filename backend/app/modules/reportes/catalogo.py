@@ -17,7 +17,7 @@ from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
-from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
+from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
 from app.modules.padron.catalog import DEPARTAMENTOS_SAN_JUAN, Cargo, EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano, Persona, RegistroNotarial
 from app.modules.pagos.catalog import ResultadoConciliacion
@@ -502,7 +502,8 @@ BOLETAS_HISTORICAS = Reporte(
     construir=_boletas_historicas,
     titulo="Boletas del sistema anterior",
     descripcion="Histórico migrado, de solo lectura: importe, lo pagado y el saldo de cada "
-    "boleta. Las anuladas no tienen saldo.",
+    "boleta. Las anuladas no tienen saldo. Los créditos a favor del escribano no se imputan a "
+    "boletas: restan del saldo del registro y se consultan en «Créditos del sistema anterior».",
     permiso=Perm.REPORTS_FINANCIAL,
     columnas=(
         Columna("registro", "Registro", Tipo.ENTERO),
@@ -533,6 +534,53 @@ BOLETAS_HISTORICAS = Reporte(
 )
 
 
+def _creditos_historicos(f: Filtros) -> Consulta:
+    stmt = select(
+        RegistroNotarial.numero_registro.label("registro"),
+        HistoricoCredito.fecha.label("fecha"),
+        HistoricoCredito.periodo.label("periodo"),
+        HistoricoCredito.concepto.label("concepto"),
+        HistoricoCredito.importe.label("importe"),
+        HistoricoCredito.codigo_legado.label("codigo_legado"),
+    ).join(RegistroNotarial, RegistroNotarial.id == HistoricoCredito.registro_id)
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    # Fecha calendario del crédito (no es un timestamp: se compara tal cual).
+    if "fecha_desde" in f:
+        stmt = stmt.where(HistoricoCredito.fecha >= f["fecha_desde"])
+    if "fecha_hasta" in f:
+        stmt = stmt.where(HistoricoCredito.fecha <= f["fecha_hasta"])
+    stmt = _rango_periodos(stmt, HistoricoCredito.periodo, f)
+    return stmt.order_by(
+        RegistroNotarial.numero_registro, HistoricoCredito.fecha, HistoricoCredito.id
+    )
+
+
+CREDITOS_HISTORICOS = Reporte(
+    codigo="CREDITOS_HISTORICOS",
+    construir=_creditos_historicos,
+    titulo="Créditos del sistema anterior",
+    descripcion="Histórico migrado, de solo lectura: créditos a favor del escribano (casi "
+    "todos diferencias de inspección). Restan del saldo del registro. Filtrar por período "
+    "deja afuera los créditos sin período.",
+    permiso=Perm.REPORTS_FINANCIAL,
+    columnas=(
+        Columna("registro", "Registro", Tipo.ENTERO),
+        Columna("fecha", "Fecha", Tipo.FECHA),
+        Columna("periodo", "Período", Tipo.PERIODO),
+        Columna("concepto", "Concepto"),
+        Columna("importe", "Importe a favor", Tipo.MONEDA, total=True),
+        Columna("codigo_legado", "Código en el sistema anterior", visible=False),
+    ),
+    filtros=(
+        Filtro("fecha_desde", "Fecha desde", TipoFiltro.FECHA),
+        Filtro("fecha_hasta", "Fecha hasta", TipoFiltro.FECHA),
+        *PERIODOS,
+        Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+    ),
+)
+
+
 REPORTES: dict[str, Reporte] = {
     r.codigo: r
     for r in (
@@ -541,6 +589,7 @@ REPORTES: dict[str, Reporte] = {
         PAGOS,
         RECAUDACION,
         BOLETAS_HISTORICAS,
+        CREDITOS_HISTORICOS,
         AUDITORIA,
         SUGERENCIAS_IA,
     )
