@@ -22,6 +22,7 @@ from app.modules.padron.catalog import DEPARTAMENTOS_SAN_JUAN, Cargo, EstadoMatr
 from app.modules.padron.models import Adscripcion, Escribano, Persona, RegistroNotarial
 from app.modules.pagos.catalog import ResultadoConciliacion
 from app.modules.pagos.models import Comprobante, Conciliacion
+from app.modules.previsional.models import Ejercicio, PuntosAfiliado
 from app.modules.reportes.framework import (
     Columna,
     Consulta,
@@ -527,6 +528,69 @@ BOLETAS_HISTORICAS = Reporte(
     ),
 )
 
+# --------------------------------------------------------------------------- puntos (Ley 7231)
+
+
+def _puntos_ejercicios(f: Filtros) -> Consulta:
+    afiliados = (
+        select(
+            PuntosAfiliado.ejercicio_id.label("ejercicio_id"),
+            func.count().label("filas"),
+            func.sum(PuntosAfiliado.aportes).label("aportes"),
+            func.sum(PuntosAfiliado.puntos).label("puntos"),
+            func.count(PuntosAfiliado.escribano_id).label("vinculadas"),
+        )
+        .group_by(PuntosAfiliado.ejercicio_id)
+        .subquery()
+    )
+    stmt = select(
+        Ejercicio.anio.label("anio"),
+        Ejercicio.fecha_inicio.label("fecha_inicio"),
+        Ejercicio.fecha_cierre.label("fecha_cierre"),
+        Ejercicio.total_aportes.label("total_aportes"),
+        func.coalesce(afiliados.c.aportes, 0).label("suma_aportes"),
+        Ejercicio.cantidad_afiliados.label("cantidad_afiliados"),
+        Ejercicio.aporte_medio.label("aporte_medio"),
+        func.coalesce(afiliados.c.puntos, 0).label("suma_puntos"),
+        func.coalesce(afiliados.c.filas, 0).label("con_puntos"),
+        (func.coalesce(afiliados.c.filas, 0) - func.coalesce(afiliados.c.vinculadas, 0)).label(
+            "sin_vincular"
+        ),
+        Ejercicio.origen.label("origen"),
+    ).outerjoin(afiliados, afiliados.c.ejercicio_id == Ejercicio.id)
+    if "anio_desde" in f:
+        stmt = stmt.where(Ejercicio.anio >= f["anio_desde"])
+    if "anio_hasta" in f:
+        stmt = stmt.where(Ejercicio.anio <= f["anio_hasta"])
+    return stmt.order_by(Ejercicio.anio.desc())
+
+
+PUNTOS_EJERCICIOS = Reporte(
+    codigo="PUNTOS_EJERCICIOS",
+    construir=_puntos_ejercicios,
+    titulo="Aportes y puntos por ejercicio",
+    descripcion="Ley 7231: total de aportes, afiliados, aporte medio y suma de puntos de cada "
+    "ejercicio (1/9 al 31/8, por año de cierre), según la planilla histórica de la Caja.",
+    permiso=Perm.PUNTOS_READ_ALL,
+    columnas=(
+        Columna("anio", "Ejercicio", Tipo.ENTERO),
+        Columna("fecha_inicio", "Inicio", Tipo.FECHA, visible=False),
+        Columna("fecha_cierre", "Cierre", Tipo.FECHA, visible=False),
+        Columna("total_aportes", "Total de aportes", Tipo.MONEDA, total=True),
+        Columna("suma_aportes", "Suma por afiliado", Tipo.MONEDA, total=True, visible=False),
+        Columna("cantidad_afiliados", "Afiliados", Tipo.DECIMAL, decimales=4),
+        Columna("aporte_medio", "Aporte medio", Tipo.DECIMAL, decimales=6),
+        Columna("suma_puntos", "Suma de puntos", Tipo.DECIMAL, decimales=6),
+        Columna("con_puntos", "Afiliados con puntos", Tipo.ENTERO, visible=False),
+        Columna("sin_vincular", "Sin vincular", Tipo.ENTERO, total=True),
+        Columna("origen", "Origen", Tipo.TEXTO, visible=False),
+    ),
+    filtros=(
+        Filtro("anio_desde", "Ejercicio desde", TipoFiltro.ENTERO),
+        Filtro("anio_hasta", "Ejercicio hasta", TipoFiltro.ENTERO),
+    ),
+)
+
 
 REPORTES: dict[str, Reporte] = {
     r.codigo: r
@@ -538,5 +602,6 @@ REPORTES: dict[str, Reporte] = {
         BOLETAS_HISTORICAS,
         AUDITORIA,
         SUGERENCIAS_IA,
+        PUNTOS_EJERCICIOS,
     )
 }

@@ -1,7 +1,7 @@
 import { api } from '../../lib/api'
 
 export type TipoColumna =
-  'TEXTO' | 'ENTERO' | 'MONEDA' | 'FECHA' | 'FECHA_HORA' | 'PERIODO' | 'CUIT'
+  'TEXTO' | 'ENTERO' | 'MONEDA' | 'DECIMAL' | 'FECHA' | 'FECHA_HORA' | 'PERIODO' | 'CUIT'
 export type TipoFiltro = 'PERIODO' | 'FECHA' | 'OPCIONES' | 'TEXTO' | 'ENTERO'
 
 export interface Columna {
@@ -10,6 +10,8 @@ export interface Columna {
   tipo: TipoColumna
   total: boolean
   visible: boolean
+  /** Decimales de las columnas MONEDA y DECIMAL. */
+  decimales?: number
 }
 
 export interface Filtro {

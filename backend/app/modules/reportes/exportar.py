@@ -33,16 +33,16 @@ def _local(valor: datetime) -> datetime:
     return valor.astimezone(LOCAL_TZ).replace(tzinfo=None)
 
 
-def _decimal_ar(valor: Decimal) -> str:
-    return f"{valor:.2f}".replace(".", ",")
+def _decimal_ar(valor: Decimal, decimales: int = 2) -> str:
+    return f"{valor:.{decimales}f}".replace(".", ",")
 
 
 def texto(col: Columna, valor: Any) -> str:
     """Representación textual (CSV y descripción de filtros)."""
     if valor is None:
         return ""
-    if col.tipo is Tipo.MONEDA:
-        return _decimal_ar(Decimal(valor))
+    if col.es_decimal:
+        return _decimal_ar(col.cuantizar(valor), col.decimales)
     if col.tipo is Tipo.FECHA and isinstance(valor, date):
         return valor.strftime("%d/%m/%Y")
     if col.tipo is Tipo.FECHA_HORA and isinstance(valor, datetime):
@@ -131,7 +131,7 @@ def a_xlsx(
         cell = ws.cell(row=encabezado, column=i, value=c.label)
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = fill
-        cell.alignment = Alignment(horizontal="right" if c.tipo is Tipo.MONEDA else "left")
+        cell.alignment = Alignment(horizontal="right" if c.es_decimal else "left")
 
     fila_n = encabezado
     for fila in resultado.filas:
@@ -156,7 +156,7 @@ def a_xlsx(
     if resultado.filas:
         ws.auto_filter.ref = f"A{encabezado}:{ultima}{encabezado + len(resultado.filas)}"
     for i, c in enumerate(reporte.columnas, start=1):
-        ancho = 16 if c.tipo is Tipo.MONEDA else max(10, min(48, len(c.label) + 4))
+        ancho = 16 if c.es_decimal else max(10, min(48, len(c.label) + 4))
         if c.tipo is Tipo.TEXTO:
             ancho = 28
         ws.column_dimensions[get_column_letter(i)].width = ancho
@@ -169,10 +169,10 @@ def a_xlsx(
 def _escribir(cell: Any, col: Columna, valor: Any) -> None:
     if valor is None:
         return
-    if col.tipo is Tipo.MONEDA:
+    if col.es_decimal:
         # openpyxl escribe el Decimal tal cual en el XML (sin conversión binaria).
-        cell.value = Decimal(valor).quantize(Decimal("0.01"))
-        cell.number_format = "#,##0.00"
+        cell.value = col.cuantizar(valor)
+        cell.number_format = "#,##0." + "0" * col.decimales if col.decimales else "#,##0"
         cell.alignment = Alignment(horizontal="right")
     elif col.tipo is Tipo.ENTERO:
         cell.value = int(valor)

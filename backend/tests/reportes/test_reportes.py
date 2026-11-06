@@ -189,7 +189,7 @@ async def test_permisos(
     disponibles_caja = [r["codigo"] for r in (await staff.get("/api/v1/reportes")).json()]
     disponibles_auditor = [r["codigo"] for r in (await auditor.get("/api/v1/reportes")).json()]
 
-    assert disponibles_caja == ["ESCRIBANOS"]
+    assert disponibles_caja == ["ESCRIBANOS", "PUNTOS_EJERCICIOS"]
     assert set(disponibles_auditor) == {
         "ESCRIBANOS",
         "BOLETAS",
@@ -198,6 +198,7 @@ async def test_permisos(
         "BOLETAS_HISTORICAS",
         "AUDITORIA",
         "SUGERENCIAS_IA",
+        "PUNTOS_EJERCICIOS",
     }
     assert (await notario.get("/api/v1/reportes")).status_code == 403
     assert (await notario.get("/api/v1/reportes/BOLETAS/export")).status_code == 403
