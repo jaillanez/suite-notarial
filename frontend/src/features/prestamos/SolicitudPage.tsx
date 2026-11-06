@@ -12,7 +12,14 @@ import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { normalizeDecimalInput } from '../../lib/decimal'
 import { crearSolicitud, fetchLineas, simular } from './api'
-import { EscribanoPicker, PlanCuotas, ResumenEvaluacion } from './componentes'
+import {
+  CondicionesLinea,
+  EscribanoPicker,
+  PlanCuotas,
+  RequisitosLinea,
+  ResumenEvaluacion,
+} from './componentes'
+import { MONEDA } from './labels'
 
 const DECIMAL = /^\d+(\.\d{1,2})?$/
 
@@ -30,6 +37,8 @@ export function SolicitudPage() {
     observaciones: '',
   })
   const linea = activas.find((l) => l.id === form.linea) ?? activas[0]
+  const usd = linea?.moneda === 'USD'
+  const simbolo = MONEDA[linea?.moneda ?? 'ARS'].simbolo
   const datos = useDeferredValue({
     capital: normalizeDecimalInput(form.capital),
     cuotas: Number.parseInt(form.cuotas, 10),
@@ -106,9 +115,15 @@ export function SolicitudPage() {
                 label: l.es_ejemplo ? `${l.nombre} (a confirmar)` : l.nombre,
               }))}
             />
+            {linea && (
+              <div className="grid gap-3">
+                <CondicionesLinea linea={linea} />
+                <RequisitosLinea linea={linea} />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <Field
-                label="Capital ($)"
+                label={`Capital (${simbolo})`}
                 inputMode="decimal"
                 className="[&_input]:tabular-nums"
                 value={form.capital}
@@ -127,9 +142,13 @@ export function SolicitudPage() {
               />
             </div>
             <Field
-              label="Ingreso neto mensual ($)"
+              label={`Ingreso neto mensual ${usd ? 'en dólares ' : ''}(${simbolo})`}
               inputMode="decimal"
-              hint="Promedio acreditado, neto de retenciones."
+              hint={
+                usd
+                  ? 'Declarado en dólares: la Caja todavía no fijó el tipo de cambio para evaluar préstamos en dólares.'
+                  : 'Promedio acreditado, neto de retenciones.'
+              }
               className="[&_input]:tabular-nums"
               value={form.ingreso}
               onChange={(e) => {
@@ -190,6 +209,7 @@ export function SolicitudPage() {
                   plan={evaluacion.data.plan}
                   totales={evaluacion.data.totales}
                   conEstado={false}
+                  moneda={evaluacion.data.moneda}
                 />
               </Panel>
             </>

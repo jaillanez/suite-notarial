@@ -12,12 +12,12 @@ import { Panel } from '../../components/ui/Panel'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
-import { formatMoney, formatPercent } from '../../lib/decimal'
+import { formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { formatDate, todayIso } from '../padron/labels'
 import { fetchPrestamo, otorgar, rechazar, registrarPago, type PrestamoDetalle } from './api'
 import { PlanCuotas } from './componentes'
-import { ESTADO_PRESTAMO, SISTEMA } from './labels'
+import { ESTADO_PRESTAMO, MONEDA, SISTEMA, importe } from './labels'
 
 function Dato({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -128,10 +128,10 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
             <dl className="divide-y divide-line rounded-control border border-line">
               {[
                 ['Escribano', p.escribano.apellido_nombre],
-                ['Capital', formatMoney(p.capital)],
+                ['Capital', importe(p.capital, p.moneda)],
                 ['Cuotas', `${String(p.cuotas)} · ${SISTEMA[p.sistema].label.toLowerCase()}`],
-                ['Primera cuota', formatMoney(p.plan[0]?.cuota ?? null)],
-                ['Total a devolver', formatMoney(p.totales.total)],
+                ['Primera cuota', importe(p.plan[0]?.cuota ?? null, p.moneda)],
+                ['Total a devolver', importe(p.totales.total, p.moneda)],
               ].map(([label, valor]) => (
                 <div key={label} className="flex justify-between gap-4 px-4 py-2.5 text-sm">
                   <dt className="text-ink-muted">{label}</dt>
@@ -209,7 +209,7 @@ function Cobrar({ p }: { p: PrestamoDetalle }) {
                 pago.mutate()
               }}
             >
-              Registrar {formatMoney(proxima.cuota)}
+              Registrar {importe(proxima.cuota, p.moneda)}
             </Button>
           </>
         }
@@ -300,6 +300,15 @@ export function PrestamoPage() {
               </ul>
             </Alert>
           )}
+          {p.estado === 'SOLICITADO' && p.avisos_actuales.length > 0 && (
+            <Alert tone="warning" title="Para revisar antes de resolver">
+              <ul className="mt-1 grid list-disc gap-1 pl-5">
+                {p.avisos_actuales.map((a) => (
+                  <li key={a}>{a}</li>
+                ))}
+              </ul>
+            </Alert>
+          )}
           {p.cuotas_vencidas > 0 && (
             <Alert
               tone="danger"
@@ -312,12 +321,13 @@ export function PrestamoPage() {
           <Panel title="Condiciones">
             <dl className="grid grid-cols-2 gap-4 px-5 py-4 sm:grid-cols-4 sm:px-6">
               <Dato label="Línea">{p.linea_nombre}</Dato>
-              <Dato label="Capital">{formatMoney(p.capital)}</Dato>
+              <Dato label="Moneda">{MONEDA[p.moneda].label}</Dato>
+              <Dato label="Capital">{importe(p.capital, p.moneda)}</Dato>
               <Dato label="Plazo">{p.cuotas} cuotas</Dato>
               <Dato label="Tasa nominal anual">{formatPercent(p.tna)}</Dato>
               <Dato label="Sistema">{SISTEMA[p.sistema].label}</Dato>
               {p.ingreso_neto !== null && (
-                <Dato label="Ingreso neto">{formatMoney(p.ingreso_neto)}</Dato>
+                <Dato label="Ingreso neto">{importe(p.ingreso_neto, p.moneda)}</Dato>
               )}
               {p.afectacion !== null && (
                 <Dato label="Afectación">
@@ -329,7 +339,7 @@ export function PrestamoPage() {
                   ? `${p.garante.apellido_nombre} · Mat. ${String(p.garante.matricula_numero)}`
                   : 'Sin garante'}
               </Dato>
-              <Dato label="Saldo de capital">{formatMoney(p.saldo_capital)}</Dato>
+              <Dato label="Saldo de capital">{importe(p.saldo_capital, p.moneda)}</Dato>
               <Dato label="Otorgado">
                 {p.fecha_otorgamiento ? formatDate(p.fecha_otorgamiento) : '—'}
               </Dato>
@@ -370,6 +380,7 @@ export function PrestamoPage() {
               plan={p.plan}
               totales={p.totales}
               conEstado={p.estado !== 'SOLICITADO' && p.estado !== 'RECHAZADO'}
+              moneda={p.moneda}
             />
           </Panel>
         </div>

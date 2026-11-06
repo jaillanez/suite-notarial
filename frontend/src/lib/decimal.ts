@@ -20,9 +20,14 @@ export function formatDecimal(value: string, decimals = 2): string {
 
 /** "-1500.5" → "−$ 1.500,50": el signo va antes del símbolo. */
 export function formatMoney(value: string | null): string {
+  return formatImporte(value, '$')
+}
+
+/** Como `formatMoney` con otro símbolo: ("50000", "US$") → "US$ 50.000,00". */
+export function formatImporte(value: string | null, simbolo: string): string {
   if (value === null) return '—'
   const formatted = formatDecimal(value, 2)
-  return formatted.startsWith('-') ? `−$ ${formatted.slice(1)}` : `$ ${formatted}`
+  return formatted.startsWith('-') ? `−${simbolo} ${formatted.slice(1)}` : `${simbolo} ${formatted}`
 }
 
 /** Porcentaje sin ceros finales innecesarios: "1.5000" → "1,5 %". */

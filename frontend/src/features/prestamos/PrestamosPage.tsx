@@ -9,10 +9,10 @@ import { Button } from '../../components/ui/Button'
 import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { toProblem } from '../../lib/api'
-import { formatMoney, formatPercent } from '../../lib/decimal'
+import { formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { fetchPrestamos, type EstadoPrestamo } from './api'
-import { ESTADO_PRESTAMO } from './labels'
+import { ESTADO_PRESTAMO, importe } from './labels'
 
 export function PrestamosPage() {
   const { can } = useSession()
@@ -111,14 +111,14 @@ export function PrestamosPage() {
                       {p.escribano.apellido_nombre}
                     </span>
                     <span className="block text-sm text-ink-muted tabular-nums">
-                      {p.linea_nombre} · {formatMoney(p.capital)} en {p.cuotas} cuotas · TNA{' '}
+                      {p.linea_nombre} · {importe(p.capital, p.moneda)} en {p.cuotas} cuotas · TNA{' '}
                       {formatPercent(p.tna)}
                     </span>
                     {p.estado === 'OTORGADO' && (
                       <span className="block text-sm tabular-nums">
                         <span className="text-ink">
                           {p.cuotas_pagadas} de {p.cuotas} pagadas · saldo{' '}
-                          {formatMoney(p.saldo_capital)}
+                          {importe(p.saldo_capital, p.moneda)}
                         </span>
                         {p.cuotas_vencidas > 0 && (
                           <span className="font-semibold text-danger-700">
