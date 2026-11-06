@@ -152,6 +152,8 @@ class _Fila:
         if not fila.codigo:
             # Sin código no hay trazabilidad origen → Suite (mapeo y cuadratura).
             self.observar("DATO_FALTANTE", "Falta «codigo_legado».")
+        elif len(fila.codigo) > 100:
+            self.observar("VALOR_INVALIDO", "«codigo_legado» supera los 100 caracteres.")
 
     def observar(
         self, codigo: str, mensaje: str, severidad: Severidad = Severidad.BLOQUEANTE

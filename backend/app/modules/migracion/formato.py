@@ -83,7 +83,9 @@ class Fila:
 
     @property
     def codigo(self) -> str:
-        return self.datos.get("codigo_legado", "")
+        """Forma canónica (espacios unidos): la misma para el mapeo, los duplicados y las
+        referencias de otros archivos (p. ej. `escribano` en cargos.csv)."""
+        return " ".join(self.datos.get("codigo_legado", "").split())
 
 
 @dataclass

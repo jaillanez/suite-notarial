@@ -462,6 +462,26 @@ async def update_escribano(
 ) -> Escribano:
     escribano = await get_escribano(session, escribano_id)
     persona = escribano.persona
+    # Un dato «a completar» se carga una sola vez y sólo por «Completar datos» (con sus
+    # controles y su auditoría propia), nunca por la edición general.
+    cambios = {
+        **data.model_dump(exclude_unset=True, exclude={"persona"}),
+        **(data.persona.model_dump(exclude_unset=True) if data.persona is not None else {}),
+    }
+    duenos = {"escribano": escribano, "persona": persona}
+    for campo, valor in cambios.items():
+        if (
+            campo in _A_COMPLETAR
+            and valor is not None
+            and getattr(duenos[_A_COMPLETAR[campo][0]], campo) is None
+        ):
+            raise _conflict(
+                f"Ese dato está «a completar»: cargalo desde «Completar datos» ({campo})."
+            )
+    if cambios.get("fecha_matriculacion") is not None:
+        await _exigir_matriculacion_antes_de_todo(
+            session, escribano.id, cambios["fecha_matriculacion"]
+        )
     old = {**_snapshot(persona, PER_FIELDS), **_snapshot(escribano, ESC_FIELDS)}
     for field, value in data.model_dump(exclude_unset=True, exclude={"persona"}).items():
         if field == "fecha_matriculacion" and value is None:
@@ -491,6 +511,30 @@ async def update_escribano(
         )
         await _commit_unique(session)
     return escribano
+
+
+async def _exigir_matriculacion_antes_de_todo(
+    session: AsyncSession, escribano_id: uuid.UUID, fecha: date
+) -> None:
+    """La matriculación no puede ser posterior a ningún cargo, designación a cargo ni cambio
+    de estado ya registrado del escribano (lo usan la edición y «Completar datos»)."""
+    from app.modules.padron.models import DesignacionACargo
+
+    primeras = [
+        await session.scalar(select(func.min(columna)).where(dueno == escribano_id))
+        for columna, dueno in (
+            (Adscripcion.fecha_desde, Adscripcion.escribano_id),
+            (DesignacionACargo.fecha_desde, DesignacionACargo.escribano_id),
+            (HistorialEstado.fecha_efectiva, HistorialEstado.escribano_id),
+        )
+    ]
+    primera = min((f for f in primeras if f is not None), default=None)
+    if primera is not None and primera < fecha:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La fecha de matriculación no puede ser posterior a su primer cargo, designación "
+            "o cambio de estado.",
+        )
 
 
 # Campo a completar → (objeto que lo tiene, mensaje si ya está cargado).
@@ -528,16 +572,7 @@ async def completar_escribano(
             raise _conflict(f"{mensaje}: no se cambia desde «a completar».")
     fecha = cambios.get("fecha_matriculacion")
     if fecha is not None:
-        primer_cargo = await session.scalar(
-            select(func.min(Adscripcion.fecha_desde)).where(
-                Adscripcion.escribano_id == escribano.id
-            )
-        )
-        if primer_cargo is not None and primer_cargo < fecha:
-            raise ProblemError(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                "La fecha de matriculación no puede ser posterior a su primer cargo.",
-            )
+        await _exigir_matriculacion_antes_de_todo(session, escribano.id, fecha)
     old = {campo: None for campo in cambios}
     for campo, valor in cambios.items():
         setattr(duenos[_A_COMPLETAR[campo][0]], campo, valor)
@@ -578,7 +613,12 @@ async def change_estado(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "La reincorporación requiere citar la resolución que la dispone.",
         )
-    if escribano.fecha_matriculacion and data.fecha_efectiva < escribano.fecha_matriculacion:
+    if escribano.fecha_matriculacion is None:
+        raise _conflict(
+            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "esta operación."
+        )
+    if data.fecha_efectiva < escribano.fecha_matriculacion:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "La fecha efectiva no puede ser anterior a la matriculación.",
@@ -727,7 +767,12 @@ async def assign_cargo(
     escribano = await get_escribano(session, escribano_id)
     if escribano.estado_matricula != EstadoMatricula.ACTIVO:
         raise _conflict("Solo un escribano con matrícula ACTIVA puede asumir un cargo.")
-    if escribano.fecha_matriculacion and data.fecha_desde < escribano.fecha_matriculacion:
+    if escribano.fecha_matriculacion is None:
+        raise _conflict(
+            "Falta la fecha de matriculación: completala desde «Completar datos» antes de "
+            "esta operación."
+        )
+    if data.fecha_desde < escribano.fecha_matriculacion:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "La designación no puede ser anterior a la matriculación.",

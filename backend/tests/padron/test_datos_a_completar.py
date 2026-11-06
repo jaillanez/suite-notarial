@@ -145,24 +145,40 @@ async def test_fecha_no_posterior_al_primer_cargo(
     caja: AsyncClient, escribano: Factory, registro: Factory, db_session: AsyncSession
 ) -> None:
     item = await escribano()
+    reg = await registro()
+    cargo = await caja.post(
+        f"{_url(item)}/cargos",
+        json={"registro_id": reg["id"], "cargo": "TITULAR", "fecha_desde": "2018-01-01"},
+    )
+    assert cargo.status_code == 201, cargo.text
+    # Escribano migrado con cargo y sin fecha de matriculación.
+    await _vaciar(db_session, item["id"], "fecha_matriculacion")
+
+    tarde = await caja.post(f"{_url(item)}/completar", json={"fecha_matriculacion": "2019-01-01"})
+    assert tarde.status_code == 422
+    ok = await caja.post(f"{_url(item)}/completar", json={"fecha_matriculacion": "2016-05-01"})
+    assert ok.status_code == 200
+
+
+async def test_sin_fecha_de_matriculacion_no_se_asignan_cargos_ni_estados(
+    caja: AsyncClient, escribano: Factory, registro: Factory, db_session: AsyncSession
+) -> None:
+    item = await escribano()
     await _vaciar(db_session, item["id"], "fecha_matriculacion")
     reg = await registro()
-    # Sin fecha de matriculación, el cargo se asigna igual (no hay contra qué comparar).
     cargo = await caja.post(
         f"{_url(item)}/cargos",
         json={"registro_id": reg["id"], "cargo": "TITULAR", "fecha_desde": "2010-01-01"},
     )
-    assert cargo.status_code == 201, cargo.text
+    assert cargo.status_code == 409 and "Completar datos" in cargo.text
     estado = await caja.post(
         f"{_url(item)}/estado",
         json={"nuevo_estado": "SUSPENDIDO", "motivo": "Sumario", "fecha_efectiva": "2026-10-01"},
     )
-    assert estado.status_code == 200, estado.text
-
-    tarde = await caja.post(f"{_url(item)}/completar", json={"fecha_matriculacion": "2012-01-01"})
-    assert tarde.status_code == 422
-    ok = await caja.post(f"{_url(item)}/completar", json={"fecha_matriculacion": "2009-05-01"})
-    assert ok.status_code == 200
+    assert estado.status_code == 409
+    # Por la edición general tampoco: un dato «a completar» va por «Completar datos».
+    edicion = await caja.patch(_url(item), json={"fecha_matriculacion": "2009-05-01"})
+    assert edicion.status_code == 409
 
 
 async def test_completar_requiere_permiso_de_escritura(
