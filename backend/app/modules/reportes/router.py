@@ -41,6 +41,8 @@ class ColumnaOut(BaseModel):
     total: bool
     visible: bool
     vacio: str | None
+    # Decimales con que se muestran las columnas MONEDA y DECIMAL.
+    decimales: int
 
 
 class OpcionOut(BaseModel):
@@ -96,6 +98,7 @@ def reporte_out(r: Reporte) -> ReporteOut:
                 total=c.total,
                 visible=c.visible,
                 vacio=c.vacio,
+                decimales=c.decimales,
             )
             for c in r.columnas
         ],
@@ -112,12 +115,12 @@ def reporte_out(r: Reporte) -> ReporteOut:
     )
 
 
-def _json(valor: Any) -> Valor:
+def _json(valor: Any, decimales: int = 2) -> Valor:
     """Importes como texto decimal (nunca float); fechas y horas en ISO."""
     if valor is None or isinstance(valor, int | str):
         return valor
     if isinstance(valor, Decimal):
-        return f"{valor:.2f}"
+        return f"{valor:.{decimales}f}"
     if isinstance(valor, datetime | date):
         return valor.isoformat()
     return str(valor)
@@ -166,12 +169,15 @@ async def ver(
     reporte = await _reporte(codigo, principal, session, ctx)
     filtros = parsear_filtros(reporte, dict(request.query_params))
     resultado = await ejecutar(session, reporte, filtros, offset=page.offset, limit=page.page_size)
+    escala = {c.key: c.decimales for c in reporte.columnas}
     return PaginaReporte(
-        items=[{k: _json(v) for k, v in fila.items()} for fila in resultado.filas],
+        items=[
+            {k: _json(v, escala.get(k, 2)) for k, v in fila.items()} for fila in resultado.filas
+        ],
         total=resultado.total_filas,
         page=page.page,
         page_size=page.page_size,
-        totales={k: _json(v) for k, v in resultado.totales.items()},
+        totales={k: _json(v, escala.get(k, 2)) for k, v in resultado.totales.items()},
     )
 
 
@@ -224,7 +230,10 @@ async def exportar_reporte(
             "formato": formato.value,
             "filtros": {k: _json(v) for k, v in filtros.items()},
             "filas": resultado.total_filas,
-            "totales": {k: _json(v) for k, v in resultado.totales.items()},
+            "totales": {
+                k: _json(v, next(c.decimales for c in reporte.columnas if c.key == k))
+                for k, v in resultado.totales.items()
+            },
             "roles": sorted(principal.user.role_codes),
         },
     )

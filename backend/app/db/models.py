@@ -40,6 +40,7 @@ from app.modules.padron.models import (
 from app.modules.pagos.models import Comprobante, Conciliacion, PagoMercadoPago
 from app.modules.parametros.models import Concepto, Vigencia
 from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
+from app.modules.previsional.models import Ejercicio, PuntosAfiliado
 
 __all__ = [
     "Acto",
@@ -60,6 +61,7 @@ __all__ = [
     "DesignacionACargo",
     "Documento",
     "DocumentoVersion",
+    "Ejercicio",
     "Escribano",
     "HistorialEstado",
     "HistoricoBoleta",
@@ -74,6 +76,7 @@ __all__ = [
     "Permission",
     "Persona",
     "Prestamo",
+    "PuntosAfiliado",
     "RecoveryCode",
     "RegistroNotarial",
     "Role",

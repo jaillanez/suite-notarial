@@ -4,7 +4,12 @@ import { useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 
 import { logout } from '../features/auth/api'
-import { SESSION_KEY, needsMfaEnrollment, useSession } from '../features/auth/session'
+import {
+  SESSION_KEY,
+  clearUserData,
+  needsMfaEnrollment,
+  useSession,
+} from '../features/auth/session'
 import { BrandLogo } from './BrandLogo'
 
 interface NavItem {
@@ -33,13 +38,15 @@ const NAV: NavItem[] = [
   {
     to: '/reportes',
     label: 'Reportes',
-    permission: ['reports:financial', 'audit:read', 'escribanos:read'],
+    permission: ['reports:financial', 'audit:read', 'escribanos:read', 'puntos:read_all'],
   },
   {
     to: '/prestamos',
     label: 'Préstamos',
     permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
   },
+  { to: '/mis-puntos', label: 'Mis puntos', permission: 'puntos:read_own' },
+  { to: '/previsional/puntos', label: 'Aportes y puntos', permission: 'puntos:read_all' },
   { to: '/cms', label: 'Sitio', permission: 'cms:publish' },
   { to: '/migracion', label: 'Migración', permission: 'migracion:read' },
   { to: '/usuarios', label: 'Usuarios', permission: 'users:read' },
@@ -66,9 +73,8 @@ export function AppShell() {
       // Primero la sesión en null (la observa el SessionProvider): si se borrara la caché antes,
       // el observador seguiría con el usuario viejo y el ingreso devolvería al inicio.
       queryClient.setQueryData(SESSION_KEY, null)
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] })
       // Tampoco quedan en memoria las mutaciones de la sesión (pueden llevar datos sensibles).
-      queryClient.getMutationCache().clear()
+      clearUserData(queryClient)
       void navigate('/ingresar', { replace: true })
     },
   })

@@ -8,6 +8,8 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from app.modules.migracion import extractor_caja as ex
+from app.modules.migracion import formato
+from app.modules.migracion.catalog import Entidad
 
 # CUIT sintéticos con dígito verificador correcto.
 CUIT_A = "20111111112"
@@ -116,13 +118,14 @@ def _fila_pago(
     pago: float | None,
     fecha_pago: date | None,
     aportes: float | None = None,
+    concepto: str = "CUOTA APORTE",
 ) -> list[object]:
     return [
         None,
         matricula,
         None,
         nombres,
-        "CUOTA APORTE",
+        concepto,
         registro,
         "TITULAR",
         mes,
@@ -184,6 +187,17 @@ def _planillas(tmp_path: Path) -> tuple[Path, Path]:
             _fila_pago(CUIT_A, "PEREZ  Ana", None, 2, 2025, 11020.4611, date(2025, 2, 27)),
             _fila_pago(7, "GOMEZ  Lucia", 12, 1, 2025, None, None, aportes=-5000),
             _fila_pago(CUIT_B, "GOMEZ  Lucia", 12, 2, 2025, 0, date(2025, 2, 27)),
+            _fila_pago(
+                7,
+                "GOMEZ  Lucia",
+                12,
+                3,
+                2025,
+                -500.25,
+                date(2025, 3, 27),
+                concepto="DIF DE INSPECCION",
+            ),
+            _fila_pago(7, "GOMEZ  Lucia", 12, 4, 2025, -10, date(2025, 4, 27)),
         ],
     )
     return listado, pagos
@@ -274,7 +288,29 @@ def test_boletas_pagos_redondeos_y_registro_deducido(tmp_path: Path) -> None:
     control = {c["entidad"]: c for c in _leer(salida, "control")}
     # El control sale de la planilla sin redondear fila por fila.
     assert control["boletas"]["filas"] == "4" and control["boletas"]["importe"] == "17020.96"
+    assert (control["creditos"]["filas"], control["creditos"]["importe"]) == ("2", "510.25")
+    creditos = {c["codigo_legado"]: c for c in _leer(salida, "creditos")}
+    assert creditos["CRE-8"]["importe"] == "500.25" and creditos["CRE-8"]["numero_registro"] == "12"
+    assert creditos["CRE-8"]["fecha"] == "2025-03-27" and creditos["CRE-8"]["periodo"] == "2025-03"
+    assert ("CRE-9", "CREDITO_A_CONFIRMAR") in acciones and (
+        "CRE-8",
+        "CREDITO_A_CONFIRMAR",
+    ) not in acciones
+    assert "APD-8" not in boletas  # un crédito no es una cuota
     assert (control["pagos"]["filas"], control["pagos"]["importe"]) == ("2", "12020.96")
+
+
+def test_creditos_extraidos_respetan_el_formato_de_intercambio(tmp_path: Path) -> None:
+    listado, pagos = _planillas(tmp_path)
+    salida = tmp_path / "lote"
+    ex.guardar(ex.extraer(listado, pagos), salida)
+    # Mismas columnas, en el mismo orden, que el formato v2 (obligatorias y opcionales).
+    obligatorias, opcionales = formato.COLUMNAS[Entidad.CREDITOS]
+    assert ex.COLUMNAS["creditos"] == (*obligatorias, *opcionales)
+    leido = formato.leer_lote(salida)
+    assert Entidad.CREDITOS in leido.presentes
+    assert [f.codigo for f in leido.filas[Entidad.CREDITOS]] == ["CRE-8", "CRE-9"]
+    assert leido.control["creditos"] == (2, "510.25")
 
 
 def test_valores_y_nombres() -> None:

@@ -51,6 +51,8 @@ import { UsersPage } from './features/users/UsersPage'
 import { ACargoPage } from './features/acargo/ACargoPage'
 import { IndicePage } from './features/ia/IndicePage'
 import { RetornoMercadoPagoPage } from './features/pagos/RetornoMercadoPagoPage'
+import { MisPuntosPage } from './features/previsional/MisPuntosPage'
+import { PuntosPage } from './features/previsional/PuntosPage'
 
 const router = createBrowserRouter([
   {
@@ -142,6 +144,14 @@ const router = createBrowserRouter([
             children: [{ path: '/a-cargo', element: <ACargoPage /> }],
           },
           {
+            element: <RequirePermission permission="puntos:read_own" />,
+            children: [{ path: '/mis-puntos', element: <MisPuntosPage /> }],
+          },
+          {
+            element: <RequirePermission permission="puntos:read_all" />,
+            children: [{ path: '/previsional/puntos', element: <PuntosPage /> }],
+          },
+          {
             element: <RequirePermission permission="comprobantes:verify" />,
             children: [
               { path: '/tesoreria/conciliacion', element: <ConciliacionPage /> },
@@ -151,7 +161,12 @@ const router = createBrowserRouter([
           {
             element: (
               <RequirePermission
-                permission={['reports:financial', 'audit:read', 'escribanos:read']}
+                permission={[
+                  'reports:financial',
+                  'audit:read',
+                  'escribanos:read',
+                  'puntos:read_all',
+                ]}
               />
             ),
             children: [

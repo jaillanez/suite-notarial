@@ -8,7 +8,7 @@ saldo del registro.
 TODO(negocio): decidir si el saldo a favor del sistema anterior se aplica a boletas nuevas.
 
 Revision ID: c3a9d5e7f214
-Revises: b8f61c8f2577
+Revises: a3e36faeaf86
 Create Date: 2026-11-06 14:00:00.000000
 
 """
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c3a9d5e7f214"
-down_revision: str | None = "b8f61c8f2577"
+down_revision: str | None = "a3e36faeaf86"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

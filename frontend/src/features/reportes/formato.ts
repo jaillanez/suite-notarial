@@ -1,5 +1,5 @@
 import { formatLocalDateTime } from '../../lib/datetime'
-import { formatMoney } from '../../lib/decimal'
+import { formatDecimal, formatMoney } from '../../lib/decimal'
 import { formatPeriodo } from '../ddjj/labels'
 import { formatDate } from '../padron/labels'
 import type { Columna, Valor } from './api'
@@ -16,6 +16,8 @@ export function formatCelda(col: Columna, valor: Valor): string {
   switch (col.tipo) {
     case 'MONEDA':
       return formatMoney(String(valor))
+    case 'DECIMAL':
+      return formatDecimal(String(valor), col.decimales ?? 2)
     case 'FECHA':
       return formatDate(String(valor))
     case 'FECHA_HORA':
@@ -34,5 +36,5 @@ export function formatCelda(col: Columna, valor: Valor): string {
 }
 
 export function alineadaDerecha(col: Columna): boolean {
-  return col.tipo === 'MONEDA' || (col.tipo === 'ENTERO' && col.total)
+  return col.tipo === 'MONEDA' || col.tipo === 'DECIMAL' || (col.tipo === 'ENTERO' && col.total)
 }
