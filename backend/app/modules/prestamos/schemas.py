@@ -113,7 +113,7 @@ class EvaluacionOut(BaseModel):
 class PersonaResumen(BaseModel):
     id: uuid.UUID
     apellido_nombre: str
-    matricula_numero: int
+    matricula_numero: int | None
 
 
 class PrestamoOut(BaseModel):

@@ -49,9 +49,11 @@ class Persona(UUIDMixin, TimestampMixin, AuthorMixin, Base):
         Index("ix_padron_personas_apellido_nombre", "apellido", "nombre"),
     )
 
-    cuit: Mapped[str] = mapped_column(String(11), unique=True, nullable=False)
+    # CUIT y documento pueden faltar en personas migradas del sistema anterior (históricos sin
+    # esos datos): quedan «a completar». El alta manual los exige. UNIQUE admite varios NULL.
+    cuit: Mapped[str | None] = mapped_column(String(11), unique=True, nullable=True)
     tipo_documento: Mapped[str] = mapped_column(String(10), nullable=False, server_default="DNI")
-    numero_documento: Mapped[str] = mapped_column(String(15), nullable=False)
+    numero_documento: Mapped[str | None] = mapped_column(String(15), nullable=True)
     apellido: Mapped[str] = mapped_column(String(100), nullable=False)
     nombre: Mapped[str] = mapped_column(String(100), nullable=False)
     fecha_nacimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -110,10 +112,13 @@ class Escribano(UUIDMixin, TimestampMixin, AuthorMixin, Base):
         unique=True,
         nullable=True,
     )
-    matricula_numero: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    # Matrícula y fecha de matriculación pueden faltar en escribanos migrados del sistema
+    # anterior: quedan «a completar» y se cargan una sola vez desde la ficha. El alta manual
+    # las exige. UNIQUE admite varios NULL; el CHECK de positividad pasa con NULL.
+    matricula_numero: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     tomo: Mapped[str | None] = mapped_column(String(20), nullable=True)
     folio: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    fecha_matriculacion: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_matriculacion: Mapped[date | None] = mapped_column(Date, nullable=True)
     estado_matricula: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="ACTIVO", index=True
     )

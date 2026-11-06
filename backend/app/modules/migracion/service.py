@@ -92,8 +92,14 @@ async def _operador(session: AsyncSession, email: str) -> User:
 
 async def _existentes(session: AsyncSession) -> Existentes:
     return Existentes(
-        cuits=frozenset((await session.scalars(select(Persona.cuit))).all()),
-        matriculas=frozenset((await session.scalars(select(Escribano.matricula_numero))).all()),
+        cuits=frozenset(
+            c for c in (await session.scalars(select(Persona.cuit))).all() if c is not None
+        ),
+        matriculas=frozenset(
+            m
+            for m in (await session.scalars(select(Escribano.matricula_numero))).all()
+            if m is not None
+        ),
         registros=frozenset(
             (await session.scalars(select(RegistroNotarial.numero_registro))).all()
         ),

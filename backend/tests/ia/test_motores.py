@@ -157,6 +157,14 @@ def test_equipo_del_registro() -> None:
     assert "ESCRIBANO_NO_IDENTIFICADO" in codigos(anonimo, equipo)
 
 
+def test_escribano_sin_matricula_se_identifica_por_apellido() -> None:
+    """Migrado sin matrícula («a completar»): la matrícula del texto no lo identifica, el
+    apellido sí, y nada falla por la matrícula vacía."""
+    sin_matricula = Candidato(uuid.uuid4(), "Albarracín", "María", None, "TITULAR")
+    r = extraer(texto(), ctx(sin_matricula, ADSCRIPTO))
+    assert r.campos["escribano_id"].valor == str(sin_matricula.escribano_id)
+
+
 def test_texto_escaso() -> None:
     r = extraer("Escritura", ctx())
     assert "TEXTO_ESCASO" in {a.codigo for a in r.alertas}

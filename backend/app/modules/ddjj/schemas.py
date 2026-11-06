@@ -51,7 +51,7 @@ class RegistroResumen(BaseModel):
 class EscribanoResumen(BaseModel):
     id: uuid.UUID
     apellido_nombre: str
-    matricula_numero: int
+    matricula_numero: int | None
     cargo: Cargo
 
 
@@ -110,7 +110,7 @@ class ActoOut(BaseModel):
     id: uuid.UUID
     escribano_id: uuid.UUID
     escribano: str
-    matricula_numero: int
+    matricula_numero: int | None
     cargo: Cargo
     tipo_protocolo: TipoProtocolo
     numero_escritura: int
