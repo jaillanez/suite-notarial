@@ -164,64 +164,23 @@ async def _seed_sitio(session: AsyncSession) -> None:
 
 
 async def _seed_lineas_prestamo(session: AsyncSession) -> None:
-    """Líneas de crédito de EJEMPLO para probar en desarrollo.
+    """Líneas de crédito reales de la Caja (Resolución N° 273), cargadas por el usuario de Caja.
 
-    TODO(negocio): tasas, plazos, montos y topes los fija el Directorio de la Caja. Estos valores
-    son ilustrativos y quedan marcados como «a confirmar» (es_ejemplo).
+    Es la misma carga que `python -m app.modules.prestamos.lineas_caja`: idempotente y auditada;
+    deshabilita las líneas de ejemplo que hubieran quedado de versiones anteriores.
     """
-    from decimal import Decimal
+    from app.modules.prestamos import lineas_caja
 
-    from app.modules.prestamos.models import Linea
-
-    if await session.scalar(select(Linea.id).limit(1)):
-        _out("Líneas de préstamo: ya existen, no se modifican.")
+    operador = await session.scalar(select(User).where(User.email == DEV_USERS[1][0]))
+    if operador is None:
         return
-    ejemplos = (
-        ("LINEA_COMUN", "Línea común", "FRANCES", 12, 36, "100000", "5000000", "48", "30", False),
-        (
-            "RECIEN_MATRICULADOS",
-            "Recién matriculados",
-            "FRANCES",
-            12,
-            60,
-            "100000",
-            "3000000",
-            "36",
-            "30",
-            False,
-        ),
-        (
-            "EXTRAORDINARIA",
-            "Asistencial extraordinaria",
-            "ALEMAN",
-            6,
-            24,
-            "50000",
-            "2000000",
-            "24",
-            "25",
-            True,
-        ),
-    )
-    for codigo, nombre, sistema, pmin, pmax, mmin, mmax, tna, afect, garante in ejemplos:
-        session.add(
-            Linea(
-                codigo=codigo,
-                nombre=nombre,
-                descripcion="Valores de ejemplo: a confirmar por el Directorio.",
-                sistema=sistema,
-                plazo_minimo=pmin,
-                plazo_maximo=pmax,
-                monto_minimo=Decimal(mmin),
-                monto_maximo=Decimal(mmax),
-                tna=Decimal(tna),
-                afectacion_maxima=Decimal(afect),
-                requiere_garante=garante,
-                es_ejemplo=True,
-            )
-        )
+    resumen = await lineas_caja.cargar(session, operador)
     await session.commit()
-    _out(f"Líneas de préstamo de ejemplo: {len(ejemplos)} (a confirmar).")
+    _out(
+        f"Líneas de préstamo (Resolución N° 273): {len(resumen.creadas)} creadas, "
+        f"{len(resumen.actualizadas)} actualizadas, {len(resumen.sin_cambios)} sin cambios, "
+        f"{len(resumen.deshabilitadas)} de ejemplo deshabilitadas."
+    )
 
 
 async def _seed_vencimientos(session: AsyncSession) -> None:
