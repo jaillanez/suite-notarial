@@ -1,4 +1,4 @@
-"""Formato de intercambio v1: lo que la extracción del sistema anterior tiene que entregar.
+"""Formato de intercambio v2: lo que la extracción del sistema anterior tiene que entregar.
 
 TODO(negocio): el formato se fija acá porque el sistema anterior todavía no fue auditado
 (decisión D-03). Tras la auditoría de su estructura, la extracción se escribe para producir
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from app.modules.migracion.catalog import Entidad
 
-VERSION_FORMATO = "1"
+VERSION_FORMATO = "2"
 
 # (obligatorias, opcionales) por entidad.
 COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
@@ -33,20 +33,22 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("nombre_fantasia", "fecha_creacion"),
     ),
     Entidad.ESCRIBANOS: (
+        ("codigo_legado", "apellido", "nombre", "estado"),
+        # v2: CUIT, documento, matrícula y fecha de matriculación pueden faltar en el origen
+        # (históricos, altas sin matrícula): se cargan vacíos y quedan «a completar».
         (
-            "codigo_legado",
             "cuit",
+            "tipo_documento",
             "numero_documento",
-            "apellido",
-            "nombre",
             "matricula",
             "fecha_matriculacion",
-            "estado",
+            "fecha_nacimiento",
+            "email",
         ),
-        ("tipo_documento", "fecha_nacimiento", "email"),
     ),
     Entidad.CARGOS: (
-        ("codigo_legado", "matricula", "numero_registro", "cargo", "fecha_desde"),
+        # v2: el escribano se referencia por su `codigo_legado` (no todos tienen matrícula).
+        ("codigo_legado", "escribano", "numero_registro", "cargo", "fecha_desde"),
         ("fecha_hasta",),
     ),
     Entidad.BOLETAS: (
@@ -143,6 +145,12 @@ def leer_lote(directorio: Path) -> Lote:
         datos, columnas, codificacion = leer_csv(contenido, archivo.name)
         obligatorias, opcionales = COLUMNAS[entidad]
         faltan = [c for c in obligatorias if c not in columnas]
+        if entidad is Entidad.CARGOS and "escribano" in faltan and "matricula" in columnas:
+            raise FormatoInvalidoError(
+                f"{archivo.name}: es del formato v1 (cargos por «matricula»), que ya no se "
+                f"acepta. El formato v{VERSION_FORMATO} referencia al escribano por su código "
+                "del origen en la columna «escribano»."
+            )
         if faltan:
             raise FormatoInvalidoError(f"{archivo.name}: faltan las columnas {', '.join(faltan)}.")
         conocidas = set(obligatorias) | set(opcionales)
