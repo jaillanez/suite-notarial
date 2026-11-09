@@ -12,6 +12,7 @@ from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
     EstadoDDJJ,
+    ModalidadBoleta,
     MotivoExencion,
     TipoProtocolo,
 )
@@ -143,10 +144,19 @@ class TramoMoraOut(BaseModel):
     interes: Money
 
 
-class LiquidacionOut(BaseModel):
-    aportes: list[AporteActoOut]
-    vencimiento: date
-    fecha_pago: date
+class EscribanoBoletaOut(BaseModel):
+    """De quién es la boleta y qué cobra."""
+
+    id: uuid.UUID
+    apellido_nombre: str
+    cargo: Cargo
+    modalidad: ModalidadBoleta
+
+
+class LiquidacionBoletaOut(BaseModel):
+    """La boleta que recibirá un escribano al presentar."""
+
+    escribano: EscribanoBoletaOut
     total_protocolos: Money
     aporte_minimo: Money
     excedente: Money
@@ -157,6 +167,18 @@ class LiquidacionOut(BaseModel):
     interes_mora: Money
     tramos_mora: list[TramoMoraOut]
     total_a_pagar: Money
+
+
+class LiquidacionOut(BaseModel):
+    aportes: list[AporteActoOut]
+    vencimiento: date
+    fecha_pago: date
+    # Una por escribano: cada uno paga la suya.
+    boletas: list[LiquidacionBoletaOut]
+    # Del registro: aportes de todos los actos y la suma de las boletas.
+    total_protocolos: Money
+    total_a_pagar: Money
+    avisos: list[str]
     # Algún parámetro usado está marcado como ejemplo (no oficial).
     usa_valores_de_ejemplo: bool
 
@@ -178,6 +200,8 @@ class BoletaOut(BaseModel):
     codigo_verificacion: str
     ddjj_id: uuid.UUID
     registro: RegistroResumen
+    # Vacío en las boletas del registro (emitidas antes de las boletas por notario).
+    escribano: EscribanoBoletaOut | None
     periodo: str
     numero_rectificativa: int
     estado: EstadoBoleta
@@ -273,6 +297,9 @@ class PresentarIn(BaseModel):
 
 class EmitirBoletaIn(BaseModel):
     fecha_pago: date
+    # De quién es la boleta a reemitir. Vacío: la del registro (DDJJ anteriores a las boletas
+    # por notario).
+    escribano_id: uuid.UUID | None = None
 
 
 class VencimientoIn(BaseModel):

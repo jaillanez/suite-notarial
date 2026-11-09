@@ -28,7 +28,7 @@ async def _presentada(notario: AsyncClient, e: Escenario) -> tuple[str, str]:
             f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar",
             json={"fecha_pago": "2026-10-23"},
         )
-    ).json()
+    ).json()[0]
     return ddjj["id"], boleta["id"]
 
 
@@ -212,7 +212,7 @@ async def test_el_escribano_no_ve_correos_del_personal(
             f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar",
             json={"fecha_pago": "2026-10-23"},
         )
-    ).json()
+    ).json()[0]
 
     visto_por_caja = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
     visto_por_escribano = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()

@@ -55,6 +55,7 @@ def _dec(valor: Any) -> Decimal:
     [
         ("BOLETAS", {}),
         ("BOLETAS", {"periodo_desde": "2026-08", "estado": "PENDIENTE"}),
+        ("BOLETAS", {"escribano": "adscripto"}),
         ("PAGOS", {}),
         ("RECAUDACION", {}),
         # Cada exportación agrega su propio evento: se filtra uno que no cambia entre corridas.
@@ -131,6 +132,17 @@ async def test_boletas_sin_anuladas_salvo_que_se_pidan(
     assert {datos["pagada"]["numero"], datos["pendiente"]["numero"]} <= numeros
     assert [f["numero"] for f in anuladas["filas"]] == [datos["anulada"]["numero"]]
     assert pagadas["totales"]["total_a_pagar"] == datos["pagada"]["total_a_pagar"]
+
+
+async def test_boletas_por_escribano(auditor: AsyncClient, datos: dict[str, Any]) -> None:
+    """Una fila por escribano y período: cada uno paga la suya."""
+    todas = await _pantalla(auditor, "BOLETAS")
+    del_adscripto = await _pantalla(auditor, "BOLETAS", escribano="adscripto")
+
+    assert {f["escribano"].split(",")[0] for f in todas["filas"]} == {"Titular", "Adscripto"}
+    assert del_adscripto["filas"]
+    assert {f["escribano"].split(",")[0] for f in del_adscripto["filas"]} == {"Adscripto"}
+    assert {f["cargo"] for f in del_adscripto["filas"]} == {"ADSCRIPTO"}
 
 
 async def test_recaudacion_cuenta_solo_lo_confirmado(

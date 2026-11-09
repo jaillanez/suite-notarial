@@ -208,12 +208,33 @@ class Boleta(UUIDMixin, Base):
         CheckConstraint(
             "total_en_termino = aporte_minimo + excedente + aporte_medico", name="termino_cuadra"
         ),
-        # Una sola boleta pendiente por DDJJ.
+        # Boleta de un escribano (desde las boletas por notario) o del registro (las anteriores):
+        # escribano, cargo y modalidad van juntos.
+        CheckConstraint(
+            "(escribano_id IS NULL) = (cargo IS NULL) "
+            "AND (escribano_id IS NULL) = (modalidad IS NULL)",
+            name="escribano_completo",
+        ),
+        CheckConstraint(
+            "modalidad IS NULL OR modalidad IN ('COMPLETA', 'CON_MINIMO', 'SOLO_ACTOS')",
+            name="modalidad_valida",
+        ),
+        CheckConstraint(
+            "modalidad IS NULL OR modalidad = 'COMPLETA' OR aporte_medico = 0",
+            name="medico_solo_completa",
+        ),
+        CheckConstraint(
+            "modalidad IS DISTINCT FROM 'SOLO_ACTOS' OR aporte_minimo = 0",
+            name="solo_actos_sin_minimo",
+        ),
+        # Una sola boleta pendiente por escribano y DDJJ (las del registro cuentan como una).
         Index(
             "uq_ddjj_boletas_pendiente",
             "ddjj_id",
+            "escribano_id",
             unique=True,
             postgresql_where=text("estado = 'PENDIENTE'"),
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
@@ -240,6 +261,16 @@ class Boleta(UUIDMixin, Base):
     estado: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="PENDIENTE", index=True
     )
+    # De quién es la boleta, con qué cargo y qué cobra (ModalidadBoleta), congelados al emitir.
+    # Vacíos en las boletas emitidas antes de las boletas por notario: eran del registro.
+    escribano_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_escribanos.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    cargo: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    modalidad: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     fecha_emision: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False)

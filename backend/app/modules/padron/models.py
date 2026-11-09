@@ -287,6 +287,9 @@ class DesignacionACargo(UUIDMixin, TimestampMixin, AuthorMixin, Base):
             "estado NOT IN ('RECHAZADA', 'ANULADA') OR motivo_resolucion IS NOT NULL",
             name="baja_con_motivo",
         ),
+        CheckConstraint(
+            "aporte IN ('SOLO_ACTOS', 'EN_BOLETA_DEL_TITULAR', 'CON_MINIMO')", name="aporte_valido"
+        ),
     )
 
     registro_id: Mapped[uuid.UUID] = mapped_column(
@@ -311,6 +314,9 @@ class DesignacionACargo(UUIDMixin, TimestampMixin, AuthorMixin, Base):
     )
     resuelta_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     motivo_resolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Qué paga por los actos de este registro (catalog.AporteACargo). Lo fija la Caja; cada
+    # boleta congela la modalidad con que se emitió, así que cambiarlo no altera las emitidas.
+    aporte: Mapped[str] = mapped_column(String(30), nullable=False, server_default="SOLO_ACTOS")
 
     escribano: Mapped[Escribano] = relationship(lazy="joined")
     registro: Mapped[RegistroNotarial] = relationship(lazy="joined")

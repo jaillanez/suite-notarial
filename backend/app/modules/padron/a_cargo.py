@@ -40,9 +40,22 @@ from app.modules.padron.models import (
     Persona,
     RegistroNotarial,
 )
-from app.modules.padron.schemas import DesignacionBaja, DesignacionIn, DesignacionTermino
+from app.modules.padron.schemas import (
+    DesignacionAporteIn,
+    DesignacionBaja,
+    DesignacionIn,
+    DesignacionTermino,
+)
 
-FIELDS = ("registro_id", "escribano_id", "fecha_desde", "fecha_hasta", "motivo", "estado")
+FIELDS = (
+    "registro_id",
+    "escribano_id",
+    "fecha_desde",
+    "fecha_hasta",
+    "motivo",
+    "estado",
+    "aporte",
+)
 # Las que ocupan el registro: no puede haber dos a la vez.
 ABIERTAS = (EstadoDesignacion.PENDIENTE.value, EstadoDesignacion.APROBADA.value)
 
@@ -659,6 +672,43 @@ async def terminar(
         ctx,
         AuditEvent.PADRON_A_CARGO_TERMINADO,
         actor_user_id=actor.id,
+        old_value=antes,
+        new_value=_snapshot(item),
+        details={"designacion_id": str(item.id), "motivo": data.motivo},
+    )
+    await session.commit()
+    return await get(session, item.id)
+
+
+async def fijar_aporte(
+    session: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    designacion_id: uuid.UUID,
+    data: DesignacionAporteIn,
+) -> DesignacionACargo:
+    """La Caja fija qué paga el escribano a cargo por los actos del registro.
+
+    Rige para las boletas que se emitan desde ahora: cada boleta guarda la modalidad con que se
+    emitió (SNAP), así que las ya emitidas no cambian.
+    """
+    if not es_personal(principal):
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN, "Solo la Caja fija el aporte del escribano a cargo."
+        )
+    item = await _para_resolver(session, designacion_id)
+    if item.estado not in ABIERTAS:
+        raise _conflict("La designación ya no rige: no se le cambia el aporte.")
+    if item.aporte == data.aporte.value:
+        raise _conflict("La designación ya tiene ese aporte.")
+    antes = _snapshot(item)
+    item.aporte = data.aporte.value
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PADRON_A_CARGO_APORTE_FIJADO,
+        severity=Severity.WARNING,
+        actor_user_id=principal.user.id,
         old_value=antes,
         new_value=_snapshot(item),
         details={"designacion_id": str(item.id), "motivo": data.motivo},
