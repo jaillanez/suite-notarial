@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.core.config import get_settings
 from app.core.db import get_engine, get_sessionmaker
 from app.modules.migracion import ensayo, reversa, service, sintetico

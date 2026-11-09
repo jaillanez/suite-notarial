@@ -32,6 +32,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.core.db import get_engine, get_sessionmaker
 from app.modules.iam.catalog import Perm

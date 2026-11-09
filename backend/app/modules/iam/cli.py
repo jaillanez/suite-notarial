@@ -13,6 +13,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.common.audit import AuditEvent, RequestContext, record_audit
 from app.common.cuit import InvalidCuitError, check_digit, format_cuit, normalize_cuit
 from app.core.config import Environment, get_settings
