@@ -1,7 +1,6 @@
 """Sitio institucional: publicación auditada, PDFs válidos e integridad verificada al servir."""
 
 import io
-import warnings
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -11,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from pypdf import PdfWriter
+from pypdf.generic import DictionaryObject, NameObject, TextStringObject
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +29,13 @@ def pdf(paginas: int = 2, *, js: bool = False, clave: str | None = None) -> byte
     for _ in range(paginas):
         writer.add_blank_page(width=595, height=842)
     if js:
-        # Solo para fabricar el caso malicioso: pypdf avisa que la API cambiará en la 7.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            writer.add_js("app.alert('hola');")
+        # Acción JavaScript armada a mano: `add_js` ya no existe en pypdf 7.
+        writer._root_object[NameObject("/OpenAction")] = DictionaryObject(
+            {
+                NameObject("/S"): NameObject("/JavaScript"),
+                NameObject("/JS"): TextStringObject("app.alert('hola');"),
+            }
+        )
     if clave:
         writer.encrypt(clave)
     buffer = io.BytesIO()
