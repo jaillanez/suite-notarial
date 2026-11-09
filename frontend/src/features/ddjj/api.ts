@@ -60,12 +60,25 @@ export interface TramoMora {
   interes: string
 }
 
+/** Qué cobra la boleta: titular o adscripto (COMPLETA) o lo que fijó la Caja a quien está a cargo. */
+export type ModalidadBoleta = 'COMPLETA' | 'CON_MINIMO' | 'SOLO_ACTOS'
+
+/** De quién es la boleta: cada escribano del registro paga la suya. */
+export interface EscribanoBoleta {
+  id: string
+  apellido_nombre: string
+  cargo: Cargo
+  modalidad: ModalidadBoleta
+}
+
 export interface Boleta {
   id: string
   numero: number
   codigo_verificacion: string
   ddjj_id: string
   registro: RegistroResumen
+  /** Vacío en las boletas del registro, emitidas antes de las boletas por escribano. */
+  escribano: EscribanoBoleta | null
   periodo: string
   numero_rectificativa: number
   estado: EstadoBoleta
@@ -87,6 +100,8 @@ export interface Boleta {
   emitida_por: string | null
   anulada_en: string | null
   motivo_anulacion: string | null
+  /** Quien consulta puede emitir otra boleta de este escribano (la suya, o es de la Caja). */
+  puede_reemitir: boolean
   /** Último comprobante adjuntado (adjuntar no es pagar: lo confirma Tesorería). */
   comprobante: {
     id: string
@@ -160,10 +175,9 @@ export interface VerificacionActo {
   controles: ControlProtocolo[]
 }
 
-export interface Liquidacion {
-  aportes: { acto_id: string; aporte: string }[]
-  vencimiento: string
-  fecha_pago: string
+/** La boleta que recibirá un escribano al presentar. */
+export interface LiquidacionBoleta {
+  escribano: EscribanoBoleta
   total_protocolos: string
   aporte_minimo: string
   excedente: string
@@ -175,6 +189,18 @@ export interface Liquidacion {
   /** Interés por tasa vigente en cada tramo de días de atraso (vacío en término). */
   tramos_mora: TramoMora[]
   total_a_pagar: string
+}
+
+export interface Liquidacion {
+  aportes: { acto_id: string; aporte: string }[]
+  vencimiento: string
+  fecha_pago: string
+  /** Una por escribano, titular primero. */
+  boletas: LiquidacionBoleta[]
+  /** Del registro: aportes de todos los actos y suma de las boletas. */
+  total_protocolos: string
+  total_a_pagar: string
+  avisos: string[]
   usa_valores_de_ejemplo: boolean
 }
 
@@ -273,13 +299,22 @@ export async function bajaActo(id: string, actoId: string, motivo: string): Prom
 export async function presentar(
   id: string,
   data: { fecha_pago: string; observaciones: string | null },
-): Promise<Boleta> {
-  return (await api.post<Boleta>(`${P}/declaraciones/${id}/presentar`, data)).data
+): Promise<Boleta[]> {
+  return (await api.post<Boleta[]>(`${P}/declaraciones/${id}/presentar`, data)).data
 }
 
-export async function emitirBoleta(id: string, fechaPago: string): Promise<Boleta> {
-  return (await api.post<Boleta>(`${P}/declaraciones/${id}/boletas`, { fecha_pago: fechaPago }))
-    .data
+/** Nueva boleta de un escribano (null: la del registro, en DDJJ anteriores). */
+export async function emitirBoleta(
+  id: string,
+  fechaPago: string,
+  escribanoId: string | null,
+): Promise<Boleta> {
+  return (
+    await api.post<Boleta>(`${P}/declaraciones/${id}/boletas`, {
+      fecha_pago: fechaPago,
+      escribano_id: escribanoId,
+    })
+  ).data
 }
 
 export async function rectificar(id: string): Promise<DeclaracionDetalle> {

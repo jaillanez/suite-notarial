@@ -46,7 +46,10 @@ import {
   type ControlProtocolo,
   type Hueco,
   type DeclaracionDetalle,
+  type EscribanoBoleta,
   type Liquidacion,
+  type LiquidacionBoleta,
+  type ModalidadBoleta,
 } from './api'
 import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
@@ -59,6 +62,7 @@ import {
   categoriaDe,
   formatCodigo,
   formatPeriodo,
+  quienPaga,
   registroLabel,
 } from './labels'
 
@@ -122,7 +126,7 @@ function Row({
 }
 
 type Importes = Pick<
-  Liquidacion,
+  LiquidacionBoleta,
   | 'total_protocolos'
   | 'aporte_minimo'
   | 'excedente'
@@ -135,18 +139,31 @@ type Importes = Pick<
   | 'total_a_pagar'
 >
 
-function Desglose({ liq }: { liq: Importes }) {
+/** Desglose de una boleta. `modalidad` omite lo que esa boleta no cobra (quien está a cargo). */
+function Desglose({ liq, modalidad = 'COMPLETA' }: { liq: Importes; modalidad?: ModalidadBoleta }) {
   const medicos = liq.cantidad_aportes_medicos
   return (
     <dl className="divide-y divide-line">
-      <Row label="Total protocolos" value={formatMoney(liq.total_protocolos)} />
-      <Row label="Aporte mínimo" value={formatMoney(liq.aporte_minimo)} />
-      <Row label="Excedente" hint="(lo que supera el mínimo)" value={formatMoney(liq.excedente)} />
-      <Row
-        label="Aporte médico asistencial"
-        hint={`(${String(medicos)} ${medicos === 1 ? 'aporte' : 'aportes'})`}
-        value={formatMoney(liq.aporte_medico)}
-      />
+      {modalidad === 'SOLO_ACTOS' ? (
+        <Row label="Aporte de sus actos" value={formatMoney(liq.total_protocolos)} />
+      ) : (
+        <>
+          <Row label="Total protocolos" value={formatMoney(liq.total_protocolos)} />
+          <Row label="Aporte mínimo" value={formatMoney(liq.aporte_minimo)} />
+          <Row
+            label="Excedente"
+            hint="(lo que supera el mínimo)"
+            value={formatMoney(liq.excedente)}
+          />
+        </>
+      )}
+      {modalidad === 'COMPLETA' && (
+        <Row
+          label="Aporte médico asistencial"
+          hint={medicos === 1 ? undefined : `(${String(medicos)} aportes)`}
+          value={formatMoney(liq.aporte_medico)}
+        />
+      )}
       <Row label="Total en término" value={formatMoney(liq.total_en_termino)} strong />
       <Row
         label="Interés por pago fuera de término"
@@ -183,6 +200,79 @@ function Desglose({ liq }: { liq: Importes }) {
   )
 }
 
+function EncabezadoEscribano({
+  escribano,
+  actions,
+}: {
+  escribano: EscribanoBoleta
+  actions?: ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line bg-surface-sunken px-5 py-3 sm:px-6">
+      <div className="min-w-0">
+        <h3 className="font-semibold text-ink">{escribano.apellido_nombre}</h3>
+        <p className="text-sm text-ink-muted">{quienPaga(escribano)}</p>
+      </div>
+      {actions}
+    </div>
+  )
+}
+
+/** Una boleta por escribano y, si hay más de una, el total del registro. */
+function LiquidacionPorEscribano({ liq }: { liq: Liquidacion }) {
+  if (liq.boletas.length === 0) {
+    return (
+      <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
+        No hay boletas para emitir: nadie del registro tiene aportes en el período.
+      </p>
+    )
+  }
+  return (
+    <div>
+      {liq.boletas.map((b) => (
+        <section
+          key={b.escribano.id}
+          aria-label={`Boleta de ${b.escribano.apellido_nombre}`}
+          className="border-t border-line-strong first:border-t-0"
+        >
+          <EncabezadoEscribano escribano={b.escribano} />
+          <Desglose liq={b} modalidad={b.escribano.modalidad} />
+        </section>
+      ))}
+      {liq.boletas.length > 1 && (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line-strong bg-surface-sunken px-5 py-4 sm:px-6">
+          <p className="font-semibold text-ink">
+            Total del registro
+            <span className="ml-1.5 font-normal text-ink-muted">
+              ({liq.boletas.length} boletas, cada escribano paga la suya)
+            </span>
+          </p>
+          <p className="text-lg font-semibold text-ink tabular-nums">
+            {formatMoney(liq.total_a_pagar)}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AvisosLiquidacion({ avisos }: { avisos: string[] }) {
+  if (avisos.length === 0) return null
+  return (
+    <Alert tone="warning" title="Para revisar">
+      <ul className="list-disc space-y-1 pl-5">
+        {avisos.map((a) => (
+          <li key={a}>{a}</li>
+        ))}
+      </ul>
+    </Alert>
+  )
+}
+
+function textoPresentar(liq: Liquidacion | undefined): string {
+  return liq && liq.boletas.length > 1 ? 'Presentar y emitir boletas' : 'Presentar y emitir boleta'
+}
+
 function AvisoEjemplo() {
   return (
     <Alert tone="warning" title="Incluye valores a confirmar">
@@ -215,7 +305,7 @@ function LiquidacionBorrador({
   return (
     <Panel
       title="Liquidación"
-      description="Calculada por la Caja con los parámetros vigentes del período. Es una vista previa: los importes quedan fijos al presentar."
+      description="Calculada por la Caja con los parámetros vigentes del período. Cada escribano recibe su propia boleta. Es una vista previa: los importes quedan fijos al presentar."
       footer={
         query.data
           ? `Vencimiento del período: ${formatDate(query.data.vencimiento)}. Pagando después, se suma interés por mora.`
@@ -244,7 +334,7 @@ function LiquidacionBorrador({
               if (query.data) onPresentar(fechaPago, query.data)
             }}
           >
-            Presentar y emitir boleta
+            {textoPresentar(query.data)}
           </Button>
         )}
       </div>
@@ -259,6 +349,11 @@ function LiquidacionBorrador({
       {query.data?.usa_valores_de_ejemplo && (
         <div className="px-5 pt-4 pb-2 sm:px-6">
           <AvisoEjemplo />
+        </div>
+      )}
+      {query.data && query.data.avisos.length > 0 && (
+        <div className="px-5 pt-4 pb-2 sm:px-6">
+          <AvisosLiquidacion avisos={query.data.avisos} />
         </div>
       )}
       {query.isError && (
@@ -280,7 +375,11 @@ function LiquidacionBorrador({
             ))}
           </div>
         )}
-        {query.data && <Desglose liq={query.data} />}
+        {query.data && (
+          <div className="mt-4 border-t border-line">
+            <LiquidacionPorEscribano liq={query.data} />
+          </div>
+        )}
       </div>
     </Panel>
   )
@@ -690,8 +789,29 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
 // --------------------------------------------------------------------------- boletas
 
 /** Mientras Tesorería revisa un comprobante, la boleta no se reemite ni se rectifica. */
-function enRevision(ddjj: DeclaracionDetalle): boolean {
-  return ddjj.boletas.some((b) => b.comprobante?.estado === 'PENDIENTE_REVISION')
+function enRevision(boletas: Boleta[]): boolean {
+  return boletas.some((b) => b.comprobante?.estado === 'PENDIENTE_REVISION')
+}
+
+const ORDEN_CARGO = { TITULAR: 0, ADSCRIPTO: 1, SUPLENTE_INTERINO: 2 } as const
+
+/** Boletas de cada escribano (la más reciente primero), titular primero. Las del registro
+ * (anteriores a las boletas por escribano) van juntas, sin escribano. */
+function porEscribano(
+  boletas: Boleta[],
+): { escribano: EscribanoBoleta | null; boletas: Boleta[] }[] {
+  const grupos = new Map<string, { escribano: EscribanoBoleta | null; boletas: Boleta[] }>()
+  for (const b of boletas) {
+    const clave = b.escribano?.id ?? 'registro'
+    const grupo = grupos.get(clave) ?? { escribano: b.escribano, boletas: [] }
+    grupo.boletas.push(b)
+    grupos.set(clave, grupo)
+  }
+  return [...grupos.values()].sort(
+    (a, b) =>
+      (a.escribano ? ORDEN_CARGO[a.escribano.cargo] : 3) -
+      (b.escribano ? ORDEN_CARGO[b.escribano.cargo] : 3),
+  )
 }
 
 function EstadoComprobanteBoleta({ boleta }: { boleta: Boleta }) {
@@ -850,7 +970,13 @@ function BoletaItem({
   )
 }
 
-function BoletasPanel({ ddjj, onNueva }: { ddjj: DeclaracionDetalle; onNueva: () => void }) {
+function BoletasPanel({
+  ddjj,
+  onNueva,
+}: {
+  ddjj: DeclaracionDetalle
+  onNueva: (escribano: EscribanoBoleta | null) => void
+}) {
   const { can } = useSession()
   const mercadoPago = useQuery({
     queryKey: ['pagos', 'mercadopago', 'habilitado'],
@@ -858,39 +984,67 @@ function BoletasPanel({ ddjj, onNueva }: { ddjj: DeclaracionDetalle; onNueva: ()
     enabled: can('comprobantes:upload'),
     staleTime: 5 * 60_000,
   })
-  const vigente = ddjj.boletas.find((b) => b.estado !== 'ANULADA')
-  const puedeEmitir =
-    ddjj.estado === 'PRESENTADA' &&
-    ddjj.puede_operar &&
-    vigente?.estado !== 'PAGADA' &&
-    !enRevision(ddjj)
   return (
     <Panel
       title="Boletas"
-      description="La más reciente arriba. Al emitir una nueva para otra fecha de pago, la pendiente anterior se anula."
-      actions={
-        puedeEmitir ? (
-          <Button icon={ReceiptText} onClick={onNueva}>
-            Nueva boleta
-          </Button>
-        ) : undefined
-      }
+      description="Cada escribano paga su boleta, en la fecha que elija. La más reciente arriba: al emitir una nueva para otra fecha de pago, la pendiente anterior de ese escribano se anula."
     >
       {ddjj.boletas.length === 0 ? (
         <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
-          La boleta se emite al presentar la declaración.
+          Las boletas se emiten al presentar la declaración.
         </p>
       ) : (
-        <ul className="divide-y divide-line">
-          {ddjj.boletas.map((b) => (
-            <BoletaItem
-              key={b.id}
-              boleta={b}
-              puedeAdjuntar={can('comprobantes:upload')}
-              mercadoPago={mercadoPago.data ?? false}
-            />
-          ))}
-        </ul>
+        porEscribano(ddjj.boletas).map((grupo) => {
+          const vigente = grupo.boletas.find((b) => b.estado !== 'ANULADA')
+          // Reemitir anula la pendiente: cada escribano reemite la suya (o la Caja).
+          const puedeEmitir =
+            ddjj.estado === 'PRESENTADA' &&
+            (vigente ?? grupo.boletas[0])?.puede_reemitir === true &&
+            vigente?.estado !== 'PAGADA' &&
+            !enRevision(grupo.boletas)
+          const nueva = puedeEmitir ? (
+            <Button
+              icon={ReceiptText}
+              onClick={() => {
+                onNueva(grupo.escribano)
+              }}
+            >
+              Nueva boleta
+            </Button>
+          ) : undefined
+          return (
+            <section
+              key={grupo.escribano?.id ?? 'registro'}
+              className="border-t border-line-strong first:border-t-0"
+              aria-label={
+                grupo.escribano
+                  ? `Boletas de ${grupo.escribano.apellido_nombre}`
+                  : 'Boletas del registro'
+              }
+            >
+              {grupo.escribano ? (
+                <EncabezadoEscribano escribano={grupo.escribano} actions={nueva} />
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line bg-surface-sunken px-5 py-3 sm:px-6">
+                  <p className="text-sm text-ink-muted">
+                    Boleta del registro, emitida antes de las boletas por escribano.
+                  </p>
+                  {nueva}
+                </div>
+              )}
+              <ul className="divide-y divide-line">
+                {grupo.boletas.map((b) => (
+                  <BoletaItem
+                    key={b.id}
+                    boleta={b}
+                    puedeAdjuntar={can('comprobantes:upload')}
+                    mercadoPago={mercadoPago.data ?? false}
+                  />
+                ))}
+              </ul>
+            </section>
+          )
+        })
       )}
     </Panel>
   )
@@ -925,7 +1079,7 @@ function PresentarDialog({
       open={pedido !== null}
       onClose={onClose}
       title={`Presentar la DDJJ ${formatPeriodo(ddjj.periodo)}`}
-      description="Los aportes de cada acto quedan fijos y se emite la boleta. Para corregir algo después, hay que rectificar la declaración."
+      description="Los aportes de cada acto quedan fijos y se emite una boleta por escribano. Para corregir algo después, hay que rectificar la declaración."
       footer={
         <>
           <Button onClick={onClose}>Revisar de nuevo</Button>
@@ -938,7 +1092,7 @@ function PresentarDialog({
               save.mutate()
             }}
           >
-            Presentar y emitir boleta
+            {textoPresentar(pedido?.liq)}
           </Button>
         </>
       }
@@ -953,8 +1107,21 @@ function PresentarDialog({
               value={`${String(ddjj.actos.length)} ${ddjj.actos.length === 1 ? 'acto' : 'actos'}`}
             />
             <Row label="Pagar hasta" value={formatDate(pedido.fechaPago)} />
-            <Row label="Total a pagar" value={formatMoney(pedido.liq.total_a_pagar)} strong />
+            {pedido.liq.boletas.map((b) => (
+              <Row
+                key={b.escribano.id}
+                label={b.escribano.apellido_nombre}
+                hint={quienPaga(b.escribano)}
+                value={formatMoney(b.total_a_pagar)}
+              />
+            ))}
+            <Row
+              label={pedido.liq.boletas.length > 1 ? 'Total del registro' : 'Total a pagar'}
+              value={formatMoney(pedido.liq.total_a_pagar)}
+              strong
+            />
           </dl>
+          <AvisosLiquidacion avisos={pedido.liq.avisos} />
           {pedido.liq.usa_valores_de_ejemplo && <AvisoEjemplo />}
           <TextArea
             label="Observaciones (opcional)"
@@ -972,18 +1139,20 @@ function PresentarDialog({
 
 function NuevaBoletaDialog({
   ddjj,
-  open,
+  pedido,
   onClose,
 }: {
   ddjj: DeclaracionDetalle
-  open: boolean
+  /** De quién es la boleta (escribano null: la del registro, en DDJJ anteriores). */
+  pedido: { escribano: EscribanoBoleta | null } | null
   onClose: () => void
 }) {
   const invalidate = useInvalidate(ddjj.id)
   const hoy = todayIso()
   const [fechaPago, setFechaPago] = useState(hoy)
+  const escribano = pedido?.escribano ?? null
   const save = useMutation({
-    mutationFn: () => emitirBoleta(ddjj.id, fechaPago),
+    mutationFn: () => emitirBoleta(ddjj.id, fechaPago, escribano?.id ?? null),
     onSuccess: async () => {
       await invalidate()
       onClose()
@@ -991,13 +1160,13 @@ function NuevaBoletaDialog({
   })
   return (
     <Dialog
-      open={open}
+      open={pedido !== null}
       onClose={() => {
         save.reset()
         onClose()
       }}
-      title="Nueva boleta"
-      description="Para pagar en otra fecha. Los importes de la declaración no cambian; si la fecha es posterior al vencimiento, se suma el interés por mora."
+      title={escribano ? `Nueva boleta de ${escribano.apellido_nombre}` : 'Nueva boleta'}
+      description="Para pagar en otra fecha. Los importes no cambian; si la fecha es posterior al vencimiento, se suma el interés por mora. Las boletas de los demás escribanos no se tocan."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -1112,7 +1281,7 @@ export function DeclaracionPage() {
   })
   const ddjj = query.data
   const [pedido, setPedido] = useState<{ fechaPago: string; liq: Liquidacion } | null>(null)
-  const [nuevaBoleta, setNuevaBoleta] = useState(false)
+  const [nuevaBoleta, setNuevaBoleta] = useState<{ escribano: EscribanoBoleta | null } | null>(null)
   const [rectificando, setRectificando] = useState(false)
   // Aportes estimados del borrador (los trae la vista previa de la liquidación).
   const preview = useQuery({
@@ -1121,7 +1290,10 @@ export function DeclaracionPage() {
     enabled: ddjj?.estado === 'BORRADOR',
     retry: false,
   })
-  const vigente = ddjj?.boletas.find((b) => b.estado !== 'ANULADA') ?? ddjj?.boletas[0]
+  // La boleta vigente de cada escribano (o la última, si todas quedaron anuladas).
+  const vigentes = porEscribano(ddjj?.boletas ?? []).map(
+    (g) => g.boletas.find((b) => b.estado !== 'ANULADA') ?? g.boletas[0],
+  )
   const aportes = new Map((preview.data?.aportes ?? []).map((a) => [a.acto_id, a.aporte]))
 
   return (
@@ -1154,7 +1326,7 @@ export function DeclaracionPage() {
                 />
               </div>
             </div>
-            {ddjj.estado === 'PRESENTADA' && ddjj.puede_operar && !enRevision(ddjj) && (
+            {ddjj.estado === 'PRESENTADA' && ddjj.puede_operar && !enRevision(ddjj.boletas) && (
               <div className="flex flex-wrap gap-3">
                 <Button
                   icon={FilePenLine}
@@ -1210,12 +1382,23 @@ export function DeclaracionPage() {
               }}
             />
           ) : (
-            vigente && (
+            vigentes.length > 0 && (
               <Panel
                 title="Liquidación presentada"
-                description={`Importes fijados al presentar, según la boleta N° ${String(vigente.numero)}.`}
+                description="Importes fijados al presentar, según la boleta vigente de cada escribano."
               >
-                <Desglose liq={vigente} />
+                {vigentes.map((b) =>
+                  b ? (
+                    <section
+                      key={b.id}
+                      aria-label={`Liquidación de la boleta N° ${String(b.numero)}`}
+                      className="border-t border-line-strong first:border-t-0"
+                    >
+                      {b.escribano && <EncabezadoEscribano escribano={b.escribano} />}
+                      <Desglose liq={b} modalidad={b.escribano?.modalidad} />
+                    </section>
+                  ) : null,
+                )}
               </Panel>
             )
           )}
@@ -1223,8 +1406,8 @@ export function DeclaracionPage() {
           {ddjj.estado !== 'BORRADOR' && (
             <BoletasPanel
               ddjj={ddjj}
-              onNueva={() => {
-                setNuevaBoleta(true)
+              onNueva={(escribano) => {
+                setNuevaBoleta({ escribano })
               }}
             />
           )}
@@ -1238,11 +1421,11 @@ export function DeclaracionPage() {
             }}
           />
           <NuevaBoletaDialog
-            key={`boleta-${String(nuevaBoleta)}`}
+            key={`boleta-${nuevaBoleta?.escribano?.id ?? String(nuevaBoleta !== null)}`}
             ddjj={ddjj}
-            open={nuevaBoleta}
+            pedido={nuevaBoleta}
             onClose={() => {
-              setNuevaBoleta(false)
+              setNuevaBoleta(null)
             }}
           />
           <RectificarDialog

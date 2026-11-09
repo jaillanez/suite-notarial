@@ -52,7 +52,11 @@ async def _cargar(client: AsyncClient, ddjj_id: str, *actos: dict[str, Any]) -> 
 
 
 async def test_cada_escribano_paga_su_boleta(
-    notario: AsyncClient, client: AsyncClient, escenario: Escenario, db_session: AsyncSession
+    notario: AsyncClient,
+    staff: AsyncClient,
+    client: AsyncClient,
+    escenario: Escenario,
+    db_session: AsyncSession,
 ) -> None:
     ddjj = await _borrador(notario, escenario)
     await _cargar(
@@ -82,8 +86,16 @@ async def test_cada_escribano_paga_su_boleta(
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
     assert detalle["total_protocolos"] == "880000.00"
 
-    # El adscripto paga en otra fecha: reemite la suya y la del titular no cambia.
-    tarde = await _reemitir(notario, ddjj["id"], escenario.adscripto, "2026-11-07")
+    # Reemitir anula la pendiente: el titular no puede reemitir la del adscripto.
+    ajena = await _reemitir(notario, ddjj["id"], escenario.adscripto, "2026-11-07")
+    assert ajena.status_code == 403
+    assert [b["puede_reemitir"] for b in emitidas] == [True, False]
+    vistas_por_la_caja = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
+    assert all(b["puede_reemitir"] for b in vistas_por_la_caja["boletas"])
+
+    # El adscripto paga en otra fecha (la reemite la Caja; él no tiene usuario en este
+    # escenario) y la del titular no cambia.
+    tarde = await _reemitir(staff, ddjj["id"], escenario.adscripto, "2026-11-07")
     assert tarde.status_code == 201, tarde.text
     assert tarde.json()["escribano"]["id"] == str(escenario.adscripto.id)
     assert tarde.json()["dias_mora"] == 10

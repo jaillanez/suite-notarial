@@ -220,6 +220,9 @@ async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> Bo
         comprobante=_comprobante_resumen(
             (await pagos_service.ultimos_por_boleta(session, [b.id])).get(b.id)
         ),
+        puede_reemitir=await service.puede_reemitir(
+            session, principal, b.registro_id, b.escribano_id
+        ),
     )
 
 

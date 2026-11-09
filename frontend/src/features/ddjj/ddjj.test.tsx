@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -55,6 +55,38 @@ const IMPORTES = {
   total_a_pagar: '1081699.06',
 }
 
+const TITULAR: apiModule.EscribanoBoleta = {
+  id: 'e1',
+  apellido_nombre: 'SINTÉTICO, Escribano',
+  cargo: 'TITULAR',
+  modalidad: 'COMPLETA',
+}
+
+const ADSCRIPTO: apiModule.EscribanoBoleta = {
+  id: 'e2',
+  apellido_nombre: 'ADSCRIPTA, Prueba',
+  cargo: 'ADSCRIPTO',
+  modalidad: 'COMPLETA',
+}
+
+/** Liquidación con una boleta por escribano (por defecto, solo la del titular). */
+function liquidacion(
+  boletas: apiModule.LiquidacionBoleta[] = [{ ...IMPORTES, escribano: TITULAR }],
+  extra: Partial<apiModule.Liquidacion> = {},
+): apiModule.Liquidacion {
+  return {
+    aportes: [],
+    vencimiento: '2026-10-28',
+    fecha_pago: '2026-10-23',
+    boletas,
+    total_protocolos: '0.00',
+    total_a_pagar: boletas.reduce((t, b) => t + Number(b.total_a_pagar), 0).toFixed(2),
+    avisos: [],
+    usa_valores_de_ejemplo: false,
+    ...extra,
+  }
+}
+
 const BOLETA: apiModule.Boleta = {
   ...IMPORTES,
   id: 'b1',
@@ -62,6 +94,8 @@ const BOLETA: apiModule.Boleta = {
   codigo_verificacion: 'ABCDEFGH23456723',
   ddjj_id: 'd1',
   registro: REGISTRO,
+  escribano: TITULAR,
+  puede_reemitir: true,
   periodo: '2026-09',
   numero_rectificativa: 0,
   estado: 'PENDIENTE',
@@ -131,13 +165,12 @@ describe('ficha de la DDJJ', () => {
 
   it('muestra la liquidación del borrador y avisa los valores a confirmar', async () => {
     vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
-    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
-      ...IMPORTES,
-      aportes: [{ acto_id: 'a1', aporte: '400000.00' }],
-      vencimiento: '2026-10-28',
-      fecha_pago: '2026-10-23',
-      usa_valores_de_ejemplo: true,
-    })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
+      liquidacion(undefined, {
+        aportes: [{ acto_id: 'a1', aporte: '400000.00' }],
+        usa_valores_de_ejemplo: true,
+      }),
+    )
 
     renderFicha()
 
@@ -170,13 +203,9 @@ describe('ficha de la DDJJ', () => {
         },
       ],
     })
-    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
-      ...IMPORTES,
-      aportes: [{ acto_id: 'a1', aporte: '400000.00' }],
-      vencimiento: '2026-10-28',
-      fecha_pago: '2026-10-23',
-      usa_valores_de_ejemplo: false,
-    })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
+      liquidacion(undefined, { aportes: [{ acto_id: 'a1', aporte: '400000.00' }] }),
+    )
 
     renderFicha()
 
@@ -193,34 +222,35 @@ describe('ficha de la DDJJ', () => {
 
   it('detalla el interés por tramos cuando la tasa cambió durante el atraso', async () => {
     vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
-    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
-      ...IMPORTES,
-      dias_mora: 10,
-      interes_mora: '16676.19',
-      tramos_mora: [
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
+      liquidacion([
         {
-          desde: '2026-10-29',
-          hasta: '2026-11-02',
-          dias: 5,
-          tasa: '4.2500',
-          periodo_tasa: 'MENSUAL',
-          interes: '7662.04',
+          ...IMPORTES,
+          escribano: TITULAR,
+          dias_mora: 10,
+          interes_mora: '16676.19',
+          tramos_mora: [
+            {
+              desde: '2026-10-29',
+              hasta: '2026-11-02',
+              dias: 5,
+              tasa: '4.2500',
+              periodo_tasa: 'MENSUAL',
+              interes: '7662.04',
+            },
+            {
+              desde: '2026-11-03',
+              hasta: '2026-11-07',
+              dias: 5,
+              tasa: '5.0000',
+              periodo_tasa: 'MENSUAL',
+              interes: '9014.15',
+            },
+          ],
+          total_a_pagar: '1098375.25',
         },
-        {
-          desde: '2026-11-03',
-          hasta: '2026-11-07',
-          dias: 5,
-          tasa: '5.0000',
-          periodo_tasa: 'MENSUAL',
-          interes: '9014.15',
-        },
-      ],
-      total_a_pagar: '1098375.25',
-      aportes: [],
-      vencimiento: '2026-10-28',
-      fecha_pago: '2026-11-07',
-      usa_valores_de_ejemplo: false,
-    })
+      ]),
+    )
 
     renderFicha()
 
@@ -233,13 +263,7 @@ describe('ficha de la DDJJ', () => {
 
   it('el alta muestra el aporte en vivo y no deja agregar un número repetido', async () => {
     vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
-    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
-      ...IMPORTES,
-      aportes: [],
-      vencimiento: '2026-10-28',
-      fecha_pago: '2026-10-23',
-      usa_valores_de_ejemplo: false,
-    })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
     vi.mocked(apiModule.verificarActo).mockResolvedValue({
       aporte: '21600.00',
       controles: [
@@ -272,13 +296,7 @@ describe('ficha de la DDJJ', () => {
       ...DDJJ,
       proximos_numeros: { GENERAL: 102, AUXILIAR: 1 },
     })
-    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue({
-      ...IMPORTES,
-      aportes: [],
-      vencimiento: '2026-10-28',
-      fecha_pago: '2026-10-23',
-      usa_valores_de_ejemplo: false,
-    })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
     vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: '21600.00', controles: [] })
     vi.mocked(apiModule.agregarActo).mockResolvedValue({ ...ACTO, id: 'a2', numero_escritura: 102 })
 
@@ -308,6 +326,112 @@ describe('ficha de la DDJJ', () => {
     expect(screen.getByLabelText('N° de escritura')).toHaveValue('103')
     expect(screen.getByLabelText('Naturaleza del acto')).toHaveValue('')
     expect(screen.getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
+  })
+
+  it('liquida una boleta por escribano y avisa lo que hay que revisar', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
+      liquidacion(
+        [
+          { ...IMPORTES, escribano: TITULAR },
+          {
+            ...IMPORTES,
+            escribano: ADSCRIPTO,
+            total_protocolos: '0.00',
+            excedente: '0.00',
+            total_en_termino: '182932.00',
+            total_a_pagar: '182932.00',
+          },
+          {
+            ...IMPORTES,
+            escribano: {
+              id: 'e3',
+              apellido_nombre: 'DESIGNADO, Interino',
+              cargo: 'SUPLENTE_INTERINO',
+              modalidad: 'SOLO_ACTOS',
+            },
+            total_protocolos: '400000.00',
+            aporte_minimo: '0.00',
+            excedente: '400000.00',
+            aporte_medico: '0.00',
+            cantidad_aportes_medicos: 0,
+            total_en_termino: '400000.00',
+            total_a_pagar: '400000.00',
+          },
+        ],
+        {
+          avisos: [
+            'ADSCRIPTA, Prueba termina su cargo dentro del período: se cobra el mínimo mensual completo (la Caja todavía no definió un proporcional).',
+          ],
+        },
+      ),
+    )
+
+    renderFicha()
+
+    const adscripta = await screen.findByRole('region', { name: 'Boleta de ADSCRIPTA, Prueba' })
+    expect(within(adscripta).getByText('Adscripto')).toBeInTheDocument()
+    expect(within(adscripta).getAllByText('$ 182.932,00').length).toBeGreaterThan(0)
+    // Quien está a cargo solo por sus actos: sin mínimo ni aporte médico.
+    const aCargo = screen.getByRole('region', { name: 'Boleta de DESIGNADO, Interino' })
+    expect(within(aCargo).getByText('A cargo · solo el aporte de sus actos')).toBeInTheDocument()
+    expect(within(aCargo).getByText('Aporte de sus actos')).toBeInTheDocument()
+    expect(within(aCargo).queryByText('Aporte médico asistencial')).not.toBeInTheDocument()
+    expect(within(aCargo).queryByText('Aporte mínimo')).not.toBeInTheDocument()
+    // Total del registro: la suma de las tres.
+    expect(screen.getByText(/3 boletas, cada escribano paga la suya/)).toBeInTheDocument()
+    expect(screen.getByText('$ 1.664.631,06')).toBeInTheDocument()
+    expect(screen.getByText(/termina su cargo dentro del período/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Presentar y emitir boletas' })).toBeInTheDocument()
+  })
+
+  it('cada escribano reemite su propia boleta', async () => {
+    const adscripta: apiModule.Boleta = {
+      ...BOLETA,
+      id: 'b2',
+      numero: 1070,
+      codigo_verificacion: 'ZYXWVUTS23456723',
+      escribano: ADSCRIPTO,
+      total_a_pagar: '182932.00',
+    }
+    const otro: apiModule.Boleta = {
+      ...BOLETA,
+      id: 'b4',
+      numero: 1072,
+      escribano: { ...ADSCRIPTO, id: 'e3', apellido_nombre: 'AJENO, Colega' },
+      puede_reemitir: false,
+    }
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({
+      ...DDJJ,
+      estado: 'PRESENTADA',
+      actos: [{ ...ACTO, aporte: '400000.00', vigencia_id: 'v1' }],
+      boletas: [otro, adscripta, { ...BOLETA, estado: 'PAGADA' }],
+    })
+    vi.mocked(apiModule.emitirBoleta).mockResolvedValue({ ...adscripta, id: 'b3', numero: 1071 })
+
+    renderFicha()
+
+    // Titular primero aunque su boleta sea más vieja; ya pagó: no se le ofrece otra.
+    const grupos = await screen.findAllByRole('region', { name: /^Boletas de / })
+    expect(grupos.map((g) => g.getAttribute('aria-label'))).toEqual([
+      'Boletas de SINTÉTICO, Escribano',
+      'Boletas de AJENO, Colega',
+      'Boletas de ADSCRIPTA, Prueba',
+    ])
+    // La de otro escribano no se reemite desde esta sesión (anularía su pendiente).
+    expect(
+      within(grupos[1] as HTMLElement).queryByRole('button', { name: 'Nueva boleta' }),
+    ).toBeNull()
+    expect(
+      within(grupos[0] as HTMLElement).queryByRole('button', { name: 'Nueva boleta' }),
+    ).toBeNull()
+    fireEvent.click(within(grupos[2] as HTMLElement).getByRole('button', { name: 'Nueva boleta' }))
+    expect(await screen.findByText('Nueva boleta de ADSCRIPTA, Prueba')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Emitir boleta' }))
+
+    await waitFor(() => {
+      expect(apiModule.emitirBoleta).toHaveBeenCalledWith('d1', expect.any(String), 'e2')
+    })
   })
 
   it('una DDJJ presentada no se edita: ofrece rectificar y descargar la boleta', async () => {

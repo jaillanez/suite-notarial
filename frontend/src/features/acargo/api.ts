@@ -3,6 +3,9 @@ import type { Page } from '../users/api'
 
 export type EstadoDesignacion = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' | 'ANULADA'
 
+/** Qué paga quien está a cargo por los actos del registro. Lo fija la Caja. */
+export type AporteACargo = 'SOLO_ACTOS' | 'EN_BOLETA_DEL_TITULAR' | 'CON_MINIMO'
+
 export interface Designacion {
   id: string
   registro_id: string
@@ -15,6 +18,7 @@ export interface Designacion {
   fecha_hasta: string
   motivo: string
   estado: EstadoDesignacion
+  aporte: AporteACargo
   rige_hoy: boolean
   created_at: string
   cargada_por: string | null
@@ -24,6 +28,7 @@ export interface Designacion {
   puede_aprobar: boolean
   puede_anular: boolean
   puede_terminar: boolean
+  puede_fijar_aporte: boolean
 }
 
 export interface DesignacionInput {
@@ -110,6 +115,16 @@ export async function rechazar(id: string, motivo: string): Promise<Designacion>
 
 export async function anular(id: string, motivo: string): Promise<Designacion> {
   const { data } = await api.post<Designacion>(`${BASE}/${id}/anular`, { motivo })
+  return data
+}
+
+/** Solo la Caja: rige para las boletas que se emitan desde ahora. */
+export async function fijarAporte(
+  id: string,
+  aporte: AporteACargo,
+  motivo: string,
+): Promise<Designacion> {
+  const { data } = await api.post<Designacion>(`${BASE}/${id}/aporte`, { aporte, motivo })
   return data
 }
 

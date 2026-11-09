@@ -20,6 +20,7 @@ const BASE: apiModule.Designacion = {
   fecha_hasta: '2026-10-31',
   motivo: 'Licencia del titular',
   estado: 'APROBADA',
+  aporte: 'SOLO_ACTOS',
   rige_hoy: true,
   created_at: '2026-10-01T12:00:00Z',
   cargada_por: null,
@@ -29,6 +30,7 @@ const BASE: apiModule.Designacion = {
   puede_aprobar: false,
   puede_anular: true,
   puede_terminar: true,
+  puede_fijar_aporte: false,
 }
 
 function pagina(items: apiModule.Designacion[]) {
@@ -81,6 +83,9 @@ describe('pantalla de escribano a cargo', () => {
     expect(screen.getByRole('button', { name: 'Terminar antes' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Anular' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument()
+    // Ve qué aporta quien queda a cargo, pero lo fija la Caja.
+    expect(screen.getByText('Solo sus actos')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cambiar aporte' })).not.toBeInTheDocument()
     // Solo la Caja elige el modo de aprobación.
     expect(screen.queryByRole('radio')).not.toBeInTheDocument()
   })
@@ -143,6 +148,29 @@ describe('pantalla de escribano a cargo', () => {
     fireEvent.click(terminar)
     await waitFor(() => {
       expect(apiModule.terminar).toHaveBeenCalledWith('d1', '2026-10-20', 'Volvió el titular')
+    })
+  })
+
+  it('la Caja fija qué aporta el escribano a cargo, con motivo', async () => {
+    vi.mocked(apiModule.fetchAjustes).mockResolvedValue({
+      a_cargo_requiere_aprobacion: false,
+      updated_at: null,
+      puede_editar: true,
+    })
+    const designacion = { ...BASE, puede_fijar_aporte: true }
+    vi.mocked(apiModule.fetchDesignaciones).mockResolvedValue(pagina([designacion]))
+    vi.mocked(apiModule.fijarAporte).mockResolvedValue({ ...designacion, aporte: 'CON_MINIMO' })
+    renderWithProviders(<ACargoPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar aporte' }))
+    const guardar = screen.getByRole('button', { name: 'Guardar' })
+    expect(screen.getByRole('radio', { name: /Solo sus actos/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: /Con mínimo/ }))
+    expect(guardar).toBeDisabled() // falta el motivo
+    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'Resolución 12/2026' } })
+    fireEvent.click(guardar)
+    await waitFor(() => {
+      expect(apiModule.fijarAporte).toHaveBeenCalledWith('d1', 'CON_MINIMO', 'Resolución 12/2026')
     })
   })
 })

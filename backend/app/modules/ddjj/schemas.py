@@ -223,6 +223,8 @@ class BoletaOut(BaseModel):
     anulada_en: datetime | None
     motivo_anulacion: str | None
     comprobante: ComprobanteResumen | None = None
+    # Quien consulta puede emitir otra boleta de este escribano (la suya, o es de la Caja).
+    puede_reemitir: bool = False
 
 
 class DeclaracionOut(BaseModel):

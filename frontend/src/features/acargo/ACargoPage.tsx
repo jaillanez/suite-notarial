@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, CalendarCheck, CalendarX2, Check, Search, UserPlus, X } from 'lucide-react'
+import { Ban, CalendarCheck, CalendarX2, Check, HandCoins, Search, UserPlus, X } from 'lucide-react'
 import { useState } from 'react'
 
 import { StatusIndicator } from '../../components/StatusIndicator'
@@ -22,12 +22,14 @@ import {
   fetchDesignaciones,
   fetchRegistrosGestionables,
   fijarAjustes,
+  fijarAporte,
   rechazar,
   terminar,
+  type AporteACargo,
   type Designacion,
   type EstadoDesignacion,
 } from './api'
-import { situacion } from './labels'
+import { APORTE_A_CARGO, situacion } from './labels'
 
 const PAGE_SIZE = 25
 
@@ -213,6 +215,7 @@ type Accion = 'rechazar' | 'anular' | 'terminar' | null
 function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boolean }) {
   const actualizar = useActualizar()
   const [accion, setAccion] = useState<Accion>(null)
+  const [aporte, setAporte] = useState(false)
   const aprobacion = useMutation({ mutationFn: () => aprobar(d.id), onSuccess: actualizar })
   const s = situacion(d, hoy)
   return (
@@ -234,6 +237,10 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
           Del {formatDate(d.fecha_desde)} al {formatDate(d.fecha_hasta)} · {d.departamento}
         </p>
         <p className="text-sm text-ink-muted">{d.motivo}</p>
+        <p className="text-sm text-ink">
+          <span className="text-ink-muted">Aporta: </span>
+          {APORTE_A_CARGO[d.aporte].titulo}
+        </p>
         {d.motivo_resolucion && (
           <p className="text-sm text-ink-muted">
             {d.estado === 'RECHAZADA' ? 'Rechazo' : 'Motivo'}: {d.motivo_resolucion}
@@ -250,7 +257,7 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
             <Alert tone="danger">{toProblem(aprobacion.error).detail}</Alert>
           </div>
         )}
-        {(d.puede_aprobar || d.puede_anular || d.puede_terminar) && (
+        {(d.puede_aprobar || d.puede_anular || d.puede_terminar || d.puede_fijar_aporte) && (
           <div className="mt-3 flex flex-wrap gap-2">
             {d.puede_aprobar && (
               <>
@@ -274,6 +281,16 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
                   Rechazar
                 </Button>
               </>
+            )}
+            {d.puede_fijar_aporte && (
+              <Button
+                icon={HandCoins}
+                onClick={() => {
+                  setAporte(true)
+                }}
+              >
+                Cambiar aporte
+              </Button>
             )}
             {d.puede_terminar && (
               <Button
@@ -305,6 +322,14 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
           accion={accion}
           onClose={() => {
             setAccion(null)
+          }}
+        />
+      )}
+      {aporte && (
+        <AporteDialog
+          d={d}
+          onClose={() => {
+            setAporte(false)
           }}
         />
       )}
@@ -405,6 +430,87 @@ function BajaDialog({
         <TextArea
           label="Motivo"
           hint="Al menos 5 caracteres. Queda en la auditoría."
+          rows={3}
+          value={motivo}
+          onChange={(e) => {
+            setMotivo(e.target.value)
+          }}
+          error={problem?.fieldErrors.motivo}
+        />
+      </div>
+    </Dialog>
+  )
+}
+
+function AporteDialog({ d, onClose }: { d: Designacion; onClose: () => void }) {
+  const actualizar = useActualizar()
+  const [elegido, setElegido] = useState<AporteACargo>(d.aporte)
+  const [motivo, setMotivo] = useState('')
+  const cambio = useMutation({
+    mutationFn: () => fijarAporte(d.id, elegido, motivo.trim()),
+    onSuccess: async () => {
+      await actualizar()
+      onClose()
+    },
+  })
+  const problem = cambio.isError ? toProblem(cambio.error) : null
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="Qué aporta por los actos del registro"
+      description={`${d.apellido_nombre}, a cargo del Registro ${String(d.numero_registro)} del ${formatDate(d.fecha_desde)} al ${formatDate(d.fecha_hasta)}.`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancelar</Button>
+          <Button
+            variant="primary"
+            icon={HandCoins}
+            busy={cambio.isPending}
+            busyLabel="Guardando…"
+            disabled={elegido === d.aporte || motivo.trim().length < 5}
+            onClick={() => {
+              cambio.mutate()
+            }}
+          >
+            Guardar
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-ink-muted">
+          Rige para las boletas que se emitan desde ahora: las ya emitidas no cambian.
+        </p>
+        {problem && <Alert tone="danger">{problem.detail}</Alert>}
+        <fieldset className="grid gap-3">
+          <legend className="sr-only">Aporte del escribano a cargo</legend>
+          {(Object.keys(APORTE_A_CARGO) as AporteACargo[]).map((valor) => (
+            <label
+              key={valor}
+              className="flex min-h-11 cursor-pointer items-start gap-3 rounded-control border border-line-strong px-4 py-3 has-checked:border-brand-700 has-checked:bg-brand-50"
+            >
+              <input
+                type="radio"
+                name={`aporte-${d.id}`}
+                className="mt-1 size-4 accent-brand-800"
+                checked={elegido === valor}
+                onChange={() => {
+                  setElegido(valor)
+                }}
+              />
+              <span>
+                <span className="block font-semibold text-ink">{APORTE_A_CARGO[valor].titulo}</span>
+                <span className="block text-sm text-ink-muted">
+                  {APORTE_A_CARGO[valor].detalle}
+                </span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <TextArea
+          label="Motivo"
+          hint="Al menos 5 caracteres (por ejemplo, la resolución). Queda en la auditoría."
           rows={3}
           value={motivo}
           onChange={(e) => {

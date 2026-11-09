@@ -153,6 +153,25 @@ def _es_staff_carga(principal: Principal) -> bool:
     return Perm.DDJJ_APPROVE.value in principal.permissions
 
 
+async def puede_reemitir(
+    session: AsyncSession,
+    principal: Principal,
+    registro_id: uuid.UUID,
+    escribano_id: uuid.UUID | None,
+) -> bool:
+    """Reemitir anula la boleta pendiente: cada escribano reemite solo la suya (las boletas son
+    independientes) y la Caja, cualquiera. La boleta del registro (anterior a las boletas por
+    notario) la reemite quien opera el registro, como antes."""
+    if _es_staff_carga(principal):
+        return True
+    if not await puede_operar(session, principal, registro_id):
+        return False
+    if escribano_id is None:
+        return True
+    propio = await _escribano_de(session, principal.user)
+    return propio is not None and propio.id == escribano_id
+
+
 async def puede_operar(session: AsyncSession, principal: Principal, registro_id: uuid.UUID) -> bool:
     if _es_staff_carga(principal):
         return True
@@ -1297,6 +1316,11 @@ async def emitir_boleta(
     await _exigir_operacion(session, principal, ddjj.registro_id)
     if ddjj.estado != EstadoDDJJ.PRESENTADA.value:
         raise _conflict("Solo se emiten boletas de una declaración jurada presentada.")
+    if not await puede_reemitir(session, principal, ddjj.registro_id, escribano_id):
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN,
+            "Cada escribano reemite su propia boleta: la de otro la reemite él o la Caja.",
+        )
     _validar_fecha_pago(fecha_pago)
     suyas = _de(escribano_id)
     base = await session.scalar(
