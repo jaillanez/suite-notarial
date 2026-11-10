@@ -223,7 +223,7 @@ async def _alcance_propio(session: AsyncSession, user: User) -> list[Alcance]:
     return [
         Alcance(
             c.registro_id,
-            periodo_de(c.fecha_desde),
+            periodo_de(c.inicio),
             periodo_de(c.fecha_hasta) if c.fecha_hasta else None,
         )
         for c in cargos.unique()
@@ -326,12 +326,12 @@ async def cargos_en_periodo(
     result = await session.execute(
         select(Adscripcion).where(
             Adscripcion.registro_id == registro_id,
-            Adscripcion.fecha_desde <= hasta,
+            Adscripcion.empezo_hasta(hasta),
             or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= desde),
         )
     )
     cargos = [
-        CargoEnPeriodo(c.escribano, c.cargo, c.fecha_desde, c.fecha_hasta)
+        CargoEnPeriodo(c.escribano, c.cargo, c.inicio, c.fecha_hasta)
         for c in result.unique().scalars()
     ]
     cargos += [

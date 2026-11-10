@@ -14,7 +14,8 @@ export interface RegistroResumen {
   id: string
   numero_registro: number
   nombre_fantasia: string | null
-  departamento: string
+  /** null: «a completar». */
+  departamento: string | null
 }
 
 export interface EscribanoResumen {

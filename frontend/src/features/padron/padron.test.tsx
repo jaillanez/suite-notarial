@@ -298,6 +298,37 @@ describe('padrón', () => {
     })
   })
 
+  it('muestra el cargo migrado sin fecha desde y la carga una vez', async () => {
+    const [vigente, anterior] = FICHA.cargos
+    if (!vigente || !anterior) throw new Error('FICHA sin cargos')
+    const migrado = {
+      ...FICHA,
+      cargos: [{ ...vigente, fecha_desde: null }, anterior],
+    }
+    vi.mocked(padronApi.fetchEscribano).mockResolvedValue(migrado)
+    vi.mocked(padronApi.completarFechaDesde).mockResolvedValue({
+      ...vigente,
+      fecha_desde: '2014-12-01',
+    })
+    renderFicha()
+
+    expect(
+      await screen.findByText('Titular en el Registro 12 (fecha desde a completar).'),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('A completar')).toHaveLength(1)
+    // Solo el cargo sin fecha ofrece cargarla.
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar fecha desde' }))
+    const guardar = screen.getByRole('button', { name: 'Guardar fecha' })
+    expect(guardar).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Fecha de designación'), {
+      target: { value: '2014-12-01' },
+    })
+    fireEvent.click(guardar)
+    await waitFor(() => {
+      expect(padronApi.completarFechaDesde).toHaveBeenCalledWith('c2', '2014-12-01')
+    })
+  })
+
   it('registra una licencia y corrige la primera escritura con motivo', async () => {
     const sinLicencia = { ...FICHA, en_licencia_desde: null, licencias: [] }
     vi.mocked(padronApi.fetchEscribano).mockResolvedValue(sinLicencia)

@@ -10,7 +10,14 @@ import { Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { fetchRegistro } from './api'
-import { CARGO, ESTADO_MATRICULA, ESTADO_REGISTRO, formatDate, matriculaTexto } from './labels'
+import {
+  A_COMPLETAR,
+  CARGO,
+  ESTADO_MATRICULA,
+  ESTADO_REGISTRO,
+  formatDate,
+  matriculaTexto,
+} from './labels'
 import { CambiarDomicilioDialog, CerrarRegistroDialog, RegistroFormDialog } from './RegistroDialogs'
 
 export function RegistroPage() {
@@ -30,7 +37,7 @@ export function RegistroPage() {
   const canWrite = can('escribanos:write') && !cerrado
   const rows: [string, string][] = [
     ['Circunscripción', r.circunscripcion.nombre],
-    ['Departamento', r.departamento],
+    ['Departamento', r.departamento ?? A_COMPLETAR],
     ['Domicilio legal', r.domicilio_legal],
     ['Teléfono', r.telefono ?? '—'],
     ['Correo', r.email ?? '—'],
@@ -124,8 +131,11 @@ export function RegistroPage() {
                         {c.apellido_nombre}
                       </span>
                       <span className="block text-sm text-ink-muted tabular-nums">
-                        {CARGO[c.cargo]} desde el {formatDate(c.fecha_desde)} · Mat.{' '}
-                        {matriculaTexto(c.matricula_numero)}
+                        {CARGO[c.cargo]}{' '}
+                        {c.fecha_desde
+                          ? `desde el ${formatDate(c.fecha_desde)}`
+                          : '(fecha desde a completar)'}{' '}
+                        · Mat. {matriculaTexto(c.matricula_numero)}
                       </span>
                     </span>
                     {c.estado_matricula !== 'ACTIVO' && (

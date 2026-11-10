@@ -67,7 +67,7 @@ Un directorio con seis archivos CSV (más los opcionales de créditos y licencia
 Obligatorias en **negrita**.
 
 ### registros.csv
-**codigo_legado**, **numero_registro**, circunscripcion (nombre; se crea si no existe; vacía = «San Juan»), **departamento** (uno de los 19 de San Juan, sin importar tildes ni mayúsculas), **domicilio_legal**, **estado** (código del origen, se homologa), nombre_fantasia, fecha_creacion.
+**codigo_legado**, **numero_registro**, circunscripcion (nombre; se crea si no existe; vacía = «San Juan»), **departamento** (uno de los 19 de San Juan, sin importar tildes ni mayúsculas; vacío = «a completar»: la columna va, el valor puede faltar), **domicilio_legal**, **estado** (código del origen, se homologa), nombre_fantasia, fecha_creacion.
 
 ### escribanos.csv
 **codigo_legado**, **apellido**, **nombre**, **estado** (se homologa), cuit, tipo_documento (DNI, LC, LE o PASAPORTE; por defecto DNI), numero_documento, matricula, fecha_matriculacion (fecha de juramento), fecha_nacimiento, email, primera_escritura_fecha, primera_escritura_numero (texto, hasta 20), primera_escritura_registro (número de registro; puede ser uno que ya no existe), primera_escritura_folio (texto, hasta 20).
@@ -78,6 +78,8 @@ La primera escritura va **completa** (fecha, número y registro; el folio es opc
 
 ### cargos.csv
 **codigo_legado**, **escribano** (el `codigo_legado` del escribano), **numero_registro**, **cargo** (se homologa: titular, adscripto o a cargo), **fecha_desde**, fecha_hasta (vacía = vigente).
+
+`fecha_desde` vacía se carga nula («a completar») con una advertencia: mientras falte, el cargo cuenta desde antes de todo lo migrado (integra el equipo del registro en cualquier período anterior a su cierre). La Caja la carga después, una sola vez, desde la ficha del escribano («Cargar fecha desde»). El carácter (`cargo`) no se puede dejar vacío.
 
 ### licencias.csv (opcional)
 **codigo_legado**, **escribano** (el `codigo_legado` del escribano), **fecha_desde**, fecha_hasta (vacía = vigente, sin fecha de regreso), motivo (texto; vacío = «Migrada del sistema anterior»).

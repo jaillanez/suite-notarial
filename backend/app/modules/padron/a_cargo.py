@@ -222,10 +222,10 @@ async def habilitacion(
         .where(
             Adscripcion.registro_id == registro_id,
             Adscripcion.escribano_id == escribano_id,
-            Adscripcion.fecha_desde <= fecha,
+            Adscripcion.empezo_hasta(fecha),
             or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= fecha),
         )
-        .order_by(Adscripcion.fecha_desde.desc())
+        .order_by(Adscripcion.fecha_desde.desc().nulls_last())
         .limit(1)
     )
     if cargo is not None:

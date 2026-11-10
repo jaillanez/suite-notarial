@@ -6,10 +6,12 @@ rol de la aplicación no tiene DELETE sobre estas tablas (ver migración fase2_p
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    ColumnElement,
     Date,
     DateTime,
     ForeignKey,
@@ -18,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -77,7 +80,8 @@ class RegistroNotarial(UUIDMixin, TimestampMixin, AuthorMixin, Base):
         nullable=False,
         index=True,
     )
-    departamento: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    # None: migrado sin departamento (el sistema anterior no lo tiene): queda «a completar».
+    departamento: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     domicilio_legal: Mapped[str] = mapped_column(Text, nullable=False)
     telefono: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -235,13 +239,25 @@ class Adscripcion(UUIDMixin, TimestampMixin, AuthorMixin, Base):
     )
     cargo: Mapped[str] = mapped_column(String(30), nullable=False)
     resolucion_designacion: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    # None: migrado sin fecha de designación («a completar»). Mientras falte, el cargo cuenta
+    # desde antes de todo lo registrado (`inicio`); el CHECK de fechas pasa con NULL.
+    fecha_desde: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_hasta: Mapped[date | None] = mapped_column(Date, nullable=True)
     motivo_cierre: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     escribano: Mapped[Escribano] = relationship(lazy="joined")
     registro: Mapped[RegistroNotarial] = relationship(lazy="joined")
+
+    @property
+    def inicio(self) -> date:
+        """Desde cuándo cuenta el cargo: sin fecha de designación, desde siempre."""
+        return self.fecha_desde or date.min
+
+    @classmethod
+    def empezo_hasta(cls, fecha: date | ColumnElement[Any]) -> ColumnElement[bool]:
+        """El cargo ya había empezado el día `fecha` (sin fecha desde: sí)."""
+        return or_(cls.fecha_desde.is_(None), cls.fecha_desde <= fecha)
 
 
 class HistorialEstado(UUIDMixin, Base):

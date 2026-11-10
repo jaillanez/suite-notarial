@@ -25,6 +25,11 @@ export const CARGO: Record<Cargo, string> = {
 export const A_COMPLETAR = 'A completar'
 export const CUIT_A_COMPLETAR = 'CUIT a completar'
 
+/** Departamento del registro; los migrados sin él lo muestran pendiente. */
+export function departamentoTexto(departamento: string | null): string {
+  return departamento ?? 'Departamento a completar'
+}
+
 export const CAMPO_A_COMPLETAR: Record<CampoACompletar, string> = {
   matricula_numero: 'Matrícula',
   fecha_matriculacion: 'Fecha de juramento',

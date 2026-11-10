@@ -25,6 +25,7 @@ import { fetchEscribano, type CargoItem, type EstadoDesignacion, type LicenciaIt
 import {
   AsignarCargoDialog,
   CerrarCargoDialog,
+  FechaDesdeCargoDialog,
   CompletarDatosDialog,
   CuentaDialog,
   EditarEscribanoDialog,
@@ -82,6 +83,7 @@ export function EscribanoPage() {
   const query = useQuery({ queryKey: ['escribano', id], queryFn: () => fetchEscribano(id) })
   const [dialog, setDialog] = useState<DialogName>(null)
   const [cerrando, setCerrando] = useState<CargoItem | null>(null)
+  const [fechando, setFechando] = useState<CargoItem | null>(null)
   const [terminando, setTerminando] = useState<LicenciaItem | null>(null)
   const [anulando, setAnulando] = useState<LicenciaItem | null>(null)
 
@@ -371,7 +373,7 @@ export function EscribanoPage() {
         title="Cargos en registros notariales"
         description={
           vigente
-            ? `${CARGO[vigente.cargo]} en el Registro ${String(vigente.numero_registro)} desde el ${formatDate(vigente.fecha_desde)}.`
+            ? `${CARGO[vigente.cargo]} en el Registro ${String(vigente.numero_registro)} ${vigente.fecha_desde ? `desde el ${formatDate(vigente.fecha_desde)}` : '(fecha desde a completar)'}.`
             : 'Sin cargo vigente.'
         }
         actions={
@@ -405,7 +407,7 @@ export function EscribanoPage() {
                     {CARGO[c.cargo]} · Registro {c.numero_registro}
                   </Link>
                   <p className="text-sm text-ink-muted tabular-nums">
-                    {formatDate(c.fecha_desde)} —{' '}
+                    {c.fecha_desde ? formatDate(c.fecha_desde) : <ACompletar />} —{' '}
                     {c.is_current ? 'vigente' : formatDate(c.fecha_hasta)}
                     {c.resolucion_designacion ? ` · ${c.resolucion_designacion}` : ''}
                   </p>
@@ -413,15 +415,28 @@ export function EscribanoPage() {
                     <p className="text-sm text-ink-muted">Cierre: {c.motivo_cierre}</p>
                   )}
                 </div>
-                {c.is_current && canWrite && (
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      setCerrando(c)
-                    }}
-                  >
-                    Cerrar cargo
-                  </Button>
+                {canWrite && (c.fecha_desde === null || c.is_current) && (
+                  <div className="flex flex-wrap gap-2">
+                    {c.fecha_desde === null && (
+                      <Button
+                        onClick={() => {
+                          setFechando(c)
+                        }}
+                      >
+                        Cargar fecha desde
+                      </Button>
+                    )}
+                    {c.is_current && (
+                      <Button
+                        variant="danger"
+                        onClick={() => {
+                          setCerrando(c)
+                        }}
+                      >
+                        Cerrar cargo
+                      </Button>
+                    )}
+                  </div>
                 )}
               </li>
             ))}
@@ -549,6 +564,13 @@ export function EscribanoPage() {
         cargo={cerrando}
         onClose={() => {
           setCerrando(null)
+        }}
+      />
+      <FechaDesdeCargoDialog
+        escribano={e}
+        cargo={fechando}
+        onClose={() => {
+          setFechando(null)
         }}
       />
       <PrimeraEscrituraDialog

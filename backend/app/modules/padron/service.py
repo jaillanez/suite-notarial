@@ -42,6 +42,7 @@ from app.modules.padron.models import (
 from app.modules.padron.schemas import (
     CargoAsignacion,
     CargoCierre,
+    CargoFechaDesde,
     CircunscripcionIn,
     CircunscripcionUpdate,
     DatosACompletar,
@@ -175,7 +176,7 @@ async def current_cargos_for_registros(
     result = await session.execute(
         select(Adscripcion)
         .where(Adscripcion.registro_id.in_(registro_ids), Adscripcion.is_current.is_(True))
-        .order_by(Adscripcion.cargo.desc(), Adscripcion.fecha_desde)
+        .order_by(Adscripcion.cargo.desc(), Adscripcion.fecha_desde.nulls_first())
     )
     grouped: dict[uuid.UUID, list[Adscripcion]] = {rid: [] for rid in registro_ids}
     for item in result.scalars():
@@ -969,7 +970,7 @@ async def list_cargos(session: AsyncSession, escribano_id: uuid.UUID) -> list[Ad
     result = await session.execute(
         select(Adscripcion)
         .where(Adscripcion.escribano_id == escribano_id)
-        .order_by(Adscripcion.fecha_desde.desc(), Adscripcion.created_at.desc())
+        .order_by(Adscripcion.fecha_desde.desc().nulls_last(), Adscripcion.created_at.desc())
     )
     return list(result.unique().scalars())
 
@@ -1063,7 +1064,7 @@ async def close_cargo(
         raise _not_found("El cargo")
     if not item.is_current:
         raise _conflict("El cargo ya está cerrado.")
-    if data.fecha_hasta < item.fecha_desde:
+    if data.fecha_hasta < item.inicio:
         raise ProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY, "La fecha de cierre es anterior a la designación."
         )
@@ -1090,6 +1091,80 @@ async def close_cargo(
             "numero_registro": registro.numero_registro,
             "motivo": data.motivo,
             "registro_estado": {"antes": old_estado, "despues": registro.estado},
+        },
+    )
+    await session.commit()
+    return item
+
+
+async def completar_fecha_desde(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    cargo_id: uuid.UUID,
+    data: CargoFechaDesde,
+) -> Adscripcion:
+    """Carga la fecha desde de un cargo migrado sin ella («a completar»). Una vez cargada no se
+    cambia por acá."""
+    item = (
+        (
+            await session.execute(
+                select(Adscripcion)
+                .where(Adscripcion.id == cargo_id)
+                .with_for_update(of=Adscripcion)
+            )
+        )
+        .unique()
+        .scalar_one_or_none()
+    )
+    if item is None:
+        raise _not_found("El cargo")
+    if item.fecha_desde is not None:
+        raise _conflict("El cargo ya tiene fecha desde: no está «a completar».")
+    fecha = data.fecha_desde
+    if fecha > today_local():
+        raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "La fecha desde no puede ser futura.")
+    if item.fecha_hasta is not None and fecha > item.fecha_hasta:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            f"La fecha desde no puede ser posterior al cierre del cargo "
+            f"({item.fecha_hasta:%d/%m/%Y}).",
+        )
+    juramento = item.escribano.fecha_matriculacion
+    if juramento is not None and fecha < juramento:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "La designación no puede ser anterior al juramento."
+        )
+    # No puede pisar otro cargo propio con fechas (uno que también esté «a completar» se
+    # controla cuando se le cargue la suya).
+    choque = await session.scalar(
+        select(Adscripcion)
+        .where(
+            Adscripcion.escribano_id == item.escribano_id,
+            Adscripcion.id != item.id,
+            or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= fecha),
+            Adscripcion.fecha_desde <= (item.fecha_hasta or date.max),
+        )
+        .limit(1)
+    )
+    if choque is not None:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            f"Se superpone con su cargo en el Registro {choque.registro.numero_registro}.",
+        )
+    old = _snapshot(item, CARGO_FIELDS)
+    item.fecha_desde = fecha
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PADRON_CARGO_COMPLETADO,
+        actor_user_id=actor.id,
+        old_value=old,
+        new_value=_snapshot(item, CARGO_FIELDS),
+        details={
+            "cargo_id": str(item.id),
+            "escribano_id": str(item.escribano_id),
+            "numero_registro": item.registro.numero_registro,
         },
     )
     await session.commit()

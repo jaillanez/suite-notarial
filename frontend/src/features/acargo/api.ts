@@ -10,7 +10,7 @@ export interface Designacion {
   id: string
   registro_id: string
   numero_registro: number
-  departamento: string
+  departamento: string | null
   escribano_id: string
   apellido_nombre: string
   matricula_numero: number | null
@@ -48,7 +48,7 @@ export interface Ajustes {
 export interface RegistroGestionable {
   id: string
   numero_registro: number
-  departamento: string
+  departamento: string | null
 }
 
 export interface Elegible {
