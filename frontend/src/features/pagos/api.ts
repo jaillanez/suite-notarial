@@ -61,7 +61,9 @@ export type EstadoPagoMP =
 /** Lo que informó Mercado Pago (la Suite lo consulta a su API). Importes como texto. */
 export interface PagoMercadoPago {
   id: string
-  boleta_id: string
+  /** El cobro es de una boleta o de una cuota de préstamo, nunca de las dos. */
+  boleta_id: string | null
+  cuota: { prestamo_id: string; prestamo_numero: number; numero: number } | null
   estado: EstadoPagoMP
   estado_detalle: string | null
   mp_payment_id: string | null
@@ -72,6 +74,8 @@ export interface PagoMercadoPago {
   importe_neto: string | null
   aprobado_en: string | null
   comprobante_id: string | null
+  /** Solo en una cuota: cuándo Tesorería confirmó el cobro. */
+  confirmado_en: string | null
   created_at: string
 }
 

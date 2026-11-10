@@ -160,6 +160,22 @@ class PrestamoOut(BaseModel):
     cuotas_vencidas: int
 
 
+class CobroCuotaMPOut(BaseModel):
+    """Pago de una cuota con Mercado Pago, tal como lo informó Mercado Pago."""
+
+    id: uuid.UUID
+    cuota: int
+    # Estado según Mercado Pago (catalog.EstadoPagoMP de pagos).
+    estado: str
+    medio_pago: str | None
+    importe_pagado: Money | None
+    aprobado_en: datetime | None
+    # Tesorería lo confirmó: la cuota quedó pagada con este cobro.
+    confirmado_en: datetime | None
+    # Aprobado por Mercado Pago y todavía sin confirmar por Tesorería.
+    a_confirmar: bool
+
+
 class PrestamoDetalle(PrestamoOut):
     plan: list[CuotaOut]
     totales: Totales
@@ -167,3 +183,7 @@ class PrestamoDetalle(PrestamoOut):
     impedimentos_actuales: list[str]
     avisos_actuales: list[str]
     puede_resolver: bool
+    # Pagos con Mercado Pago informados (sin los cobros que nadie pagó), los últimos primero.
+    cobros_mp: list[CobroCuotaMPOut] = []
+    # Quien mira tomó el préstamo y puede pagar la próxima cuota con Mercado Pago.
+    puede_pagar_mp: bool = False

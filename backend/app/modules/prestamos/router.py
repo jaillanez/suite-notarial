@@ -17,11 +17,16 @@ from app.modules.iam.deps import (
     require_permissions,
 )
 from app.modules.padron.models import Escribano
+from app.modules.pagos import mercadopago, mercadopago_service
+from app.modules.pagos.catalog import EstadoPagoMP
+from app.modules.pagos.models import PagoMercadoPago
+from app.modules.pagos.schemas import InicioPagoMPOut
 from app.modules.parametros import service as parametros
 from app.modules.prestamos import motor, service
 from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Moneda, Sistema
 from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
 from app.modules.prestamos.schemas import (
+    CobroCuotaMPOut,
     CuotaOut,
     EvaluacionOut,
     LineaIn,
@@ -235,6 +240,17 @@ async def prestamo_detalle(
             avisos = ev.avisos
     else:
         plan = [cuota_out(c, hoy) for c in await service.plan_guardado(session, p.id)]
+    # Los pagos con Mercado Pago son del titular: el garante no los ve (sí la cuota pagada).
+    cobros = (
+        []
+        if await _solo_garante(session, principal, p)
+        else [
+            c
+            for c in await mercadopago_service.de_prestamo(session, p.id)
+            if c.estado != EstadoPagoMP.CREADO.value
+        ]
+    )
+    numeros = {c.id: c.numero for c in await service.plan_guardado(session, p.id)}
     return PrestamoDetalle(
         **base.model_dump(),
         plan=plan,
@@ -242,7 +258,46 @@ async def prestamo_detalle(
         impedimentos_actuales=impedimentos,
         avisos_actuales=avisos,
         puede_resolver=await _puede_resolver(session, principal, p),
+        cobros_mp=[
+            CobroCuotaMPOut(
+                id=c.id,
+                cuota=numeros[c.cuota_id],
+                estado=c.estado,
+                medio_pago=c.medio_pago,
+                importe_pagado=c.importe_pagado,
+                aprobado_en=c.aprobado_en,
+                confirmado_en=c.confirmado_en,
+                a_confirmar=c.estado == EstadoPagoMP.APPROVED.value and c.confirmado_en is None,
+            )
+            for c in cobros
+            if c.cuota_id in numeros
+        ],
+        puede_pagar_mp=await _puede_pagar_mp(session, principal, p, cobros),
     )
+
+
+async def _puede_pagar_mp(
+    session: SessionDep, principal: Principal, p: Prestamo, cobros: list[PagoMercadoPago]
+) -> bool:
+    """Las mismas condiciones que `mercadopago_service.iniciar_cuota`, para mostrar el botón."""
+    if (
+        p.estado != EstadoPrestamo.OTORGADO.value
+        or p.moneda != Moneda.ARS.value
+        or not mercadopago.configurado()
+    ):
+        return False
+    propio = await service.escribano_de(session, principal.user)
+    if propio is None or propio.id != p.escribano_id:
+        return False
+    plan = await service.plan_guardado(session, p.id)
+    proxima = next((c for c in plan if c.estado == EstadoCuota.PENDIENTE.value), None)
+    return proxima is not None and not any(
+        c.cuota_id == proxima.id
+        and c.estado == EstadoPagoMP.APPROVED.value
+        and c.confirmado_en is None
+        for c in cobros
+    )
+    return False
 
 
 # --------------------------------------------------------------------------- líneas
@@ -365,4 +420,29 @@ async def registrar_pago(
     p = await service.registrar_pago(
         session, ctx, principal, prestamo_id, numero, body.fecha_pago, body.importe
     )
+    return await prestamo_detalle(session, principal, p)
+
+
+# --------------------------------------------------------------------------- Mercado Pago
+
+
+@router.post("/{prestamo_id}/mercadopago", response_model=InicioPagoMPOut, status_code=201)
+async def pagar_cuota_con_mercadopago(
+    prestamo_id: uuid.UUID, principal: CanRead, session: SessionDep, ctx: RequestContextDep
+) -> InicioPagoMPOut:
+    """Cobro de la próxima cuota con Mercado Pago (solo quien tomó el préstamo)."""
+    preferencia = await mercadopago_service.iniciar_cuota(session, ctx, principal, prestamo_id)
+    return InicioPagoMPOut(url_pago=preferencia.url_pago)
+
+
+@router.post("/{prestamo_id}/mercadopago/{pago_id}/confirmar", response_model=PrestamoDetalle)
+async def confirmar_cobro_mp(
+    prestamo_id: uuid.UUID,
+    pago_id: uuid.UUID,
+    principal: CanCobrar,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> PrestamoDetalle:
+    """Tesorería confirma el pago con Mercado Pago: la cuota pasa a pagada."""
+    p = await service.confirmar_cobro_mp(session, ctx, principal, prestamo_id, pago_id)
     return await prestamo_detalle(session, principal, p)

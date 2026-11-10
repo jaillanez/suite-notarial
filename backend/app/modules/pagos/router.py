@@ -46,6 +46,7 @@ from app.modules.pagos.schemas import (
     ComprobanteIn,
     ComprobanteOut,
     ConciliacionOut,
+    CuotaCobradaOut,
     InicioPagoMPOut,
     MercadoPagoEstadoOut,
     PagoMercadoPagoOut,
@@ -127,11 +128,15 @@ async def comprobante_out(
     )
 
 
-def pago_mp_out(p: PagoMercadoPago, *, interno: bool) -> PagoMercadoPagoOut:
-    """`interno`: comisión y neto son datos de la Caja; solo los ve Tesorería."""
+def pago_mp_out(
+    p: PagoMercadoPago, *, interno: bool, cuota: CuotaCobradaOut | None = None
+) -> PagoMercadoPagoOut:
+    """`interno`: comisión y neto son datos de la Caja; solo los ve Tesorería. `cuota`: la
+    cuota que paga, si el cobro es de un préstamo (`mercadopago_service.cuotas_cobradas`)."""
     return PagoMercadoPagoOut(
         id=p.id,
         boleta_id=p.boleta_id,
+        cuota=cuota,
         estado=EstadoPagoMP(p.estado),
         estado_detalle=p.estado_detalle,
         mp_payment_id=p.mp_payment_id,
@@ -142,6 +147,7 @@ def pago_mp_out(p: PagoMercadoPago, *, interno: bool) -> PagoMercadoPagoOut:
         importe_neto=p.importe_neto if interno else None,
         aprobado_en=p.aprobado_en,
         comprobante_id=p.comprobante_id,
+        confirmado_en=p.confirmado_en,
         created_at=p.created_at,
     )
 
@@ -178,7 +184,8 @@ async def sincronizar_pago_mp(
 ) -> PagoMercadoPagoOut:
     """Al volver de Mercado Pago: la Suite consulta el pago a Mercado Pago y lo registra."""
     pago = await mercadopago_service.sincronizar(session, ctx, principal, pago_id)
-    return pago_mp_out(pago, interno=service.es_tesoreria(principal))
+    cuotas = await mercadopago_service.cuotas_cobradas(session, [pago])
+    return pago_mp_out(pago, interno=service.es_tesoreria(principal), cuota=cuotas.get(pago.id))
 
 
 @router.get("/mercadopago", response_model=Page[PagoMercadoPagoOut])
@@ -186,8 +193,9 @@ async def registro_pagos_mp(
     _: CanVerify, session: SessionDep, page: PageParamsDep
 ) -> Page[PagoMercadoPagoOut]:
     items, total = await mercadopago_service.registro(session, page)
+    cuotas = await mercadopago_service.cuotas_cobradas(session, items)
     return Page(
-        items=[pago_mp_out(p, interno=True) for p in items],
+        items=[pago_mp_out(p, interno=True, cuota=cuotas.get(p.id)) for p in items],
         total=total,
         page=page.page,
         page_size=page.page_size,

@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from http import HTTPStatus
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +40,8 @@ from app.modules.migracion.catalog import EstadoBoletaHistorica
 from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
 from app.modules.padron.catalog import EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano
+from app.modules.pagos.catalog import EstadoPagoMP
+from app.modules.pagos.models import PagoMercadoPago
 from app.modules.prestamos import motor
 from app.modules.prestamos.catalog import (
     AVISO_TIPO_CAMBIO,
@@ -57,6 +60,8 @@ CERO = Decimal("0.00")
 ESTADOS_TOMADOR = frozenset({EstadoMatricula.ACTIVO.value, EstadoMatricula.JUBILADO.value})
 VIGENTE = EstadoPrestamo.OTORGADO.value
 PENDIENTE = EstadoCuota.PENDIENTE.value
+MP_APROBADO = EstadoPagoMP.APPROVED.value
+ZONA = ZoneInfo("America/Argentina/San_Juan")
 
 
 def _not_found(what: str) -> ProblemError:
@@ -802,6 +807,80 @@ async def rechazar(
     return prestamo
 
 
+def _proxima(cuotas: list[CuotaPrestamo], numero: int) -> tuple[CuotaPrestamo, int]:
+    """La cuota `numero` si es la próxima a cobrar (en orden) y cuántas quedan pendientes."""
+    pendientes = [c for c in cuotas if c.estado == PENDIENTE]
+    if not pendientes or pendientes[0].numero != numero:
+        raise _conflict(
+            f"Las cuotas se cobran en orden: la próxima es la N° {pendientes[0].numero}."
+            if pendientes
+            else "El préstamo no tiene cuotas pendientes."
+        )
+    return pendientes[0], len(pendientes)
+
+
+async def cobro_mp_a_confirmar(
+    session: AsyncSession, cuota_id: uuid.UUID
+) -> PagoMercadoPago | None:
+    """Pago con Mercado Pago aprobado de la cuota que Tesorería todavía no confirmó."""
+    return await session.scalar(
+        select(PagoMercadoPago)
+        .where(
+            PagoMercadoPago.cuota_id == cuota_id,
+            PagoMercadoPago.estado == MP_APROBADO,
+            PagoMercadoPago.confirmado_en.is_(None),
+        )
+        .order_by(PagoMercadoPago.created_at)
+        .limit(1)
+    )
+
+
+async def _marcar_pagada(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    prestamo: Prestamo,
+    cuota: CuotaPrestamo,
+    *,
+    quedan: int,
+    fecha_pago: date,
+    importe: Decimal,
+    detalles: dict[str, Any],
+) -> None:
+    """Cuota pagada (y el préstamo cancelado si era la última), con su auditoría."""
+    cuota.estado = EstadoCuota.PAGADA.value
+    cuota.fecha_pago = fecha_pago
+    cuota.importe_pagado = importe
+    cuota.registrado_por_user_id = actor.id
+    atraso = max(0, (fecha_pago - cuota.vencimiento).days)
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PRESTAMO_CUOTA_PAGADA,
+        severity=Severity.WARNING if atraso else Severity.INFO,
+        actor_user_id=actor.id,
+        new_value={
+            "cuota": cuota.numero,
+            "importe": f"{importe:.2f}",
+            "moneda": prestamo.moneda,
+            "fecha_pago": str(fecha_pago),
+        },
+        details={"prestamo_id": str(prestamo.id), "dias_atraso": atraso, **detalles},
+    )
+    if quedan == 1:
+        await session.flush()
+        prestamo.estado = EstadoPrestamo.CANCELADO.value
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.PRESTAMO_CANCELADO,
+            actor_user_id=actor.id,
+            old_value={"estado": VIGENTE},
+            new_value={"estado": EstadoPrestamo.CANCELADO.value},
+            details={"prestamo_id": str(prestamo.id), "numero": prestamo.numero},
+        )
+
+
 async def registrar_pago(
     session: AsyncSession,
     ctx: RequestContext,
@@ -815,15 +894,13 @@ async def registrar_pago(
     prestamo = await get_prestamo(session, principal, prestamo_id, lock=True)
     if prestamo.estado != VIGENTE:
         raise _conflict("El préstamo no está vigente.")
-    cuotas = await plan_guardado(session, prestamo.id)
-    pendientes = [c for c in cuotas if c.estado == PENDIENTE]
-    if not pendientes or pendientes[0].numero != numero:
+    cuota, quedan = _proxima(await plan_guardado(session, prestamo.id), numero)
+    if await cobro_mp_a_confirmar(session, cuota.id) is not None:
+        # Registrarla a mano la cobraría dos veces.
         raise _conflict(
-            f"Las cuotas se cobran en orden: la próxima es la N° {pendientes[0].numero}."
-            if pendientes
-            else "El préstamo no tiene cuotas pendientes."
+            f"La cuota N° {cuota.numero} ya se pagó con Mercado Pago: confirmá ese cobro en lugar "
+            "de registrar otro pago."
         )
-    cuota = pendientes[0]
     assert prestamo.fecha_otorgamiento is not None  # noqa: S101 - vigente
     if fecha_pago > today_local() or fecha_pago < prestamo.fecha_otorgamiento:
         raise _invalid("La fecha de pago tiene que estar entre el otorgamiento y hoy.")
@@ -833,37 +910,76 @@ async def registrar_pago(
         raise _invalid(
             f"El importe tiene que ser el de la cuota: {con_moneda(cuota.cuota, prestamo.moneda)}."
         )
-    cuota.estado = EstadoCuota.PAGADA.value
-    cuota.fecha_pago = fecha_pago
-    cuota.importe_pagado = importe
-    cuota.registrado_por_user_id = principal.user.id
-    atraso = max(0, (fecha_pago - cuota.vencimiento).days)
-    record_audit(
+    await _marcar_pagada(
         session,
         ctx,
-        AuditEvent.PRESTAMO_CUOTA_PAGADA,
-        severity=Severity.WARNING if atraso else Severity.INFO,
-        actor_user_id=principal.user.id,
-        new_value={
-            "cuota": numero,
-            "importe": f"{importe:.2f}",
-            "moneda": prestamo.moneda,
-            "fecha_pago": str(fecha_pago),
-        },
-        details={"prestamo_id": str(prestamo.id), "dias_atraso": atraso},
+        principal.user,
+        prestamo,
+        cuota,
+        quedan=quedan,
+        fecha_pago=fecha_pago,
+        importe=importe,
+        detalles={"origen": "TESORERIA"},
     )
-    if len(pendientes) == 1:
-        await session.flush()
-        prestamo.estado = EstadoPrestamo.CANCELADO.value
-        record_audit(
-            session,
-            ctx,
-            AuditEvent.PRESTAMO_CANCELADO,
-            actor_user_id=principal.user.id,
-            old_value={"estado": VIGENTE},
-            new_value={"estado": EstadoPrestamo.CANCELADO.value},
-            details={"prestamo_id": str(prestamo.id), "numero": prestamo.numero},
+    await session.commit()
+    await session.refresh(prestamo)
+    return prestamo
+
+
+async def confirmar_cobro_mp(
+    session: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    prestamo_id: uuid.UUID,
+    pago_mp_id: uuid.UUID,
+) -> Prestamo:
+    """Tesorería confirma un pago con Mercado Pago aprobado: recién ahí la cuota queda pagada
+    (regla PAGO), con la fecha y el importe que informó Mercado Pago."""
+    prestamo = await get_prestamo(session, principal, prestamo_id, lock=True)
+    pago = await session.get(PagoMercadoPago, pago_mp_id, with_for_update=True)
+    cuotas = await plan_guardado(session, prestamo.id)
+    cuota = next((c for c in cuotas if pago is not None and c.id == pago.cuota_id), None)
+    if pago is None or cuota is None:
+        raise _not_found("El pago con Mercado Pago")
+    if pago.confirmado_en is not None:
+        raise _conflict("Este cobro ya está confirmado.")
+    if pago.estado != MP_APROBADO:
+        raise _conflict("Mercado Pago no aprobó este pago: no hay nada que confirmar.")
+    if prestamo.estado != VIGENTE:
+        raise _conflict("El préstamo no está vigente.")
+    if cuota.estado != PENDIENTE:
+        # TODO(negocio): procedimiento para devolver un pago de una cuota que ya estaba pagada.
+        raise _conflict(
+            f"La cuota N° {cuota.numero} ya está pagada: este pago con Mercado Pago no se puede "
+            "aplicar y hay que devolverlo."
         )
+    cuota, quedan = _proxima(cuotas, cuota.numero)
+    if pago.moneda != Moneda.ARS.value or pago.importe_pagado != cuota.cuota:
+        # TODO(negocio): procedimiento ante un pago con un importe distinto al de la cuota.
+        simbolo = "$" if pago.moneda == Moneda.ARS.value else (pago.moneda or "?")
+        raise _conflict(
+            f"Mercado Pago informó {format_importe(pago.importe_pagado or CERO, simbolo)} y la "
+            f"cuota es de {con_moneda(cuota.cuota, prestamo.moneda)}: no se puede confirmar."
+        )
+    assert pago.aprobado_en is not None  # noqa: S101 - aprobado
+    fecha_pago = min(pago.aprobado_en.astimezone(ZONA).date(), today_local())
+    pago.confirmado_por_user_id = principal.user.id
+    pago.confirmado_en = datetime.now(UTC)
+    await _marcar_pagada(
+        session,
+        ctx,
+        principal.user,
+        prestamo,
+        cuota,
+        quedan=quedan,
+        fecha_pago=fecha_pago,
+        importe=cuota.cuota,
+        detalles={
+            "origen": "MERCADO_PAGO",
+            "pago_mp_id": str(pago.id),
+            "mp_payment_id": pago.mp_payment_id,
+        },
+    )
     await session.commit()
     await session.refresh(prestamo)
     return prestamo

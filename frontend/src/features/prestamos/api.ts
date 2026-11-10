@@ -1,4 +1,5 @@
 import { api } from '../../lib/api'
+import type { EstadoPagoMP } from '../pagos/api'
 
 export type Sistema = 'FRANCES' | 'ALEMAN'
 export type EstadoPrestamo = 'SOLICITADO' | 'OTORGADO' | 'RECHAZADO' | 'CANCELADO'
@@ -111,12 +112,29 @@ export interface Prestamo {
   cuotas_vencidas: number
 }
 
+/** Pago de una cuota con Mercado Pago, tal como lo informó Mercado Pago. */
+export interface CobroCuotaMP {
+  id: string
+  cuota: number
+  estado: EstadoPagoMP
+  medio_pago: string | null
+  importe_pagado: string | null
+  aprobado_en: string | null
+  confirmado_en: string | null
+  /** Aprobado por Mercado Pago y todavía sin confirmar por Tesorería. */
+  a_confirmar: boolean
+}
+
 export interface PrestamoDetalle extends Prestamo {
   plan: Cuota[]
   totales: Totales
   impedimentos_actuales: string[]
   avisos_actuales: string[]
   puede_resolver: boolean
+  /** Pagos con Mercado Pago informados, los últimos primero. */
+  cobros_mp: CobroCuotaMP[]
+  /** Quien mira tomó el préstamo y puede pagar la próxima cuota con Mercado Pago. */
+  puede_pagar_mp: boolean
 }
 
 export interface SimulacionInput {
@@ -178,4 +196,17 @@ export async function registrarPago(
   data: { fecha_pago: string; importe: string },
 ): Promise<PrestamoDetalle> {
   return (await api.post<PrestamoDetalle>(`${P}/${id}/cuotas/${String(numero)}/pago`, data)).data
+}
+
+/** Arma el cobro de la próxima cuota y devuelve la dirección de Mercado Pago. */
+export async function pagarCuotaConMercadoPago(id: string): Promise<string> {
+  return (await api.post<{ url_pago: string }>(`${P}/${id}/mercadopago`)).data.url_pago
+}
+
+export async function confirmarCobroMP(id: string, pagoId: string): Promise<PrestamoDetalle> {
+  return (
+    await api.post<PrestamoDetalle>(
+      `${P}/${id}/mercadopago/${encodeURIComponent(pagoId)}/confirmar`,
+    )
+  ).data
 }

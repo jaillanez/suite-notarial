@@ -80,6 +80,7 @@ const DDJJ = {
 const PAGO: pagosApi.PagoMercadoPago = {
   id: 'p1',
   boleta_id: 'b1',
+  cuota: null,
   estado: 'approved',
   estado_detalle: 'accredited',
   mp_payment_id: '123456789',
@@ -90,6 +91,7 @@ const PAGO: pagosApi.PagoMercadoPago = {
   importe_neto: '1183464.50',
   aprobado_en: '2026-10-23T13:15:00Z',
   comprobante_id: 'c1',
+  confirmado_en: null,
   created_at: '2026-10-23T13:00:00Z',
 }
 
@@ -211,6 +213,25 @@ describe('vuelta desde Mercado Pago', () => {
     renderRetorno()
     expect(await screen.findByText('Mercado Pago no aprobó el pago')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Consultar de nuevo' })).toBeInTheDocument()
+  })
+
+  it('el pago de una cuota vuelve al préstamo y no busca una boleta', async () => {
+    vi.mocked(pagosApi.sincronizarPagoMP).mockResolvedValue({
+      ...PAGO,
+      boleta_id: null,
+      cuota: { prestamo_id: 'pr1', prestamo_numero: 7, numero: 3 },
+      importe_boleta: '8884.88',
+      importe_pagado: '8884.88',
+      comprobante_id: null,
+    })
+    renderRetorno()
+    expect(await screen.findByText(/la cuota 3 pasa a pagada/)).toBeInTheDocument()
+    expect(screen.getByText(/Préstamo N° 7 · cuota 3/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Volver al préstamo/ })).toHaveAttribute(
+      'href',
+      '/prestamos/pr1',
+    )
+    expect(ddjjApi.fetchBoleta).not.toHaveBeenCalled()
   })
 })
 
