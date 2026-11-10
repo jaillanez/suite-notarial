@@ -14,16 +14,30 @@ BASE=$(ls -1t "$DESTINO"/base-*.dump 2>/dev/null | head -1 || true)
 FECHA=${BASE##*/base-}; FECHA=${FECHA%.dump}
 ARCHIVOS="$DESTINO/archivos-$FECHA.tar.gz"
 
-if [[ -f "$DESTINO/suma-$FECHA.sha256" ]]; then
-  (cd "$DESTINO" && sha256sum --quiet -c "suma-$FECHA.sha256") \
-    || { echo "$(date -Is) ERROR: el backup $FECHA no coincide con su suma de control"; exit 1; }
-fi
+# El mismo candado que backup.sh: no probar un backup a medio escribir.
+exec 9>"$DESTINO/.lock"
+flock -n 9 || { echo "$(date -Is) ERROR: hay un backup en curso"; exit 1; }
 
-limpiar() { $PSQL -d postgres -c "DROP DATABASE IF EXISTS $PRUEBA" </dev/null >/dev/null || true; }
+# Sin suma de control no hay prueba: un backup sin verificar no cuenta como bueno.
+[[ -f "$DESTINO/suma-$FECHA.sha256" ]] \
+  || { echo "$(date -Is) ERROR: falta la suma de control del backup $FECHA"; exit 1; }
+(cd "$DESTINO" && sha256sum --quiet -c "suma-$FECHA.sha256") \
+  || { echo "$(date -Is) ERROR: el backup $FECHA no coincide con su suma de control"; exit 1; }
+
+# La copia tiene datos reales: que no quede en el servidor aunque la prueba falle.
+limpiar() {
+  $PSQL -d postgres -c "DROP DATABASE IF EXISTS $PRUEBA WITH (FORCE)" </dev/null >/dev/null \
+    || echo "$(date -Is) ERROR: no se pudo borrar la base $PRUEBA: borrarla a mano"
+}
+existe=$($PSQL -d postgres -c "SELECT 1 FROM pg_database WHERE datname = '$PRUEBA'" </dev/null)
+[[ -z "$existe" ]] || echo "$(date -Is) AVISO: quedó la base $PRUEBA de una prueba anterior: se borra"
 trap limpiar EXIT
 limpiar
+# Solo postgres entra a la copia: sin CONNECT para el resto y sin los permisos del dump.
 $PSQL -d postgres -c "CREATE DATABASE $PRUEBA" </dev/null
-$COMPOSE exec -T postgres pg_restore -U postgres -d "$PRUEBA" --no-owner --exit-on-error < "$BASE"
+$PSQL -d postgres -c "REVOKE CONNECT, TEMPORARY ON DATABASE $PRUEBA FROM PUBLIC" </dev/null
+$COMPOSE exec -T postgres pg_restore -U postgres -d "$PRUEBA" --no-owner --no-privileges \
+  --exit-on-error < "$BASE"
 
 version=$($PSQL -d "$PRUEBA" -c "SELECT version_num FROM alembic_version" </dev/null)
 tablas=$($PSQL -d "$PRUEBA" -c \
