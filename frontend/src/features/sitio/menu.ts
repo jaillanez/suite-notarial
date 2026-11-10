@@ -81,6 +81,7 @@ export function grupos(paginas: PaginaMenu[]): GrupoMenu[] {
         ...de('CAJA'),
         { to: '/sitio/autoridades', label: 'Autoridades' },
         { to: '/sitio/documentos', label: 'Estados contables' },
+        { to: '/sitio/documentos?tipo=INFORME_ACTUARIAL', label: 'Informes actuariales' },
       ],
     },
     {

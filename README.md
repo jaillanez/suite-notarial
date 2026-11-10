@@ -342,7 +342,7 @@ Ya aplicadas:
 ## Sitio institucional (Fase 7)
 
 - **Público sin sesión** en `/sitio`: novedades, autoridades vigentes y documentos oficiales
-  (estados contables, memorias, resoluciones) por tipo y ejercicio, con descarga, huella SHA-256
+  (estados contables, memorias, informes actuariales, resoluciones) por tipo y ejercicio, con descarga, huella SHA-256
   y versiones anteriores. Administración en `/cms` con el permiso `cms:publish`.
 - **Solo PDFs reales:** se valida cabecera, tipo, estructura (pypdf), que no esté cifrado y que
   no tenga contenido activo. Una página HTML disfrazada de `.pdf` se rechaza al subirla.

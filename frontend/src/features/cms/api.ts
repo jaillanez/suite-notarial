@@ -1,7 +1,8 @@
 import { api } from '../../lib/api'
 
 export type EstadoPublicacion = 'BORRADOR' | 'PUBLICADO' | 'ARCHIVADO'
-export type TipoDocumento = 'ESTADO_CONTABLE' | 'MEMORIA_ANUAL' | 'RESOLUCION' | 'OTRO'
+export type TipoDocumento =
+  'ESTADO_CONTABLE' | 'MEMORIA_ANUAL' | 'INFORME_ACTUARIAL' | 'RESOLUCION' | 'OTRO'
 export type SeccionNovedad = 'NOVEDADES' | 'COMUNICADOS' | 'APORTES' | 'INSTITUCIONAL'
 export type GrupoPagina = 'CAJA' | 'NORMATIVA'
 export type Distribucion = '4' | '3+1' | '2+2' | '2+1+1' | '1+1+1+1'

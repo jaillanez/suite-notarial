@@ -139,6 +139,39 @@ describe('sitio público', () => {
     expect(screen.getByRole('link', { name: 'Versión 1' })).toBeInTheDocument()
   })
 
+  it('agrupa por tipo en orden fijo y filtra los informes actuariales', async () => {
+    const ACTUARIAL = {
+      ...DOC,
+      slug: 'informe-actuarial-2025',
+      tipo: 'INFORME_ACTUARIAL' as const,
+      tipo_texto: 'Informes actuariales',
+      titulo: 'Informe actuarial al 31 de diciembre',
+      versiones_anteriores: [],
+    }
+    vi.mocked(apiModule.fetchSitio).mockResolvedValue(sitio({ documentos: [ACTUARIAL, DOC] }))
+    const { unmount } = renderWithProviders(<DocumentosPublicosPage />, {
+      path: '/sitio/documentos',
+    })
+    await screen.findByText('Informe actuarial al 31 de diciembre')
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+      'Estados contables',
+      'Informes actuariales',
+    ])
+    unmount()
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/sitio/documentos" element={<DocumentosPublicosPage />} />
+      </Routes>,
+      { path: '/sitio/documentos?tipo=INFORME_ACTUARIAL', raw: true },
+    )
+    expect(await screen.findByText('Informe actuarial al 31 de diciembre')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Informes actuariales' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Estados contables al 31 de diciembre')).not.toBeInTheDocument()
+  })
+
   it('el contenido de una novedad se muestra como texto, nunca como HTML', async () => {
     vi.mocked(apiModule.fetchNovedadPublica).mockResolvedValue({
       ...nota('n', { titulo: 'Novedad' }),
