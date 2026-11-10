@@ -64,11 +64,22 @@ class BoletaResumen(BaseModel):
     total_a_pagar: Money
 
 
+class CuotaCobradaOut(BaseModel):
+    """La cuota de préstamo que paga un cobro con Mercado Pago."""
+
+    prestamo_id: uuid.UUID
+    prestamo_numero: int
+    numero: int
+
+
 class PagoMercadoPagoOut(BaseModel):
-    """Lo que informó Mercado Pago del pago (consultado a su API, no al navegador)."""
+    """Lo que informó Mercado Pago del pago (consultado a su API, no al navegador).
+
+    Es de una boleta (`boleta_id`) o de una cuota de préstamo (`cuota`)."""
 
     id: uuid.UUID
-    boleta_id: uuid.UUID
+    boleta_id: uuid.UUID | None
+    cuota: CuotaCobradaOut | None = None
     estado: EstadoPagoMP
     estado_detalle: str | None
     mp_payment_id: str | None
@@ -79,6 +90,8 @@ class PagoMercadoPagoOut(BaseModel):
     importe_neto: Money | None
     aprobado_en: datetime | None
     comprobante_id: uuid.UUID | None
+    # Solo en una cuota: cuándo Tesorería confirmó el cobro y la cuota pasó a pagada.
+    confirmado_en: datetime | None = None
     created_at: datetime
 
 

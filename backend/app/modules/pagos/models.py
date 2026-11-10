@@ -162,9 +162,14 @@ class Conciliacion(UUIDMixin, Base):
 class PagoMercadoPago(UUIDMixin, Base):
     """Registro de cada cobro armado con Mercado Pago y del pago que informa (no se borra).
 
-    El `id` viaja como `external_reference`: así cada pago de Mercado Pago se vincula a su boleta
-    y a quien lo inició. Los importes y estados se toman siempre de la API de Mercado Pago, nunca
-    de lo que informa el navegador.
+    El cobro es de una boleta o de una cuota de préstamo, nunca de las dos. El `id` viaja como
+    `external_reference`: así cada pago de Mercado Pago se vincula a lo que paga y a quien lo
+    inició. Los importes y estados se toman siempre de la API de Mercado Pago, nunca de lo que
+    informa el navegador.
+
+    Una cuota no tiene comprobante en la mesa de Tesorería: el pago aprobado queda a confirmar y
+    Tesorería lo confirma desde el préstamo (`confirmado_por_user_id`, `confirmado_en`). Recién
+    ahí la cuota pasa a pagada (regla PAGO).
     """
 
     __tablename__ = "pagos_mercadopago"
@@ -176,16 +181,38 @@ class PagoMercadoPago(UUIDMixin, Base):
         ),
         CheckConstraint("importe_boleta > 0", name="importe_boleta"),
         CheckConstraint("estado = 'CREADO' OR mp_payment_id IS NOT NULL", name="pago_informado"),
+        CheckConstraint("(boleta_id IS NULL) <> (cuota_id IS NULL)", name="boleta_o_cuota"),
+        CheckConstraint(
+            "(confirmado_en IS NULL) = (confirmado_por_user_id IS NULL)",
+            name="confirmacion_completa",
+        ),
+        CheckConstraint(
+            "confirmado_en IS NULL OR (cuota_id IS NOT NULL AND estado = 'approved')",
+            name="confirma_cuota_aprobada",
+        ),
+        # Una cuota se cobra una sola vez.
+        Index(
+            "uq_pagos_mercadopago_cuota_confirmada",
+            "cuota_id",
+            unique=True,
+            postgresql_where=text("confirmado_en IS NOT NULL"),
+        ),
     )
 
-    boleta_id: Mapped[uuid.UUID] = mapped_column(
+    boleta_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ddjj_boletas.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    cuota_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prestamos_cuotas.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
     )
     preference_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    # Total de la boleta al armar el cobro (lo que se le pidió a Mercado Pago).
+    # Lo que se le pidió a Mercado Pago: el total de la boleta o el importe de la cuota.
     importe_boleta: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     iniciado_por_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
@@ -195,6 +222,7 @@ class PagoMercadoPago(UUIDMixin, Base):
     mp_payment_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
     estado_detalle: Mapped[str | None] = mapped_column(String(100), nullable=True)
     medio_pago: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    moneda: Mapped[str | None] = mapped_column(String(3), nullable=True)
     importe_pagado: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     comision: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     importe_neto: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
@@ -206,6 +234,11 @@ class PagoMercadoPago(UUIDMixin, Base):
         unique=True,
         nullable=True,
     )
+    # Tesorería confirmó el cobro de la cuota (solo en el cobro de una cuota).
+    confirmado_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    confirmado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

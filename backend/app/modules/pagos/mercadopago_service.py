@@ -9,11 +9,16 @@
    el importe y la fecha que informó Mercado Pago. La boleta pasa a PAGADA recién cuando
    Tesorería lo confirma, como cualquier comprobante.
 
+Las cuotas de préstamo siguen el mismo camino hasta el paso 3: un pago aprobado de una cuota
+queda a confirmar por Tesorería desde el préstamo (no tiene comprobante en la mesa) y recién al
+confirmarlo la cuota pasa a pagada (`prestamos.service.confirmar_cobro_mp`).
+
 Todo cambio de estado queda en la auditoría.
 """
 
 import uuid
 from datetime import UTC, datetime, time
+from decimal import Decimal
 from http import HTTPStatus
 from zoneinfo import ZoneInfo
 
@@ -39,6 +44,10 @@ from app.modules.pagos.catalog import (
     OrigenComprobante,
 )
 from app.modules.pagos.models import Comprobante, PagoMercadoPago
+from app.modules.pagos.schemas import CuotaCobradaOut
+from app.modules.prestamos import service as prestamos_service
+from app.modules.prestamos.catalog import EstadoPrestamo, Moneda
+from app.modules.prestamos.models import CuotaPrestamo, Prestamo
 
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
@@ -135,6 +144,84 @@ async def iniciar(
     return preferencia
 
 
+async def iniciar_cuota(
+    session: AsyncSession, ctx: RequestContext, principal: Principal, prestamo_id: uuid.UUID
+) -> mercadopago.Preferencia:
+    """Cobro de la próxima cuota del préstamo. Lo inicia solo el escribano que lo tomó."""
+    if not mercadopago.configurado():
+        raise _no_disponible()
+    prestamo = await prestamos_service.get_prestamo(session, principal, prestamo_id, lock=True)
+    propio = await prestamos_service.escribano_de(session, principal.user)
+    if propio is None or propio.id != prestamo.escribano_id:
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN, "La cuota la paga con Mercado Pago quien tomó el préstamo."
+        )
+    if prestamo.estado != EstadoPrestamo.OTORGADO.value:
+        raise ProblemError(HTTPStatus.CONFLICT, "El préstamo no tiene cuotas para pagar.")
+    if prestamo.moneda != Moneda.ARS.value:
+        # TODO(negocio): cobro de cuotas en dólares (Mercado Pago cobra en pesos).
+        raise ProblemError(
+            HTTPStatus.CONFLICT,
+            "Las cuotas en dólares no se pagan con Mercado Pago: consultá a Tesorería.",
+        )
+    plan = await prestamos_service.plan_guardado(session, prestamo.id)
+    cuota = next((c for c in plan if c.estado == prestamos_service.PENDIENTE), None)
+    if cuota is None:
+        raise ProblemError(HTTPStatus.CONFLICT, "El préstamo no tiene cuotas pendientes.")
+    if await prestamos_service.cobro_mp_a_confirmar(session, cuota.id) is not None:
+        raise ProblemError(
+            HTTPStatus.CONFLICT,
+            f"La cuota N° {cuota.numero} ya está pagada con Mercado Pago y Tesorería la está "
+            "confirmando.",
+        )
+    pago_id = uuid.uuid4()
+    settings = get_settings()
+    https = settings.public_web_base.startswith("https://")
+    # TODO(negocio): interés punitorio por pago fuera de término. Mientras no esté definido se
+    # cobra la cuota del plan; una vencida se cobra hasta hoy, para no dejar abierto un cobro
+    # que después tendría que llevar punitorio.
+    vence = datetime.combine(max(cuota.vencimiento, today_local()), time(23, 59, 59), tzinfo=ZONA)
+    try:
+        preferencia = await mercadopago.crear_preferencia(
+            referencia=str(pago_id),
+            titulo=(f"Préstamo N° {prestamo.numero} · cuota {cuota.numero} de {prestamo.cuotas}"),
+            importe=cuota.cuota,
+            vence=vence,
+            url_retorno=_url_web(f"/pagos/mercadopago/retorno?pago={pago_id}"),
+            url_notificacion=(
+                _url_web("/api/v1/pagos/mercadopago/notificaciones") if https else None
+            ),
+            retorno_automatico=https,
+        )
+    except mercadopago.MercadoPagoError as exc:
+        raise _no_disponible() from exc
+    session.add(
+        PagoMercadoPago(
+            id=pago_id,
+            cuota_id=cuota.id,
+            preference_id=preferencia.id,
+            importe_boleta=cuota.cuota,
+            iniciado_por_user_id=principal.user.id,
+            estado=EstadoPagoMP.CREADO.value,
+        )
+    )
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PAGO_MP_INICIADO,
+        actor_user_id=principal.user.id,
+        details={
+            "pago_mp_id": str(pago_id),
+            "prestamo": prestamo.numero,
+            "cuota": cuota.numero,
+            "importe": f"{cuota.cuota:.2f}",
+            "vence": vence.isoformat(),
+        },
+    )
+    await session.commit()
+    return preferencia
+
+
 # --------------------------------------------------------------------------- registro del pago
 
 
@@ -200,6 +287,7 @@ async def registrar(
     item.mp_payment_id = pago.id
     item.estado_detalle = pago.estado_detalle
     item.medio_pago = pago.medio_pago
+    item.moneda = (pago.moneda or "")[:3] or None
     item.importe_pagado = pago.importe
     item.comision = pago.comision
     item.importe_neto = pago.neto
@@ -209,17 +297,23 @@ async def registrar(
         await session.commit()
         return item
 
-    boleta = await session.get(Boleta, item.boleta_id)
-    assert boleta is not None  # noqa: S101 - FK RESTRICT
-    detalles = {
+    detalles: dict[str, object] = {
         "pago_mp_id": str(item.id),
         "mp_payment_id": pago.id,
-        "boleta": boleta.numero,
         "estado": item.estado,
         "importe_pagado": f"{pago.importe:.2f}" if pago.importe is not None else None,
         "comision": f"{pago.comision:.2f}" if pago.comision is not None else None,
     }
-    if estado is EstadoPagoMP.APPROVED and item.comprobante_id is None:
+    boleta: Boleta | None = None
+    if item.boleta_id is not None:
+        boleta = await session.get(Boleta, item.boleta_id)
+        assert boleta is not None  # noqa: S101 - FK RESTRICT
+        detalles["boleta"] = boleta.numero
+    else:
+        detalles.update(await _datos_cuota(session, item))
+    if estado is EstadoPagoMP.APPROVED and boleta is None and estado_anterior != APROBADO:
+        await _cuota_a_confirmar(session, ctx, item, pago, detalles)
+    elif estado is EstadoPagoMP.APPROVED and boleta is not None and item.comprobante_id is None:
         await _comprobante_para_tesoreria(session, ctx, item, boleta, pago, detalles)
     elif estado in ESTADOS_MP_REVERTIDOS and estado_anterior == APROBADO:
         # TODO(negocio): procedimiento ante una devolución o un desconocimiento posterior.
@@ -304,6 +398,49 @@ async def _comprobante_para_tesoreria(
     )
 
 
+async def _datos_cuota(session: AsyncSession, item: PagoMercadoPago) -> dict[str, object]:
+    fila = (
+        await session.execute(
+            select(Prestamo.numero, CuotaPrestamo.numero, CuotaPrestamo.cuota)
+            .join(Prestamo, Prestamo.id == CuotaPrestamo.prestamo_id)
+            .where(CuotaPrestamo.id == item.cuota_id)
+        )
+    ).one()
+    return {"prestamo": fila[0], "cuota": fila[1], "importe_cuota": f"{fila[2]:.2f}"}
+
+
+async def _cuota_a_confirmar(
+    session: AsyncSession,
+    ctx: RequestContext,
+    item: PagoMercadoPago,
+    pago: mercadopago.Pago,
+    detalles: dict[str, object],
+) -> None:
+    """Pago aprobado de una cuota: queda a confirmar por Tesorería desde el préstamo."""
+    coincide = (
+        pago.moneda == "ARS"
+        and pago.importe is not None
+        and pago.importe == Decimal(str(detalles["importe_cuota"]))
+    )
+    otro = await session.scalar(
+        select(func.count()).where(
+            PagoMercadoPago.cuota_id == item.cuota_id,
+            PagoMercadoPago.id != item.id,
+            PagoMercadoPago.estado == APROBADO,
+        )
+    )
+    record_audit(
+        session,
+        ctx,
+        # Dos pagos aprobados de la misma cuota: uno sobra y Tesorería tiene que verlo.
+        AuditEvent.PAGO_MP_DUPLICADO if otro else AuditEvent.PAGO_MP_ACREDITADO,
+        severity=Severity.CRITICAL if otro else (Severity.INFO if coincide else Severity.WARNING),
+        target_user_id=item.iniciado_por_user_id,
+        new_value={"estado": APROBADO, "a_confirmar_por": "TESORERIA"},
+        details={**detalles, "importe_coincide": coincide},
+    )
+
+
 async def sincronizar(
     session: AsyncSession, ctx: RequestContext, principal: Principal, pago_mp_id: uuid.UUID
 ) -> PagoMercadoPago:
@@ -311,8 +448,8 @@ async def sincronizar(
     item = await session.get(PagoMercadoPago, pago_mp_id)
     if item is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "El pago no existe.")
-    # Solo quien puede ver la boleta (el mismo control que para la boleta).
-    await ddjj_service.get_boleta(session, principal, item.boleta_id)
+    # Solo quien puede ver la boleta o el préstamo (el mismo control que para verlos).
+    await _exigir_acceso(session, principal, item)
     await session.commit()
     try:
         pagos = await mercadopago.pagos_de(str(item.id))
@@ -363,6 +500,50 @@ async def notificacion(
 
 
 # --------------------------------------------------------------------------- consulta
+
+
+async def _exigir_acceso(
+    session: AsyncSession, principal: Principal, item: PagoMercadoPago
+) -> None:
+    if item.boleta_id is not None:
+        await ddjj_service.get_boleta(session, principal, item.boleta_id)
+        return
+    prestamo_id = await session.scalar(
+        select(CuotaPrestamo.prestamo_id).where(CuotaPrestamo.id == item.cuota_id)
+    )
+    assert prestamo_id is not None  # noqa: S101 - FK RESTRICT
+    await prestamos_service.get_prestamo(session, principal, prestamo_id)
+
+
+async def cuotas_cobradas(
+    session: AsyncSession, pagos: list[PagoMercadoPago]
+) -> dict[uuid.UUID, CuotaCobradaOut]:
+    """La cuota de cada cobro de préstamo, por id del cobro (los de boletas no figuran)."""
+    ids = {p.cuota_id for p in pagos if p.cuota_id is not None}
+    if not ids:
+        return {}
+    filas = (
+        await session.execute(
+            select(CuotaPrestamo.id, CuotaPrestamo.numero, Prestamo.id, Prestamo.numero)
+            .join(Prestamo, Prestamo.id == CuotaPrestamo.prestamo_id)
+            .where(CuotaPrestamo.id.in_(ids))
+        )
+    ).all()
+    por_cuota = {
+        f[0]: CuotaCobradaOut(prestamo_id=f[2], prestamo_numero=f[3], numero=f[1]) for f in filas
+    }
+    return {p.id: por_cuota[p.cuota_id] for p in pagos if p.cuota_id in por_cuota}
+
+
+async def de_prestamo(session: AsyncSession, prestamo_id: uuid.UUID) -> list[PagoMercadoPago]:
+    """Cobros con Mercado Pago de las cuotas de un préstamo (el acceso ya se controló)."""
+    resultado = await session.scalars(
+        select(PagoMercadoPago)
+        .join(CuotaPrestamo, CuotaPrestamo.id == PagoMercadoPago.cuota_id)
+        .where(CuotaPrestamo.prestamo_id == prestamo_id)
+        .order_by(PagoMercadoPago.created_at.desc())
+    )
+    return list(resultado.all())
 
 
 async def de_boleta(
