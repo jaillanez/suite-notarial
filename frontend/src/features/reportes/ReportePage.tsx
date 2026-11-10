@@ -422,16 +422,20 @@ export function ReportePage() {
   const { codigo = '' } = useParams()
   const catalogo = useQuery({ queryKey: ['reportes'], queryFn: fetchReportes, staleTime: 60_000 })
   const reporte = catalogo.data?.find((r) => r.codigo === codigo.toUpperCase())
+  // «Mis aportes» es del escribano, que no tiene un listado de reportes al que volver.
+  const conListado = reporte?.propio !== true
 
   return (
     <>
-      <Link
-        to="/reportes"
-        className="mb-6 inline-flex min-h-11 items-center gap-2 text-sm font-medium"
-      >
-        <ArrowLeft aria-hidden="true" className="size-4" strokeWidth={2.25} />
-        Reportes
-      </Link>
+      {conListado && (
+        <Link
+          to="/reportes"
+          className="mb-6 inline-flex min-h-11 items-center gap-2 text-sm font-medium"
+        >
+          <ArrowLeft aria-hidden="true" className="size-4" strokeWidth={2.25} />
+          Reportes
+        </Link>
+      )}
       {catalogo.isError && <Alert tone="danger">{toProblem(catalogo.error).detail}</Alert>}
       {catalogo.isPending && (
         <div aria-busy="true" className="grid gap-4">

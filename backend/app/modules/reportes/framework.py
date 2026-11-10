@@ -81,6 +81,10 @@ class Filtro:
 
 Filtros = dict[str, Any]
 
+# Clave interna de los reportes `propio`: no es un filtro declarado, así que `parsear_filtros`
+# nunca la toma del pedido.
+ESCRIBANO_PROPIO = "_escribano_propio"
+
 
 @dataclass(frozen=True)
 class Reporte:
@@ -93,6 +97,9 @@ class Reporte:
     filtros: tuple[Filtro, ...] = field(default_factory=tuple)
     # Datos personales o de seguridad: la exportación se audita como WARNING.
     sensible: bool = False
+    # Solo las filas del escribano que consulta: el servidor agrega `ESCRIBANO_PROPIO` a los
+    # filtros con el escribano de la sesión (nunca sale de los parámetros del pedido).
+    propio: bool = False
 
     @property
     def keys(self) -> list[str]:

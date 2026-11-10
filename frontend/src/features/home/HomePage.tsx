@@ -46,8 +46,15 @@ const SECTIONS: Section[] = [
   {
     to: '/reportes',
     title: 'Reportes',
-    description: 'Padrón, boletas, pagos, recaudación y auditoría, exportables a Excel y CSV.',
+    description:
+      'Actos, boletas, aportes por mes, deudores, pagos y auditoría, exportables a Excel.',
     permission: ['reports:financial', 'audit:read', 'escribanos:read'],
+  },
+  {
+    to: '/reportes/MIS_APORTES',
+    title: 'Mis aportes',
+    description: 'Tus boletas y el total de aportes de un período: pagado y por pagar.',
+    permission: 'boletas:read_own',
   },
   {
     to: '/prestamos',

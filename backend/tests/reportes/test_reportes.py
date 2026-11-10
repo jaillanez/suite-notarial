@@ -210,7 +210,10 @@ async def test_permisos(
     assert disponibles_caja == ["ESCRIBANOS", "PUNTOS_EJERCICIOS"]
     assert set(disponibles_auditor) == {
         "ESCRIBANOS",
+        "ACTOS",
         "BOLETAS",
+        "APORTES_PERIODO",
+        "SIN_DDJJ_O_PAGO",
         "PAGOS",
         "RECAUDACION",
         "BOLETAS_HISTORICAS",
@@ -219,7 +222,8 @@ async def test_permisos(
         "SUGERENCIAS_IA",
         "PUNTOS_EJERCICIOS",
     }
-    assert (await notario.get("/api/v1/reportes")).status_code == 403
+    # El escribano solo ve sus propios aportes.
+    assert [r["codigo"] for r in (await notario.get("/api/v1/reportes")).json()] == ["MIS_APORTES"]
     assert (await notario.get("/api/v1/reportes/BOLETAS/export")).status_code == 403
     assert (await staff.get("/api/v1/reportes/BOLETAS")).status_code == 403
     assert (await staff.get("/api/v1/reportes/AUDITORIA/export")).status_code == 403
@@ -229,7 +233,7 @@ async def test_permisos(
             select(AuditSecurityLog).where(AuditSecurityLog.event_type == "PERMISSION_DENIED")
         )
     ).all()
-    assert len(negados) >= 4
+    assert len(negados) >= 3
 
 
 @pytest.mark.parametrize(

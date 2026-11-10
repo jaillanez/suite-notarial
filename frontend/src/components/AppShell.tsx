@@ -45,6 +45,7 @@ const NAV: NavItem[] = [
     label: 'Préstamos',
     permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
   },
+  { to: '/reportes/MIS_APORTES', label: 'Mis aportes', permission: 'boletas:read_own' },
   { to: '/mis-puntos', label: 'Mis puntos', permission: 'puntos:read_own' },
   { to: '/previsional/puntos', label: 'Aportes y puntos', permission: 'puntos:read_all' },
   { to: '/cms', label: 'Sitio', permission: 'cms:publish' },

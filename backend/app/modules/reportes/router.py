@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import LOCAL_TZ
@@ -15,10 +16,13 @@ from app.common.deps import SessionDep
 from app.common.pagination import PageParamsDep
 from app.core.errors import ProblemError
 from app.modules.iam.deps import Principal, RequestContextDep, require_any_permission
+from app.modules.padron.models import Escribano
 from app.modules.reportes import exportar
-from app.modules.reportes.catalogo import REPORTES
+from app.modules.reportes.catalogo import REPORTES, SIN_ESCRIBANO
 from app.modules.reportes.framework import (
+    ESCRIBANO_PROPIO,
     MAX_FILAS_EXPORT,
+    Filtros,
     Reporte,
     Tipo,
     TipoFiltro,
@@ -63,6 +67,8 @@ class ReporteOut(BaseModel):
     titulo: str
     descripcion: str
     sensible: bool
+    # Solo filas del escribano que consulta («Mis aportes»).
+    propio: bool
     columnas: list[ColumnaOut]
     filtros: list[FiltroOut]
 
@@ -90,6 +96,7 @@ def reporte_out(r: Reporte) -> ReporteOut:
         titulo=r.titulo,
         descripcion=r.descripcion,
         sensible=r.sensible,
+        propio=r.propio,
         columnas=[
             ColumnaOut(
                 key=c.key,
@@ -151,6 +158,19 @@ async def _reporte(
     return reporte
 
 
+async def _filtros(
+    session: SessionDep, reporte: Reporte, principal: Principal, params: dict[str, str]
+) -> Filtros:
+    filtros = parsear_filtros(reporte, params)
+    if reporte.propio:
+        # Sin escribano asociado a la cuenta no hay filas propias.
+        escribano_id = await session.scalar(
+            select(Escribano.id).where(Escribano.user_id == principal.user.id)
+        )
+        filtros[ESCRIBANO_PROPIO] = escribano_id or SIN_ESCRIBANO
+    return filtros
+
+
 @router.get("", response_model=list[ReporteOut])
 async def listar(principal: CanReport) -> list[ReporteOut]:
     """Reportes disponibles para quien consulta, con sus columnas y filtros."""
@@ -167,7 +187,7 @@ async def ver(
     page: PageParamsDep,
 ) -> PaginaReporte:
     reporte = await _reporte(codigo, principal, session, ctx)
-    filtros = parsear_filtros(reporte, dict(request.query_params))
+    filtros = await _filtros(session, reporte, principal, dict(request.query_params))
     resultado = await ejecutar(session, reporte, filtros, offset=page.offset, limit=page.page_size)
     escala = {c.key: c.decimales for c in reporte.columnas}
     return PaginaReporte(
@@ -204,7 +224,7 @@ async def exportar_reporte(
     """Misma consulta, filtros y orden que la grilla, sin paginar. Queda auditado."""
     reporte = await _reporte(codigo, principal, session, ctx)
     params = {k: v for k, v in request.query_params.items() if k != "formato"}
-    filtros = parsear_filtros(reporte, params)
+    filtros = await _filtros(session, reporte, principal, params)
     resultado = await ejecutar(session, reporte, filtros, limit=MAX_FILAS_EXPORT + 1)
     if resultado.total_filas > MAX_FILAS_EXPORT:
         raise ProblemError(

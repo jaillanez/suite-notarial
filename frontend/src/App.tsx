@@ -166,6 +166,7 @@ const router = createBrowserRouter([
                   'audit:read',
                   'escribanos:read',
                   'puntos:read_all',
+                  'boletas:read_own',
                 ]}
               />
             ),
