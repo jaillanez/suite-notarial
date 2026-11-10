@@ -72,7 +72,8 @@ def describir_filtros(reporte: Reporte, filtros: dict[str, Any]) -> str:
         elif f.key.startswith("periodo"):
             etiqueta = _periodo(str(etiqueta))
         partes.append(f"{f.label}: {etiqueta}")
-    return " · ".join(partes)
+    # Un reporte propio trae solo el filtro interno del escribano.
+    return " · ".join(partes) or "Sin filtros"
 
 
 def a_csv(reporte: Reporte, resultado: Resultado) -> bytes:

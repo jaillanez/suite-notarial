@@ -20,6 +20,7 @@ const BOLETAS: apiModule.Reporte = {
   titulo: 'Boletas emitidas',
   descripcion: 'Boletas con su desglose.',
   sensible: false,
+  propio: false,
   columnas: [
     { key: 'numero', label: 'N°', tipo: 'ENTERO', total: false, visible: true, vacio: null },
     { key: 'periodo', label: 'Período', tipo: 'PERIODO', total: false, visible: true, vacio: null },
@@ -133,5 +134,24 @@ describe('reporte genérico', () => {
     await waitFor(() => {
       expect(apiModule.exportar).toHaveBeenCalledWith('BOLETAS', { estado: 'PAGADA' }, 'xlsx')
     })
+  })
+  it('el escribano ve «Mis aportes» sin un listado de reportes al que volver', async () => {
+    vi.mocked(apiModule.fetchReportes).mockResolvedValue([
+      { ...BOLETAS, codigo: 'MIS_APORTES', titulo: 'Mis aportes', propio: true },
+    ])
+    renderWithProviders(
+      <Routes>
+        <Route path="/reportes/:codigo" element={<ReportePage />} />
+      </Routes>,
+      { path: '/reportes/MIS_APORTES', user: ESCRIBANO, raw: true },
+    )
+    expect(await screen.findByRole('table')).toBeInTheDocument()
+    expect(apiModule.fetchPagina).toHaveBeenCalledWith('MIS_APORTES', {}, 1, 25)
+    expect(screen.queryByRole('link', { name: 'Reportes' })).not.toBeInTheDocument()
+  })
+
+  it('con varios reportes se puede volver al listado', async () => {
+    renderReporte()
+    expect(await screen.findByRole('link', { name: 'Reportes' })).toBeInTheDocument()
   })
 })

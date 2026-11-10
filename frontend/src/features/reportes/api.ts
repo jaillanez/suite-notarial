@@ -29,6 +29,8 @@ export interface Reporte {
   titulo: string
   descripcion: string
   sensible: boolean
+  /** Solo filas del escribano que consulta («Mis aportes»). */
+  propio: boolean
   columnas: Columna[]
   filtros: Filtro[]
 }

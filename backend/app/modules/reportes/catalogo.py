@@ -1,17 +1,18 @@
 """Catálogo de reportes. Cada consulta etiqueta sus columnas con las `key` declaradas y fija un
 orden total (con desempate por id) para que paginar y exportar den exactamente las mismas filas."""
 
-from datetime import date
+import uuid
+from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import Date, Integer, String, and_, case, cast, func, or_, select
+from sqlalchemy import Date, Integer, String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.common.audit import AuditSecurityLog, Severity
-from app.common.dates import LOCAL_TZ
-from app.modules.ddjj.catalog import EstadoBoleta
-from app.modules.ddjj.models import Boleta
+from app.common.dates import LOCAL_TZ, today_local
+from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ
+from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada
 from app.modules.ia.catalog import EstadoSugerencia, TipoSugerencia
 from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
@@ -19,11 +20,18 @@ from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
 from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
 from app.modules.padron.catalog import DEPARTAMENTOS_SAN_JUAN, Cargo, EstadoMatricula
-from app.modules.padron.models import Adscripcion, Escribano, Persona, RegistroNotarial
+from app.modules.padron.models import (
+    Adscripcion,
+    Escribano,
+    Licencia,
+    Persona,
+    RegistroNotarial,
+)
 from app.modules.pagos.catalog import ResultadoConciliacion
 from app.modules.pagos.models import Comprobante, Conciliacion
 from app.modules.previsional.models import Ejercicio, PuntosAfiliado
 from app.modules.reportes.framework import (
+    ESCRIBANO_PROPIO,
     Columna,
     Consulta,
     Filtro,
@@ -197,8 +205,38 @@ def _boletas(f: Filtros) -> Consulta:
     if "escribano" in f:
         like = f"%{f['escribano'].lower()}%"
         stmt = stmt.where(func.lower(persona.apellido + ", " + persona.nombre).like(like))
+    if f.get("atraso") == "CON_INTERES":
+        stmt = stmt.where(Boleta.interes_mora > 0)
+    elif f.get("atraso") == "VENCIDA_IMPAGA":
+        stmt = stmt.where(_vencida_impaga())
     stmt = _rango_periodos(stmt, Boleta.periodo, f)
     return stmt.order_by(Boleta.periodo.desc(), Boleta.numero.desc())
+
+
+def _vencida_impaga() -> ColumnElement[bool]:
+    """Pendiente de pago y con el vencimiento del período ya pasado (hoy en San Juan)."""
+    return and_(
+        Boleta.estado == EstadoBoleta.PENDIENTE.value, Boleta.fecha_vencimiento < today_local()
+    )
+
+
+def _con_atraso() -> ColumnElement[bool]:
+    """Pagada con interés por mora, o vencida e impaga."""
+    return or_(
+        and_(Boleta.estado == EstadoBoleta.PAGADA.value, Boleta.interes_mora > 0),
+        _vencida_impaga(),
+    )
+
+
+ATRASO = Filtro(
+    "atraso",
+    "Atraso",
+    TipoFiltro.OPCIONES,
+    (
+        ("CON_INTERES", "Con interés por mora"),
+        ("VENCIDA_IMPAGA", "Vencidas e impagas"),
+    ),
+)
 
 
 BOLETAS = Reporte(
@@ -240,8 +278,454 @@ BOLETAS = Reporte(
                 (EstadoBoleta.ANULADA.value, "Anulada"),
             ),
         ),
+        ATRASO,
         Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
         Filtro("escribano", "Escribano", TipoFiltro.TEXTO, ayuda="Apellido o nombre"),
+    ),
+)
+
+# --------------------------------------------------------------------------- aportes
+
+
+def _nombre(persona: Any) -> ColumnElement[str]:
+    nombre: ColumnElement[str] = persona.apellido + ", " + persona.nombre
+    return nombre
+
+
+def _filtro_escribano(stmt: Consulta, persona: Any, f: Filtros) -> Consulta:
+    if "escribano" in f:
+        stmt = stmt.where(func.lower(_nombre(persona)).like(f"%{f['escribano'].lower()}%"))
+    return stmt
+
+
+def _suma_si(condicion: ColumnElement[bool], valor: Any) -> ColumnElement[Any]:
+    return func.coalesce(func.sum(case((condicion, valor), else_=0)), 0)
+
+
+PAGADA = Boleta.estado == EstadoBoleta.PAGADA.value
+PENDIENTE = Boleta.estado == EstadoBoleta.PENDIENTE.value
+
+
+def _aportes_periodo(f: Filtros) -> Consulta:
+    """Lo declarado y lo pagado de las boletas vigentes (sin las anuladas), por mes o por año."""
+    escribano = aliased(Escribano)
+    persona = aliased(Persona)
+    if f.get("agrupar") == "ANIO":
+        clave: ColumnElement[str] = func.substr(Boleta.periodo, 1, 4)
+        etiqueta: ColumnElement[str] = clave
+    else:
+        clave = Boleta.periodo.expression
+        etiqueta = func.substr(Boleta.periodo, 6, 2) + "/" + func.substr(Boleta.periodo, 1, 4)
+    stmt = (
+        select(
+            etiqueta.label("periodo"),
+            func.count(Boleta.id).label("boletas"),
+            func.sum(Boleta.total_en_termino).label("declarado"),
+            _suma_si(PAGADA, Boleta.total_a_pagar).label("pagado"),
+            _suma_si(PAGADA, Boleta.interes_mora).label("intereses"),
+            _suma_si(PENDIENTE, Boleta.total_en_termino).label("impago"),
+            func.count(Boleta.id).filter(_con_atraso()).label("con_atraso"),
+            func.count(Boleta.id).filter(_vencida_impaga()).label("vencidas_impagas"),
+        )
+        .join(RegistroNotarial, RegistroNotarial.id == Boleta.registro_id)
+        .outerjoin(escribano, escribano.id == Boleta.escribano_id)
+        .outerjoin(persona, persona.id == escribano.persona_id)
+        .where(Boleta.estado != EstadoBoleta.ANULADA.value)
+    )
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    stmt = _filtro_escribano(stmt, persona, f)
+    stmt = _rango_periodos(stmt, Boleta.periodo, f)
+    return stmt.group_by(clave, etiqueta).order_by(clave.desc())
+
+
+APORTES_PERIODO = Reporte(
+    codigo="APORTES_PERIODO",
+    construir=_aportes_periodo,
+    titulo="Aportes declarados y pagados",
+    descripcion=(
+        "Por mes o por año: lo declarado en término, lo pagado (con intereses), los intereses "
+        "cobrados, lo impago y las boletas con atraso. Sin las boletas anuladas ni el histórico "
+        "del sistema anterior."
+    ),
+    permiso=Perm.REPORTS_FINANCIAL,
+    columnas=(
+        Columna("periodo", "Período"),
+        Columna("boletas", "Boletas", Tipo.ENTERO, total=True),
+        Columna("declarado", "Declarado en término", Tipo.MONEDA, total=True),
+        Columna("pagado", "Pagado", Tipo.MONEDA, total=True),
+        Columna("intereses", "Intereses cobrados", Tipo.MONEDA, total=True),
+        Columna("impago", "Impago", Tipo.MONEDA, total=True),
+        Columna("con_atraso", "Con atraso", Tipo.ENTERO, total=True),
+        Columna("vencidas_impagas", "Vencidas e impagas", Tipo.ENTERO, total=True, visible=False),
+    ),
+    filtros=(
+        Filtro(
+            "agrupar",
+            "Agrupar por",
+            TipoFiltro.OPCIONES,
+            (("MES", "Mes"), ("ANIO", "Año")),
+            ayuda="Sin elegir, por mes",
+        ),
+        *PERIODOS,
+        Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+        Filtro("escribano", "Escribano", TipoFiltro.TEXTO, ayuda="Apellido o nombre"),
+    ),
+)
+
+# --------------------------------------------------------------------------- actos declarados
+
+CATEGORIA_TEXTO = {
+    CategoriaActo.ESCRITURA_CON_VALOR.value: "Escritura con valor",
+    CategoriaActo.ACTA_O_PODER.value: "Acta o poder",
+    CategoriaActo.OTRO_ACTO.value: "Otro acto sin valor",
+    CategoriaActo.SIN_EFECTO.value: "Sin efecto",
+    CategoriaActo.EXENTO.value: "Exento",
+}
+PAGO_DDJJ = {
+    "PAGADA": "Pagada",
+    "PARCIAL": "Pago parcial",
+    "PENDIENTE": "Pendiente",
+    "SIN_BOLETA": "Sin boleta",
+}
+
+
+def _pago_ddjj(ddjj_id: Any) -> ColumnElement[str]:
+    """Pago de las boletas vigentes de la DDJJ: cada escribano paga la suya."""
+    vigentes = (
+        select(func.count(Boleta.id))
+        .where(Boleta.ddjj_id == ddjj_id, Boleta.estado != EstadoBoleta.ANULADA.value)
+        .scalar_subquery()
+    )
+    pagadas = (
+        select(func.count(Boleta.id)).where(Boleta.ddjj_id == ddjj_id, PAGADA).scalar_subquery()
+    )
+    return case(
+        (vigentes == 0, "SIN_BOLETA"),
+        (pagadas == vigentes, "PAGADA"),
+        (pagadas > 0, "PARCIAL"),
+        else_="PENDIENTE",
+    )
+
+
+def _actos(f: Filtros) -> Consulta:
+    pago = _pago_ddjj(DeclaracionJurada.id)
+    stmt = (
+        select(
+            DeclaracionJurada.periodo.label("periodo"),
+            RegistroNotarial.numero_registro.label("registro"),
+            _nombre(Persona).label("escribano"),
+            Acto.cargo.label("cargo"),
+            Acto.tipo_protocolo.label("protocolo"),
+            Acto.numero_escritura.label("escritura"),
+            Acto.fecha_acto.label("fecha_acto"),
+            case(CATEGORIA_TEXTO, value=Acto.categoria, else_=Acto.categoria).label("categoria"),
+            Acto.naturaleza.label("naturaleza"),
+            Acto.motivo_exencion.label("motivo_exencion"),
+            Acto.base_imponible.label("base_imponible"),
+            func.coalesce(Acto.aporte, 0).label("aporte"),
+            case(PAGO_DDJJ, value=pago, else_=pago).label("pago"),
+        )
+        .join(DeclaracionJurada, DeclaracionJurada.id == Acto.ddjj_id)
+        .join(RegistroNotarial, RegistroNotarial.id == DeclaracionJurada.registro_id)
+        .join(Escribano, Escribano.id == Acto.escribano_id)
+        .join(Persona, Persona.id == Escribano.persona_id)
+        # Solo lo presentado: una DDJJ rectificada fue reemplazada y un borrador no se declaró.
+        .where(DeclaracionJurada.estado == EstadoDDJJ.PRESENTADA.value, Acto.is_active.is_(True))
+    )
+    if "categoria" in f:
+        stmt = stmt.where(Acto.categoria == f["categoria"])
+    if "naturaleza" in f:
+        stmt = stmt.where(func.lower(Acto.naturaleza).like(f"%{f['naturaleza'].lower()}%"))
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    if "pago" in f:
+        stmt = stmt.where(pago == f["pago"])
+    stmt = _filtro_escribano(stmt, Persona, f)
+    stmt = _rango_periodos(stmt, DeclaracionJurada.periodo, f)
+    return stmt.order_by(
+        DeclaracionJurada.periodo.desc(),
+        RegistroNotarial.numero_registro,
+        Acto.tipo_protocolo,
+        Acto.numero_escritura,
+        Acto.orden_en_escritura,
+        Acto.id,
+    )
+
+
+ACTOS = Reporte(
+    codigo="ACTOS",
+    construir=_actos,
+    titulo="Actos declarados",
+    descripcion=(
+        "Cada acto de las declaraciones presentadas, con su base y su aporte, y el pago de las "
+        "boletas de esa declaración. Se filtra por tipo de acto, naturaleza y período."
+    ),
+    permiso=Perm.REPORTS_FINANCIAL,
+    columnas=(
+        Columna("periodo", "Período", Tipo.PERIODO),
+        Columna("registro", "Registro", Tipo.ENTERO),
+        Columna("escribano", "Escribano"),
+        Columna("cargo", "Cargo", visible=False),
+        Columna("protocolo", "Protocolo", visible=False),
+        Columna("escritura", "Escritura", Tipo.ENTERO),
+        Columna("fecha_acto", "Fecha", Tipo.FECHA),
+        Columna("categoria", "Tipo de acto"),
+        Columna("naturaleza", "Naturaleza"),
+        Columna("motivo_exencion", "Motivo de la exención", visible=False, vacio="—"),
+        Columna("base_imponible", "Base imponible", Tipo.MONEDA, total=True),
+        Columna("aporte", "Aporte", Tipo.MONEDA, total=True),
+        Columna("pago", "Pago de la DDJJ"),
+    ),
+    filtros=(
+        *PERIODOS,
+        Filtro(
+            "categoria",
+            "Tipo de acto",
+            TipoFiltro.OPCIONES,
+            tuple(CATEGORIA_TEXTO.items()),
+        ),
+        Filtro("naturaleza", "Naturaleza", TipoFiltro.TEXTO, ayuda="Compraventa, poder, …"),
+        Filtro("pago", "Pago de la DDJJ", TipoFiltro.OPCIONES, tuple(PAGO_DDJJ.items())),
+        Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+        Filtro("escribano", "Escribano", TipoFiltro.TEXTO, ayuda="Apellido o nombre"),
+    ),
+)
+
+# --------------------------------------------------------------------------- sin DDJJ o sin pago
+
+
+def periodo_anterior(hoy: date) -> str:
+    """El mes que normalmente se está declarando."""
+    anio, mes = (hoy.year - 1, 12) if hoy.month == 1 else (hoy.year, hoy.month - 1)
+    return f"{anio:04d}-{mes:02d}"
+
+
+def _limites(periodo: str) -> tuple[date, date]:
+    anio, mes = int(periodo[:4]), int(periodo[5:7])
+    siguiente = date(anio + 1, 1, 1) if mes == 12 else date(anio, mes + 1, 1)
+    return date(anio, mes, 1), siguiente - timedelta(days=1)
+
+
+ESTADO_DDJJ_TEXTO = {
+    "PRESENTADA": "Presentada",
+    "BORRADOR": "En borrador",
+    "SIN_DDJJ": "Sin DDJJ",
+}
+PAGO_TEXTO = {
+    "PAGADA": "Pagada",
+    "PENDIENTE": "Pendiente de pago",
+    "SIN_BOLETA": "Sin boleta",
+}
+
+
+def _sin_ddjj_o_pago(f: Filtros) -> Consulta:
+    periodo = f.get("periodo") or periodo_anterior(today_local())
+    desde, hasta = _limites(periodo)
+
+    def ddjj_en(estado: EstadoDDJJ) -> ColumnElement[bool]:
+        return (
+            select(DeclaracionJurada.id)
+            .where(
+                DeclaracionJurada.registro_id == Adscripcion.registro_id,
+                DeclaracionJurada.periodo == periodo,
+                DeclaracionJurada.estado == estado.value,
+            )
+            .exists()
+        )
+
+    def boleta_en(estado: EstadoBoleta) -> ColumnElement[bool]:
+        # La del escribano, o la del registro entero (boletas anteriores a las por notario).
+        return (
+            select(Boleta.id)
+            .where(
+                Boleta.registro_id == Adscripcion.registro_id,
+                Boleta.periodo == periodo,
+                Boleta.estado == estado.value,
+                or_(Boleta.escribano_id == Escribano.id, Boleta.escribano_id.is_(None)),
+            )
+            .exists()
+        )
+
+    estado_ddjj = case(
+        (ddjj_en(EstadoDDJJ.PRESENTADA), "PRESENTADA"),
+        (ddjj_en(EstadoDDJJ.BORRADOR), "BORRADOR"),
+        else_="SIN_DDJJ",
+    )
+    pago = case(
+        (boleta_en(EstadoBoleta.PAGADA), "PAGADA"),
+        (boleta_en(EstadoBoleta.PENDIENTE), "PENDIENTE"),
+        else_="SIN_BOLETA",
+    )
+    licencia = (
+        select(Licencia.id)
+        .where(
+            Licencia.escribano_id == Escribano.id,
+            Licencia.anulada.is_(False),
+            Licencia.fecha_desde <= hasta,
+            or_(Licencia.fecha_hasta.is_(None), Licencia.fecha_hasta >= desde),
+        )
+        .exists()
+    )
+    stmt = (
+        select(
+            literal(periodo).label("periodo"),
+            Escribano.matricula_numero.label("matricula"),
+            _nombre(Persona).label("escribano"),
+            RegistroNotarial.numero_registro.label("registro"),
+            case(CARGO_TEXTO, value=Adscripcion.cargo, else_=Adscripcion.cargo).label("cargo"),
+            case(ESTADO_DDJJ_TEXTO, value=estado_ddjj, else_=estado_ddjj).label("ddjj"),
+            case(PAGO_TEXTO, value=pago, else_=pago).label("pago"),
+            case((licencia, "Sí"), else_="—").label("licencia"),
+            Escribano.estado_matricula.label("estado_matricula"),
+            RegistroNotarial.departamento.label("departamento"),
+            Persona.email.label("email"),
+            Persona.telefono.label("telefono"),
+        )
+        .select_from(Adscripcion)
+        .join(Escribano, Escribano.id == Adscripcion.escribano_id)
+        .join(Persona, Persona.id == Escribano.persona_id)
+        .join(RegistroNotarial, RegistroNotarial.id == Adscripcion.registro_id)
+        # Titulares y adscriptos con el cargo durante el período (quien está a cargo declara en
+        # la DDJJ del registro y no tiene boleta propia obligatoria).
+        .where(
+            Adscripcion.cargo.in_((Cargo.TITULAR.value, Cargo.ADSCRIPTO.value)),
+            Adscripcion.fecha_desde <= hasta,
+            or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= desde),
+        )
+    )
+    situacion = f.get("situacion", "PENDIENTES")
+    if situacion == "SIN_DDJJ":
+        stmt = stmt.where(estado_ddjj != "PRESENTADA")
+    elif situacion == "SIN_PAGO":
+        stmt = stmt.where(estado_ddjj == "PRESENTADA", pago != "PAGADA")
+    elif situacion == "PENDIENTES":
+        stmt = stmt.where(or_(estado_ddjj != "PRESENTADA", pago != "PAGADA"))
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    if "departamento" in f:
+        stmt = stmt.where(RegistroNotarial.departamento == f["departamento"])
+    return stmt.order_by(
+        RegistroNotarial.numero_registro, Adscripcion.cargo.desc(), _nombre(Persona), Escribano.id
+    )
+
+
+SIN_DDJJ_O_PAGO = Reporte(
+    codigo="SIN_DDJJ_O_PAGO",
+    construir=_sin_ddjj_o_pago,
+    titulo="Notarios sin DDJJ o sin pago",
+    descripcion=(
+        "Titulares y adscriptos de un período cuyo registro no presentó la DDJJ, o que no "
+        "pagaron su boleta. Sin elegir período, el mes anterior. La licencia se muestra pero no "
+        "los excluye: la Caja decide si un escribano en licencia aporta."
+    ),
+    permiso=Perm.REPORTS_FINANCIAL,
+    sensible=True,
+    columnas=(
+        Columna("periodo", "Período", Tipo.PERIODO),
+        Columna("matricula", "Matrícula", Tipo.ENTERO, vacio=A_COMPLETAR),
+        Columna("escribano", "Escribano"),
+        Columna("registro", "Registro", Tipo.ENTERO),
+        Columna("cargo", "Cargo"),
+        Columna("ddjj", "DDJJ del registro"),
+        Columna("pago", "Su boleta"),
+        Columna("licencia", "En licencia"),
+        Columna("estado_matricula", "Matrícula", visible=False),
+        Columna("departamento", "Departamento", visible=False),
+        Columna("email", "Correo", visible=False),
+        Columna("telefono", "Teléfono", visible=False),
+    ),
+    filtros=(
+        Filtro("periodo", "Período", TipoFiltro.PERIODO, ayuda="Sin elegir, el mes anterior"),
+        Filtro(
+            "situacion",
+            "Mostrar",
+            TipoFiltro.OPCIONES,
+            (
+                ("PENDIENTES", "Sin DDJJ o sin pago"),
+                ("SIN_DDJJ", "Solo sin DDJJ presentada"),
+                ("SIN_PAGO", "Solo con DDJJ y sin pago"),
+                ("TODOS", "Todos, también los al día"),
+            ),
+            ayuda="Sin elegir, sin DDJJ o sin pago",
+        ),
+        Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+        Filtro(
+            "departamento",
+            "Departamento",
+            TipoFiltro.OPCIONES,
+            tuple((d, d) for d in DEPARTAMENTOS_SAN_JUAN),
+        ),
+    ),
+)
+
+# --------------------------------------------------------------------------- mis aportes
+
+
+SIN_ESCRIBANO = uuid.UUID(int=0)
+
+
+def _mis_aportes(f: Filtros) -> Consulta:
+    stmt = (
+        select(
+            Boleta.periodo.label("periodo"),
+            Boleta.numero.label("boleta"),
+            RegistroNotarial.numero_registro.label("registro"),
+            Boleta.estado.label("estado"),
+            Boleta.fecha_vencimiento.label("fecha_vencimiento"),
+            Boleta.total_protocolos.label("total_protocolos"),
+            Boleta.total_en_termino.label("aporte"),
+            Boleta.interes_mora.label("intereses"),
+            case((PAGADA, Boleta.total_a_pagar), else_=0).label("pagado"),
+            case((PENDIENTE, Boleta.total_en_termino), else_=0).label("impago"),
+        )
+        .join(RegistroNotarial, RegistroNotarial.id == Boleta.registro_id)
+        .where(
+            # Sin escribano (p. ej. al armar la consulta sin sesión) no hay filas.
+            Boleta.escribano_id == f.get(ESCRIBANO_PROPIO, SIN_ESCRIBANO),
+            Boleta.estado != EstadoBoleta.ANULADA.value,
+        )
+    )
+    if "estado" in f:
+        stmt = stmt.where(Boleta.estado == f["estado"])
+    stmt = _rango_periodos(stmt, Boleta.periodo, f)
+    return stmt.order_by(Boleta.periodo.desc(), Boleta.numero.desc())
+
+
+MIS_APORTES = Reporte(
+    codigo="MIS_APORTES",
+    construir=_mis_aportes,
+    titulo="Mis aportes",
+    descripcion=(
+        "Tus boletas vigentes y el total de aportes del período que elijas: lo declarado en "
+        "término, los intereses, lo pagado y lo que queda por pagar. No incluye el histórico del "
+        "sistema anterior."
+    ),
+    permiso=Perm.BOLETAS_READ_OWN,
+    propio=True,
+    columnas=(
+        Columna("periodo", "Período", Tipo.PERIODO),
+        Columna("boleta", "Boleta", Tipo.ENTERO),
+        Columna("registro", "Registro", Tipo.ENTERO, visible=False),
+        Columna("estado", "Estado"),
+        Columna("fecha_vencimiento", "Vencimiento", Tipo.FECHA, visible=False),
+        Columna("total_protocolos", "Protocolos", Tipo.MONEDA, total=True, visible=False),
+        Columna("aporte", "Aporte del mes", Tipo.MONEDA, total=True),
+        Columna("intereses", "Intereses", Tipo.MONEDA, total=True),
+        Columna("pagado", "Pagado", Tipo.MONEDA, total=True),
+        Columna("impago", "Por pagar", Tipo.MONEDA, total=True),
+    ),
+    filtros=(
+        *PERIODOS,
+        Filtro(
+            "estado",
+            "Estado",
+            TipoFiltro.OPCIONES,
+            (
+                (EstadoBoleta.PENDIENTE.value, "Pendiente de pago"),
+                (EstadoBoleta.PAGADA.value, "Pagada"),
+            ),
+        ),
     ),
 )
 
@@ -674,7 +1158,10 @@ REPORTES: dict[str, Reporte] = {
     r.codigo: r
     for r in (
         ESCRIBANOS,
+        ACTOS,
         BOLETAS,
+        APORTES_PERIODO,
+        SIN_DDJJ_O_PAGO,
         PAGOS,
         RECAUDACION,
         BOLETAS_HISTORICAS,
@@ -682,5 +1169,6 @@ REPORTES: dict[str, Reporte] = {
         AUDITORIA,
         SUGERENCIAS_IA,
         PUNTOS_EJERCICIOS,
+        MIS_APORTES,
     )
 }
