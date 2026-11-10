@@ -24,7 +24,13 @@ flock -n 9 || { echo "$(date -Is) ERROR: hay un backup en curso"; exit 1; }
   || { echo "$(date -Is) ERROR: falta la suma de control del backup $FECHA"; exit 1; }
 (cd "$DESTINO" && sha256sum --quiet -c "suma-$FECHA.sha256") \
   || { echo "$(date -Is) ERROR: el backup $FECHA no coincide con su suma de control"; exit 1; }
-exec 3<"$BASE" 9>&-
+# Una prueba a la vez (candado propio, que backup.sh no usa): si no, una borraría la base de la otra.
+exec 8>"$DESTINO/.lock-restauracion"
+flock -n 8 || { echo "$(date -Is) ERROR: ya hay una prueba de restauración en curso"; exit 1; }
+# Se abren el dump y los archivos verificados antes de soltar el candado del backup.
+exec 3<"$BASE"
+if [[ -f "$ARCHIVOS" ]]; then exec 4<"$ARCHIVOS"; else exec 4</dev/null; fi
+exec 9>&-
 
 # La copia tiene datos reales: que no quede en el servidor aunque la prueba falle.
 limpiar() {
@@ -53,6 +59,8 @@ filas=$($PSQL -d "$PRUEBA" -c "SELECT
 # Los archivos subidos: que el tar se lea entero y cuántos trae.
 cantidad=0
 if [[ -f "$ARCHIVOS" ]]; then
-  cantidad=$(tar -tzf "$ARCHIVOS" | grep -vc '/$' || true)
+  listado=$(tar -tzf - <&4) \
+    || { echo "$(date -Is) ERROR: no se pudo leer $ARCHIVOS"; exit 1; }
+  cantidad=$(grep -vc '/$' <<<"$listado" || true)
 fi
 echo "$(date -Is) restauración OK ($FECHA): migración $version, $tablas tablas, $filas, $cantidad archivos"
