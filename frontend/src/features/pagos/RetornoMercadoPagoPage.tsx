@@ -14,6 +14,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EN_CURSO = new Set(['CREADO', 'pending', 'authorized', 'in_process', 'in_mediation'])
 
 function Resultado({ pago }: { pago: PagoMercadoPago }) {
+  if (pago.estado === 'approved' && pago.cuota) {
+    return (
+      <Alert tone="success" title="Mercado Pago aprobó tu pago">
+        Pagaste {formatMoney(pago.importe_pagado)}. Tesorería lo confirma y la cuota{' '}
+        {pago.cuota.numero} pasa a pagada; mientras tanto la vas a ver como «Pago con Mercado Pago a
+        confirmar».
+      </Alert>
+    )
+  }
   if (pago.estado === 'approved') {
     return (
       <Alert tone="success" title="Mercado Pago aprobó tu pago">
@@ -33,14 +42,16 @@ function Resultado({ pago }: { pago: PagoMercadoPago }) {
   if (EN_CURSO.has(pago.estado)) {
     return (
       <Alert tone="info" title="El pago está en proceso">
-        Mercado Pago todavía no lo acreditó. Cuando lo haga, lo vas a ver en la boleta.
+        Mercado Pago todavía no lo acreditó. Cuando lo haga, lo vas a ver en{' '}
+        {pago.cuota ? 'el préstamo' : 'la boleta'}.
       </Alert>
     )
   }
   return (
     <Alert tone="warning" title="Mercado Pago no aprobó el pago">
-      No se cobró nada. Podés intentar de nuevo desde la boleta, con otro medio de pago, o pagar por
-      transferencia y adjuntar el comprobante.
+      {pago.cuota
+        ? 'No se cobró nada. Podés intentar de nuevo desde el préstamo, con otro medio de pago, o pagarle la cuota a Tesorería.'
+        : 'No se cobró nada. Podés intentar de nuevo desde la boleta, con otro medio de pago, o pagar por transferencia y adjuntar el comprobante.'}
     </Alert>
   )
 }
@@ -62,7 +73,12 @@ export function RetornoMercadoPagoPage() {
     queryFn: () => fetchBoleta(consulta.data?.boleta_id ?? ''),
     enabled: Boolean(consulta.data?.boleta_id),
   })
-  const volver = boleta.data ? `/ddjj/${boleta.data.ddjj_id}` : '/ddjj'
+  const cuota = consulta.data?.cuota
+  const volver = cuota
+    ? `/prestamos/${cuota.prestamo_id}`
+    : boleta.data
+      ? `/ddjj/${boleta.data.ddjj_id}`
+      : '/ddjj'
 
   return (
     <>
@@ -89,13 +105,19 @@ export function RetornoMercadoPagoPage() {
               Boleta N° {boleta.data.numero} · total {formatMoney(boleta.data.total_a_pagar)}
             </p>
           )}
+          {cuota && consulta.data && (
+            <p className="text-sm text-ink-muted tabular-nums">
+              Préstamo N° {cuota.prestamo_numero} · cuota {cuota.numero} ·{' '}
+              {formatMoney(consulta.data.importe_boleta)}
+            </p>
+          )}
           <div className="flex flex-wrap gap-3">
             <Link
               to={volver}
               className="inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline hover:border-brand-700 hover:bg-brand-50"
             >
               <ArrowLeft aria-hidden="true" className="size-4" strokeWidth={2.25} />
-              Volver a la declaración
+              {cuota ? 'Volver al préstamo' : 'Volver a la declaración'}
             </Link>
             {consulta.data && consulta.data.estado !== 'approved' && (
               <Button

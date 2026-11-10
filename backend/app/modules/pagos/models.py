@@ -186,9 +186,11 @@ class PagoMercadoPago(UUIDMixin, Base):
             "(confirmado_en IS NULL) = (confirmado_por_user_id IS NULL)",
             name="confirmacion_completa",
         ),
+        # Se confirma solo un pago aprobado (lo controla el servicio); después Mercado Pago
+        # puede informar una devolución o un contracargo, y ese estado tiene que poder guardarse.
         CheckConstraint(
-            "confirmado_en IS NULL OR (cuota_id IS NOT NULL AND estado = 'approved')",
-            name="confirma_cuota_aprobada",
+            "confirmado_en IS NULL OR cuota_id IS NOT NULL",
+            name="confirma_solo_cuota",
         ),
         # Una cuota se cobra una sola vez.
         Index(

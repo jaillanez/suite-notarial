@@ -240,11 +240,16 @@ async def prestamo_detalle(
             avisos = ev.avisos
     else:
         plan = [cuota_out(c, hoy) for c in await service.plan_guardado(session, p.id)]
-    cobros = [
-        c
-        for c in await mercadopago_service.de_prestamo(session, p.id)
-        if c.estado != EstadoPagoMP.CREADO.value
-    ]
+    # Los pagos con Mercado Pago son del titular: el garante no los ve (sí la cuota pagada).
+    cobros = (
+        []
+        if await _solo_garante(session, principal, p)
+        else [
+            c
+            for c in await mercadopago_service.de_prestamo(session, p.id)
+            if c.estado != EstadoPagoMP.CREADO.value
+        ]
+    )
     numeros = {c.id: c.numero for c in await service.plan_guardado(session, p.id)}
     return PrestamoDetalle(
         **base.model_dump(),

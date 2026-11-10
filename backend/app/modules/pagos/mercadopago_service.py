@@ -54,12 +54,17 @@ PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
 APROBADO = EstadoPagoMP.APPROVED.value
 
 
-def _no_disponible() -> ProblemError:
+def _no_disponible(
+    alternativa: str = "pagá por transferencia y adjuntá el comprobante",
+) -> ProblemError:
     return ProblemError(
         HTTPStatus.SERVICE_UNAVAILABLE,
-        "El pago con Mercado Pago no está disponible en este momento: probá más tarde o pagá "
-        "por transferencia y adjuntá el comprobante.",
+        f"El pago con Mercado Pago no está disponible en este momento: probá más tarde o "
+        f"{alternativa}.",
     )
+
+
+CUOTA_POR_TESORERIA = "pagale la cuota a Tesorería"
 
 
 def _url_web(ruta: str) -> str:
@@ -149,7 +154,7 @@ async def iniciar_cuota(
 ) -> mercadopago.Preferencia:
     """Cobro de la próxima cuota del préstamo. Lo inicia solo el escribano que lo tomó."""
     if not mercadopago.configurado():
-        raise _no_disponible()
+        raise _no_disponible(CUOTA_POR_TESORERIA)
     prestamo = await prestamos_service.get_prestamo(session, principal, prestamo_id, lock=True)
     propio = await prestamos_service.escribano_de(session, principal.user)
     if propio is None or propio.id != prestamo.escribano_id:
@@ -194,7 +199,7 @@ async def iniciar_cuota(
             retorno_automatico=https,
         )
     except mercadopago.MercadoPagoError as exc:
-        raise _no_disponible() from exc
+        raise _no_disponible(CUOTA_POR_TESORERIA) from exc
     session.add(
         PagoMercadoPago(
             id=pago_id,

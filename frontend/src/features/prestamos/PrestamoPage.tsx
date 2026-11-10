@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CircleCheck, CircleX, HandCoins } from 'lucide-react'
+import { ArrowLeft, CircleCheck, CircleX, HandCoins, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 
@@ -15,7 +15,17 @@ import { formatLocalDateTime } from '../../lib/datetime'
 import { formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { formatDate, matriculaTexto, todayIso } from '../padron/labels'
-import { fetchPrestamo, otorgar, rechazar, registrarPago, type PrestamoDetalle } from './api'
+import { ESTADO_PAGO_MP } from '../pagos/labels'
+import {
+  confirmarCobroMP,
+  fetchPrestamo,
+  otorgar,
+  pagarCuotaConMercadoPago,
+  rechazar,
+  registrarPago,
+  type CobroCuotaMP,
+  type PrestamoDetalle,
+} from './api'
 import { PlanCuotas } from './componentes'
 import { ESTADO_PRESTAMO, MONEDA, SISTEMA, importe } from './labels'
 
@@ -239,11 +249,183 @@ function Cobrar({ p }: { p: PrestamoDetalle }) {
   )
 }
 
+/** El escribano paga la próxima cuota en Mercado Pago y vuelve a la Suite, que consulta el pago. */
+function PagarConMercadoPago({
+  p,
+  onError,
+}: {
+  p: PrestamoDetalle
+  onError: (detalle: string | null) => void
+}) {
+  const proxima = p.plan.find((c) => c.estado === 'PENDIENTE')
+  const pago = useMutation({
+    mutationFn: () => pagarCuotaConMercadoPago(p.id),
+    onSuccess: (url) => {
+      window.location.assign(url)
+    },
+    onError: (e) => {
+      onError(toProblem(e).detail)
+    },
+  })
+  if (!proxima) return null
+  return (
+    <Button
+      variant="primary"
+      icon={Wallet}
+      busy={pago.isPending}
+      busyLabel="Abriendo Mercado Pago…"
+      onClick={() => {
+        onError(null)
+        pago.mutate()
+      }}
+    >
+      Pagar cuota {proxima.numero} con Mercado Pago
+    </Button>
+  )
+}
+
+/** Pago con Mercado Pago aprobado: la cuota pasa a pagada cuando Tesorería lo confirma. */
+function CobroAConfirmar({ p, cobro }: { p: PrestamoDetalle; cobro: CobroCuotaMP }) {
+  const { can } = useSession()
+  const actualizar = useActualizar(p.id)
+  const [abierto, setAbierto] = useState(false)
+  const cuota = p.plan.find((c) => c.numero === cobro.cuota)
+  const confirmar = useMutation({
+    mutationFn: () => confirmarCobroMP(p.id, cobro.id),
+    onSuccess: async () => {
+      setAbierto(false)
+      await actualizar()
+    },
+  })
+  const cerrar = () => {
+    confirmar.reset()
+    setAbierto(false)
+  }
+  const aprobado = cobro.aprobado_en ? formatLocalDateTime(new Date(cobro.aprobado_en)) : null
+  if (!can('prestamos:cobrar')) {
+    return (
+      <Alert tone="info" title={`Pagaste la cuota ${String(cobro.cuota)} con Mercado Pago`}>
+        Mercado Pago aprobó el pago de{' '}
+        <span className="whitespace-nowrap">{importe(cobro.importe_pagado, p.moneda)}</span>
+        {aprobado && ` el ${aprobado}`}. Tesorería lo confirma y la cuota pasa a pagada.
+      </Alert>
+    )
+  }
+  const coincide = cuota !== undefined && cobro.importe_pagado === cuota.cuota
+  return (
+    <>
+      <Alert
+        tone="warning"
+        title={`Pago con Mercado Pago a confirmar · cuota ${String(cobro.cuota)}`}
+        action={
+          <Button
+            variant="primary"
+            icon={CircleCheck}
+            onClick={() => {
+              setAbierto(true)
+            }}
+          >
+            Confirmar cobro de la cuota {cobro.cuota}
+          </Button>
+        }
+      >
+        Mercado Pago aprobó{' '}
+        <span className="whitespace-nowrap">{importe(cobro.importe_pagado, p.moneda)}</span>
+        {aprobado && ` el ${aprobado}`}
+        {cobro.medio_pago && ` (${cobro.medio_pago})`}. La cuota sigue pendiente hasta que lo
+        confirmes.
+      </Alert>
+      <Dialog
+        open={abierto}
+        onClose={cerrar}
+        title={`Confirmar el cobro de la cuota ${String(cobro.cuota)} de ${String(p.cuotas)}`}
+        description="La cuota queda pagada con la fecha y el importe que informó Mercado Pago. No se puede deshacer."
+        footer={
+          <>
+            <Button onClick={cerrar}>Cancelar</Button>
+            <Button
+              variant="primary"
+              icon={CircleCheck}
+              busy={confirmar.isPending}
+              busyLabel="Confirmando…"
+              onClick={() => {
+                confirmar.mutate()
+              }}
+            >
+              Confirmar cobro
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-4">
+          {confirmar.isError && <Alert tone="danger">{toProblem(confirmar.error).detail}</Alert>}
+          <dl className="divide-y divide-line rounded-control border border-line">
+            {[
+              ['Escribano', p.escribano.apellido_nombre],
+              ['Cuota del plan', importe(cuota?.cuota ?? null, p.moneda)],
+              ['Pagado en Mercado Pago', importe(cobro.importe_pagado, p.moneda)],
+              ['Aprobado', aprobado ?? '—'],
+            ].map(([label, valor]) => (
+              <div key={label} className="flex justify-between gap-4 px-4 py-2.5 text-sm">
+                <dt className="text-ink-muted">{label}</dt>
+                <dd className="text-right font-semibold text-ink tabular-nums">{valor}</dd>
+              </div>
+            ))}
+          </dl>
+          {!coincide && (
+            <Alert tone="danger">
+              El importe pagado no coincide con la cuota: no se puede confirmar.
+            </Alert>
+          )}
+        </div>
+      </Dialog>
+    </>
+  )
+}
+
+/** Todos los pagos con Mercado Pago informados para el préstamo. */
+function CobrosMercadoPago({ p }: { p: PrestamoDetalle }) {
+  return (
+    <Panel title="Pagos con Mercado Pago">
+      <ul className="divide-y divide-line">
+        {p.cobros_mp.map((c) => (
+          <li
+            key={c.id}
+            className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3 text-sm sm:px-6"
+          >
+            <span className="font-semibold text-ink tabular-nums">
+              Cuota {c.cuota}
+              <span className="ml-2 font-normal text-ink-muted">
+                {c.aprobado_en ? formatLocalDateTime(new Date(c.aprobado_en)) : ''}
+                {c.medio_pago && ` · ${c.medio_pago}`}
+              </span>
+            </span>
+            <span className="flex items-baseline gap-3 tabular-nums">
+              <span>{importe(c.importe_pagado, p.moneda)}</span>
+              <span className="text-ink-muted">
+                {c.confirmado_en && c.estado === 'approved'
+                  ? 'Confirmado por Tesorería'
+                  : c.a_confirmar
+                    ? 'Aprobado · a confirmar'
+                    : `${ESTADO_PAGO_MP[c.estado]}${c.confirmado_en ? ' después de confirmado' : ''}`}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  )
+}
+
 export function PrestamoPage() {
   const { id = '' } = useParams()
   const { can } = useSession()
   const query = useQuery({ queryKey: ['prestamo', id], queryFn: () => fetchPrestamo(id) })
   const p = query.data
+  const [errorPago, setErrorPago] = useState<string | null>(null)
+  // El de la próxima cuota: un pago de más sobre una cuota ya pagada lo ve Tesorería en el registro.
+  const proxima = p?.plan.find((c) => c.estado === 'PENDIENTE')
+  const aConfirmar = p?.cobros_mp.find((c) => c.a_confirmar && c.cuota === proxima?.numero)
 
   return (
     <>
@@ -279,8 +461,13 @@ export function PrestamoPage() {
                 />
               </div>
             </div>
-            {p.estado === 'OTORGADO' && can('prestamos:cobrar') && <Cobrar p={p} />}
+            {p.estado === 'OTORGADO' && can('prestamos:cobrar') && !aConfirmar && <Cobrar p={p} />}
+            {p.puede_pagar_mp && <PagarConMercadoPago p={p} onError={setErrorPago} />}
           </div>
+
+          {errorPago && <Alert tone="danger">{errorPago}</Alert>}
+
+          {aConfirmar && <CobroAConfirmar p={p} cobro={aConfirmar} />}
 
           {p.tasa_es_ejemplo && (
             <Alert tone="warning" title="Condiciones a confirmar">
@@ -316,6 +503,9 @@ export function PrestamoPage() {
               title={`${String(p.cuotas_vencidas)} ${p.cuotas_vencidas === 1 ? 'cuota vencida' : 'cuotas vencidas'}`}
             >
               El préstamo tiene cuotas impagas después de su vencimiento.
+              {aConfirmar &&
+                proxima?.vencida &&
+                ` La cuota ${String(aConfirmar.cuota)} ya está pagada con Mercado Pago: deja de figurar vencida cuando Tesorería confirma el cobro.`}
             </Alert>
           )}
 
@@ -384,6 +574,8 @@ export function PrestamoPage() {
               moneda={p.moneda}
             />
           </Panel>
+
+          {p.cobros_mp.length > 0 && <CobrosMercadoPago p={p} />}
         </div>
       )}
     </>

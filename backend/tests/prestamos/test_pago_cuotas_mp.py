@@ -4,6 +4,7 @@ Mercado Pago se simula como en los tests de boletas."""
 
 # ruff: noqa: F811
 
+import uuid
 from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
 from app.core.config import get_settings
+from app.modules.pagos.models import PagoMercadoPago
+from app.modules.prestamos.models import CuotaPrestamo
 from tests.ddjj.conftest import Escenario
 from tests.pagos.test_mercadopago import MercadoPagoFalso, mp  # noqa: F401 - fixture
 from tests.prestamos.test_monedas import LINEA_USD
@@ -289,3 +292,76 @@ async def test_en_dolares_no(
     assert (await _pagar(notario, usd["id"])).status_code == 409
     assert (await notario.get(f"/api/v1/prestamos/{usd['id']}")).json()["puede_pagar_mp"] is False
     assert mp.cobros == []
+
+
+async def test_devolucion_despues_de_confirmar(
+    notario: AsyncClient,
+    tesoreria: AsyncClient,
+    mp: MercadoPagoFalso,
+    prestamo: dict[str, Any],
+    db_session: AsyncSession,
+) -> None:
+    """Mercado Pago informa una devolución de un cobro ya confirmado: se guarda y se avisa."""
+    pid = prestamo["id"]
+    referencia, _ = await _cobrado(notario, mp, pid)
+    confirmado = await tesoreria.post(f"/api/v1/prestamos/{pid}/mercadopago/{referencia}/confirmar")
+    assert confirmado.status_code == 200, confirmado.text
+    mp.pagos[referencia][0]["status"] = "refunded"
+    vuelta = await notario.post(f"/api/v1/pagos/mercadopago/{referencia}/sincronizar")
+    assert vuelta.status_code == 200, vuelta.text
+    assert vuelta.json()["estado"] == "refunded"
+    [revertido] = await _eventos(db_session, "PAGO_MP_REVERTIDO")
+    assert revertido.severity == "CRITICAL"
+    detalle = (await tesoreria.get(f"/api/v1/prestamos/{pid}")).json()
+    assert detalle["cobros_mp"][0]["estado"] == "refunded"
+    assert detalle["cobros_mp"][0]["confirmado_en"] is not None
+
+
+async def test_el_garante_no_ve_los_pagos_del_titular(
+    notario: AsyncClient,
+    staff: AsyncClient,
+    admin: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    mp: MercadoPagoFalso,
+    reloj: Callable[[date], None],
+    db_session: AsyncSession,
+) -> None:
+    # Préstamo del adscripto con el titular (usuario `notario`) como garante.
+    p = await _otorgado(
+        staff,
+        admin,
+        solicitud(
+            escenario,
+            await crear_linea(requiere_garante=True),
+            escribano_id=str(escenario.adscripto.id),
+            garante_escribano_id=str(escenario.titular.id),
+        ),
+    )
+    cuota_id = await db_session.scalar(
+        select(CuotaPrestamo.id).where(
+            CuotaPrestamo.prestamo_id == uuid.UUID(p["id"]), CuotaPrestamo.numero == 1
+        )
+    )
+    db_session.add(
+        PagoMercadoPago(
+            cuota_id=cuota_id,
+            preference_id="pref-garante",
+            importe_boleta=D("8884.88"),
+            iniciado_por_user_id=escenario.titular_user.id,
+            estado="approved",
+            mp_payment_id="555",
+            medio_pago="visa",
+            importe_pagado=D("8884.88"),
+            moneda="ARS",
+        )
+    )
+    await db_session.flush()
+
+    visto = (await notario.get(f"/api/v1/prestamos/{p['id']}")).json()
+    assert visto["cobros_mp"] == []
+    assert visto["puede_pagar_mp"] is False
+    # El garante no paga la cuota del titular con Mercado Pago.
+    assert (await _pagar(notario, p["id"])).status_code == 403
+    completo = (await staff.get(f"/api/v1/prestamos/{p['id']}")).json()
+    assert completo["cobros_mp"][0]["medio_pago"] == "visa"

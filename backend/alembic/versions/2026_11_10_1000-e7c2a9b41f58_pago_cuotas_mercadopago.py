@@ -28,8 +28,8 @@ TABLA = "pagos_mercadopago"
 CHECKS = {
     "boleta_o_cuota": "(boleta_id IS NULL) <> (cuota_id IS NULL)",
     "confirmacion_completa": "(confirmado_en IS NULL) = (confirmado_por_user_id IS NULL)",
-    "confirma_cuota_aprobada": (
-        "confirmado_en IS NULL OR (cuota_id IS NOT NULL AND estado = 'approved')"
+    "confirma_solo_cuota": (
+        "confirmado_en IS NULL OR cuota_id IS NOT NULL"
     ),
 }
 

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -178,6 +178,8 @@ describe('ficha del préstamo', () => {
     impedimentos_actuales: [],
     avisos_actuales: [],
     puede_resolver: false,
+    cobros_mp: [],
+    puede_pagar_mp: false,
   }
 
   function renderFicha(permisos: string[]) {
@@ -237,5 +239,68 @@ describe('ficha del préstamo', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('1 cuota vencida')).toBeInTheDocument()
     expect(screen.getAllByText('Vencida').length).toBeGreaterThan(0)
+  })
+  const OTORGADO: apiModule.PrestamoDetalle = {
+    ...BASE,
+    estado: 'OTORGADO',
+    fecha_otorgamiento: '2026-10-23',
+    plan: [{ ...CUOTA, vencida: false }],
+  }
+  const COBRO: apiModule.CobroCuotaMP = {
+    id: 'mp1',
+    cuota: 1,
+    estado: 'approved',
+    medio_pago: 'account_money',
+    importe_pagado: '8884.88',
+    aprobado_en: '2026-10-23T13:15:00Z',
+    confirmado_en: null,
+    a_confirmar: true,
+  }
+
+  it('el escribano paga la próxima cuota con Mercado Pago', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({ ...OTORGADO, puede_pagar_mp: true })
+    vi.mocked(apiModule.pagarCuotaConMercadoPago).mockResolvedValue('https://mp.test/checkout/1')
+    const assign = vi.fn()
+    vi.stubGlobal('location', {
+      assign,
+      href: window.location.href,
+      origin: window.location.origin,
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+    })
+    renderFicha(['prestamos:read_own'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pagar cuota 1 con Mercado Pago' }))
+    await waitFor(() => {
+      expect(assign).toHaveBeenCalledWith('https://mp.test/checkout/1')
+    })
+    expect(apiModule.pagarCuotaConMercadoPago).toHaveBeenCalledWith('p1')
+    vi.unstubAllGlobals()
+  })
+
+  it('con el pago aprobado, el escribano espera a Tesorería y no puede volver a pagar', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({ ...OTORGADO, cobros_mp: [COBRO] })
+    renderFicha(['prestamos:read_own'])
+
+    expect(await screen.findByText('Pagaste la cuota 1 con Mercado Pago')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Mercado Pago/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Aprobado · a confirmar')).toBeInTheDocument()
+  })
+
+  it('Tesorería confirma el cobro en lugar de registrarlo a mano', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({ ...OTORGADO, cobros_mp: [COBRO] })
+    vi.mocked(apiModule.confirmarCobroMP).mockResolvedValue(OTORGADO)
+    renderFicha(['prestamos:read_all', 'prestamos:cobrar'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar cobro de la cuota 1' }))
+    expect(
+      screen.queryByRole('button', { name: 'Registrar pago de la cuota 1' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/no coincide con la cuota/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cobro' }))
+    await waitFor(() => {
+      expect(apiModule.confirmarCobroMP).toHaveBeenCalledWith('p1', 'mp1')
+    })
   })
 })

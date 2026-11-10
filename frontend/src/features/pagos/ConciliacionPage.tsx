@@ -148,7 +148,7 @@ function RegistroMercadoPago() {
   return (
     <Panel
       title="Pagos con Mercado Pago"
-      description="Registro de los pagos informados por Mercado Pago. Los aprobados entran a la mesa de arriba para que Tesorería los confirme."
+      description="Registro de los pagos informados por Mercado Pago. Los aprobados de boletas entran a la mesa de arriba; los de cuotas de préstamo se confirman desde el préstamo."
     >
       {query.isError && (
         <div className="px-5 py-4 sm:px-6">
@@ -193,11 +193,20 @@ function RegistroMercadoPago() {
                         : formatLocalDateTime(new Date(p.created_at))}
                       {p.medio_pago && ` · ${p.medio_pago}`}
                     </span>
+                    {p.cuota && (
+                      <Link to={`/prestamos/${p.cuota.prestamo_id}`} className="block">
+                        Préstamo N° {p.cuota.prestamo_numero} · cuota {p.cuota.numero}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     {p.comprobante_id ? (
                       <Link to={`/tesoreria/conciliacion/${p.comprobante_id}`}>
                         {ESTADO_PAGO_MP[p.estado]}
+                      </Link>
+                    ) : p.cuota && p.estado === 'approved' && !p.confirmado_en ? (
+                      <Link to={`/prestamos/${p.cuota.prestamo_id}`}>
+                        {ESTADO_PAGO_MP[p.estado]} · a confirmar
                       </Link>
                     ) : (
                       ESTADO_PAGO_MP[p.estado]
