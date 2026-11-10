@@ -28,6 +28,24 @@
 >   obligatoria)/JUBILADO/FALLECIDO; JUBILADO → FALLECIDO; FALLECIDO terminal.
 > - **Autogestión:** sin matrícula ACTIVA la cuenta queda en solo consulta (no presenta DDJJ;
 >   sí consulta y adjunta comprobantes). Los estados definitivos suspenden la cuenta.
+>
+> **Ajustes de la Caja (noviembre de 2026),** que también prevalecen sobre el texto de abajo:
+>
+> - **La matrícula no es un identificador:** el Colegio puede reasignar el número de un escribano
+>   retirado a uno nuevo. Sin unicidad (queda el CHECK de positividad); identifica el **CUIT**.
+>   Buscar por matrícula puede devolver varios escribanos y nada elige uno solo por ella.
+> - **«Fecha de matriculación» se llama «fecha de juramento»** en pantallas, PDF, reportes y API
+>   (la columna sigue siendo `fecha_matriculacion`).
+> - **Primera escritura** (fecha, número, registro y folio; antigüedad para la jubilación): se
+>   carga desde «Completar datos» o `PUT …/escribanos/{id}/primera-escritura` (corregirla exige
+>   motivo). La ficha muestra la antigüedad desde la primera escritura.
+>   TODO(negocio): reglas de antigüedad para la jubilación.
+> - **Historia del domicilio del registro** (`padron_registro_domicilios`): se cambia con
+>   `POST …/registros/{id}/domicilio` (cierra el vigente el día anterior); la edición general no
+>   cambia el domicilio.
+> - **Licencias** (`padron_licencias`): `POST …/escribanos/{id}/licencias`, `…/licencias/{id}/fin`
+>   y `…/licencias/{id}/anulacion`. No cambian el estado de la matrícula ni el cargo; sin
+>   solapamiento; conviven con las designaciones «a cargo» del registro.
 
 ---
 

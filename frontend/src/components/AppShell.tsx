@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { notifyManager, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, LogOut, Menu, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router'
@@ -75,7 +75,12 @@ export function AppShell() {
       queryClient.setQueryData(SESSION_KEY, null)
       // Tampoco quedan en memoria las mutaciones de la sesión (pueden llevar datos sensibles).
       clearUserData(queryClient)
-      void navigate('/ingresar', { replace: true })
+      // React Query avisa a los observadores en una tarea posterior: navegar en la misma tanda
+      // hace que la pantalla de ingreso se dibuje ya sin usuario. Navegando antes, el ingreso
+      // vería la sesión vieja, volvería a «/» y de ahí, ya sin sesión, al sitio.
+      notifyManager.schedule(() => {
+        void navigate('/ingresar', { replace: true })
+      })
     },
   })
 

@@ -25,6 +25,7 @@ export const ENTIDAD: Record<Entidad, string> = {
   registros: 'Registros',
   escribanos: 'Escribanos',
   cargos: 'Cargos',
+  licencias: 'Licencias',
   boletas: 'Boletas',
   pagos: 'Pagos',
   creditos: 'Créditos a favor',

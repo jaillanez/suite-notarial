@@ -6,7 +6,8 @@ export type ModoCorrida = 'SIMULACRO' | 'DEFINITIVA'
 export type EstadoCorrida = 'EN_CURSO' | 'SIMULADA' | 'CARGADA' | 'FALLIDA'
 export type Area = 'TESORERIA' | 'CAJA'
 export type Severidad = 'BLOQUEANTE' | 'ADVERTENCIA'
-export type Entidad = 'registros' | 'escribanos' | 'cargos' | 'boletas' | 'pagos' | 'creditos'
+export type Entidad =
+  'registros' | 'escribanos' | 'cargos' | 'licencias' | 'boletas' | 'pagos' | 'creditos'
 
 export interface Conformidad {
   area: Area

@@ -13,7 +13,7 @@ Reglas (los valores concretos —tasas, plazos, topes— son parámetros de cada
   puede solicitar ni recibir uno nuevo: sin tipo de cambio la afectación no se puede evaluar.
   TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
 - Antigüedad en la matrícula: se exige si la línea la fija y se conoce la fecha de
-  matriculación; si falta, no bloquea y queda como aviso para quien resuelve.
+  juramento; si falta, no bloquea y queda como aviso para quien resuelve.
 """
 
 import uuid
@@ -95,7 +95,7 @@ LINEA_CAMPOS = (
     "es_ejemplo",
     "is_active",
 )
-ANTIGUEDAD_NO_VERIFICABLE = "Antigüedad no verificable: falta la fecha de matriculación."
+ANTIGUEDAD_NO_VERIFICABLE = "Antigüedad no verificable: falta la fecha de juramento."
 
 
 def con_moneda(monto: Decimal, moneda: str) -> str:
@@ -490,14 +490,14 @@ async def evaluar(
         if await en_mora(session, escribano.id, hoy):
             impedimentos.append("El solicitante tiene cuotas de préstamos vencidas impagas.")
         if linea.antiguedad_minima_meses:
-            # La fecha de matriculación puede faltar (padrón incompleto): no se presume.
+            # La fecha de juramento puede faltar (padrón incompleto): no se presume.
             matriculacion: date | None = escribano.fecha_matriculacion
             if matriculacion is None:
                 avisos.append(ANTIGUEDAD_NO_VERIFICABLE)
             elif not antiguedad_suficiente(matriculacion, linea.antiguedad_minima_meses, hoy):
                 impedimentos.append(
                     f"La línea exige {texto_meses(linea.antiguedad_minima_meses)} de antigüedad "
-                    f"en la matrícula (matriculación: {matriculacion:%d/%m/%Y})."
+                    f"en la matrícula (juramento: {matriculacion:%d/%m/%Y})."
                 )
         otras = await compromiso_vigente(
             session, escribano.id, moneda=moneda.value, excluir=excluir

@@ -13,6 +13,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.common.audit import AuditEvent, RequestContext, record_audit
 from app.common.cuit import InvalidCuitError, check_digit, format_cuit, normalize_cuit
 from app.core.config import Environment, get_settings
@@ -269,6 +271,7 @@ async def _seed_padron_demo(session: AsyncSession) -> None:
     from app.modules.padron.models import (
         Adscripcion,
         Circunscripcion,
+        DomicilioRegistro,
         Escribano,
         Persona,
         RegistroNotarial,
@@ -293,6 +296,13 @@ async def _seed_padron_demo(session: AsyncSession) -> None:
             estado=EstadoRegistro.VACANTE.value,
         )
         session.add(registros[numero])
+        session.add(
+            DomicilioRegistro(
+                registro_id=registros[numero].id,
+                domicilio=registros[numero].domicilio_legal,
+                fecha_desde=date(2020, 1, 1),
+            )
+        )
     escribano_user = await session.scalar(
         select(User).where(User.email == "escribano@suite-notarial.example")
     )

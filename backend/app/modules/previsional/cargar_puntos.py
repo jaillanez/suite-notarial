@@ -18,6 +18,8 @@ import csv
 import sys
 from pathlib import Path
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.common.audit import RequestContext
 from app.core.db import get_engine, get_sessionmaker
 from app.modules.previsional import service

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Lock, Pencil } from 'lucide-react'
+import { ArrowLeft, Lock, MapPin, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 
@@ -11,13 +11,13 @@ import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { fetchRegistro } from './api'
 import { CARGO, ESTADO_MATRICULA, ESTADO_REGISTRO, formatDate, matriculaTexto } from './labels'
-import { CerrarRegistroDialog, RegistroFormDialog } from './RegistroDialogs'
+import { CambiarDomicilioDialog, CerrarRegistroDialog, RegistroFormDialog } from './RegistroDialogs'
 
 export function RegistroPage() {
   const { id = '' } = useParams()
   const { can } = useSession()
   const query = useQuery({ queryKey: ['registro', id], queryFn: () => fetchRegistro(id) })
-  const [dialog, setDialog] = useState<'editar' | 'cerrar' | null>(null)
+  const [dialog, setDialog] = useState<'editar' | 'domicilio' | 'cerrar' | null>(null)
 
   if (query.isPending) {
     return <span className="block h-48 w-full animate-pulse rounded-panel bg-brand-50" />
@@ -65,6 +65,14 @@ export function RegistroPage() {
               }}
             >
               Editar
+            </Button>
+            <Button
+              icon={MapPin}
+              onClick={() => {
+                setDialog('domicilio')
+              }}
+            >
+              Cambiar domicilio
             </Button>
             <Button
               variant="danger"
@@ -134,10 +142,43 @@ export function RegistroPage() {
         </Panel>
       </div>
 
+      <Panel
+        className="mt-6"
+        title="Historia del domicilio"
+        description="Cada cambio cierra el domicilio anterior el día previo al nuevo. Nada se borra."
+      >
+        {r.domicilios.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-ink-muted sm:px-6">Sin historia registrada.</p>
+        ) : (
+          <ol className="divide-y divide-line">
+            {r.domicilios.map((d) => (
+              <li
+                key={d.id}
+                className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 px-5 py-3.5 sm:px-6"
+              >
+                <span className="min-w-0 max-w-[65ch] text-ink">{d.domicilio}</span>
+                <span className="text-sm text-ink-muted tabular-nums">
+                  {formatDate(d.fecha_desde)} —{' '}
+                  {d.fecha_hasta === null ? 'vigente' : formatDate(d.fecha_hasta)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Panel>
+
       <RegistroFormDialog
         key={`editar-${String(dialog === 'editar')}`}
         registro={r}
         open={dialog === 'editar'}
+        onClose={() => {
+          setDialog(null)
+        }}
+      />
+      <CambiarDomicilioDialog
+        key={`domicilio-${String(dialog === 'domicilio')}`}
+        registro={r}
+        open={dialog === 'domicilio'}
         onClose={() => {
           setDialog(null)
         }}

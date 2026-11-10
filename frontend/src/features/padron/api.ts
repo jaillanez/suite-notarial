@@ -37,8 +37,20 @@ export interface Registro {
   cantidad_adscriptos: number
 }
 
+export interface DomicilioItem {
+  id: string
+  domicilio: string
+  fecha_desde: string
+  /** null: vigente. */
+  fecha_hasta: string | null
+  cargado_por: string | null
+  created_at: string
+}
+
 export interface RegistroDetalle extends Registro {
   cargos_vigentes: CargoResumen[]
+  /** Historia del domicilio, del más reciente al más antiguo. */
+  domicilios: DomicilioItem[]
 }
 
 export interface Persona {
@@ -57,10 +69,14 @@ export interface Persona {
 
 export interface Escribano {
   id: string
-  /** null en matrícula, fecha, CUIT o documento: migrado sin ese dato («a completar»). */
+  /**
+   * null en matrícula, fecha, CUIT o documento: migrado sin ese dato («a completar»).
+   * La matrícula es informativa: no es única (el Colegio la reasigna); identifica el CUIT.
+   */
   matricula_numero: number | null
   tomo: string | null
   folio: string | null
+  /** Fecha de juramento (el campo conserva su nombre histórico). */
   fecha_matriculacion: string | null
   estado_matricula: EstadoMatricula
   apellido_nombre: string
@@ -69,10 +85,61 @@ export interface Escribano {
   registro_actual: number | null
   cargo_actual: Cargo | null
   tiene_cuenta: boolean
+  /** Inicio de la licencia vigente hoy (null: no está de licencia). */
+  en_licencia_desde: string | null
 }
 
 export type CampoACompletar =
-  'matricula_numero' | 'fecha_matriculacion' | 'cuit' | 'numero_documento'
+  'matricula_numero' | 'fecha_matriculacion' | 'cuit' | 'numero_documento' | 'primera_escritura'
+
+export interface PrimeraEscritura {
+  fecha: string
+  numero: string
+  registro: number
+  folio: string | null
+  cargada_por: string | null
+  cargada_en: string | null
+}
+
+export interface PrimeraEscrituraInput {
+  fecha: string
+  numero: string
+  registro: number
+  folio: string | null
+}
+
+export interface Antiguedad {
+  desde: string
+  anios: number
+  meses: number
+}
+
+export interface LicenciaItem {
+  id: string
+  fecha_desde: string
+  /** null: sin fecha de regreso. */
+  fecha_hasta: string | null
+  motivo: string
+  resolucion_respaldo: string | null
+  anulada: boolean
+  motivo_anulacion: string | null
+  anulada_en: string | null
+  vigente: boolean
+  cargada_por: string | null
+  created_at: string
+}
+
+export type EstadoDesignacion = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' | 'ANULADA'
+
+export interface DesignacionResumen {
+  id: string
+  registro_id: string
+  numero_registro: number
+  fecha_desde: string
+  fecha_hasta: string
+  estado: EstadoDesignacion
+  motivo: string
+}
 
 export interface CargoItem {
   id: string
@@ -104,8 +171,13 @@ export interface EscribanoDetalle extends Escribano {
   motivo_ultimo_cambio_estado: string | null
   fecha_ultimo_cambio_estado: string | null
   a_completar: CampoACompletar[]
+  /** Historia completa de cargos, del más reciente al más antiguo. */
   cargos: CargoItem[]
   historial: HistorialItem[]
+  primera_escritura: PrimeraEscritura | null
+  antiguedad: Antiguedad | null
+  licencias: LicenciaItem[]
+  designaciones_a_cargo: DesignacionResumen[]
 }
 
 export interface EscribanoFilters {
@@ -201,9 +273,39 @@ export async function completarEscribano(
     fecha_matriculacion: string
     cuit: string
     numero_documento: string
+    primera_escritura: PrimeraEscrituraInput
   }>,
 ): Promise<EscribanoDetalle> {
   return (await api.post<EscribanoDetalle>(`${P}/escribanos/${id}/completar`, data)).data
+}
+
+/** Carga o corrige la primera escritura (corregirla exige motivo). */
+export async function guardarPrimeraEscritura(
+  id: string,
+  data: PrimeraEscrituraInput & { motivo: string | null },
+): Promise<EscribanoDetalle> {
+  return (await api.put<EscribanoDetalle>(`${P}/escribanos/${id}/primera-escritura`, data)).data
+}
+
+export async function iniciarLicencia(
+  id: string,
+  data: {
+    fecha_desde: string
+    fecha_hasta: string | null
+    motivo: string
+    resolucion_respaldo: string | null
+  },
+): Promise<EscribanoDetalle> {
+  return (await api.post<EscribanoDetalle>(`${P}/escribanos/${id}/licencias`, data)).data
+}
+
+export async function terminarLicencia(id: string, fechaHasta: string): Promise<EscribanoDetalle> {
+  return (await api.post<EscribanoDetalle>(`${P}/licencias/${id}/fin`, { fecha_hasta: fechaHasta }))
+    .data
+}
+
+export async function anularLicencia(id: string, motivo: string): Promise<EscribanoDetalle> {
+  return (await api.post<EscribanoDetalle>(`${P}/licencias/${id}/anulacion`, { motivo })).data
 }
 
 export async function changeEstado(
@@ -267,9 +369,23 @@ export async function createRegistro(data: RegistroInput): Promise<Registro> {
 
 export async function updateRegistro(
   id: string,
-  data: Partial<Omit<RegistroInput, 'numero_registro'>>,
+  data: Partial<Omit<RegistroInput, 'numero_registro' | 'domicilio_legal'>>,
 ): Promise<Registro> {
   return (await api.patch<Registro>(`${P}/registros/${id}`, data)).data
+}
+
+/** Nuevo domicilio desde una fecha: el anterior queda en la historia. */
+export async function cambiarDomicilio(
+  id: string,
+  domicilio: string,
+  fechaDesde: string,
+): Promise<RegistroDetalle> {
+  return (
+    await api.post<RegistroDetalle>(`${P}/registros/${id}/domicilio`, {
+      domicilio,
+      fecha_desde: fechaDesde,
+    })
+  ).data
 }
 
 export async function closeRegistro(id: string, motivo: string): Promise<Registro> {

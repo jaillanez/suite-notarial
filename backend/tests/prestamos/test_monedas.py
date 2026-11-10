@@ -259,14 +259,14 @@ async def test_antiguedad_en_la_matricula(
     await db_session.commit()
     nuevo = (await staff.post("/api/v1/prestamos/simular", json=cuerpo)).json()
     assert nuevo["impedimentos"] == [
-        "La línea exige 1 año de antigüedad en la matrícula (matriculación: 15/01/2026)."
+        "La línea exige 1 año de antigüedad en la matrícula (juramento: 15/01/2026)."
     ]
     rechazada = await staff.post("/api/v1/prestamos", json=solicitud(escenario, linea))
     assert rechazada.status_code == 422
 
 
 async def test_antiguedad_no_verificable_sin_fecha(db_session: AsyncSession) -> None:
-    """Sin fecha de matriculación no se bloquea: queda un aviso para quien resuelve."""
+    """Sin fecha de juramento no se bloquea: queda un aviso para quien resuelve."""
     linea = Linea(
         id=uuid.uuid4(),
         codigo="ANTIGUEDAD_PRUEBA",

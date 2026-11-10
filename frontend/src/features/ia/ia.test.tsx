@@ -252,7 +252,7 @@ describe('alta de escribano con lectura del DNI', () => {
       target: { value: 'Sintético de la Prueba' },
     })
     fireEvent.change(screen.getByLabelText('Número de matrícula'), { target: { value: '98765' } })
-    fireEvent.change(screen.getByLabelText('Fecha de matriculación'), {
+    fireEvent.change(screen.getByLabelText('Fecha de juramento'), {
       target: { value: '2026-10-01' },
     })
     const alta = screen.getByRole('button', { name: 'Dar de alta' })

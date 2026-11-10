@@ -30,6 +30,8 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.common.audit import RequestContext
 from app.modules.parametros.schemas import VigenciaIn
 

@@ -235,7 +235,7 @@ function LineaDialog({
         <Field
           label="Antigüedad mínima en la matrícula (meses)"
           inputMode="numeric"
-          hint="Opcional. Sin fecha de matriculación no bloquea: queda como aviso."
+          hint="Opcional. Sin fecha de juramento no bloquea: queda como aviso."
           className={num}
           {...bind('antiguedad_minima_meses')}
         />
