@@ -165,6 +165,19 @@ def test_escribano_sin_matricula_se_identifica_por_apellido() -> None:
     assert r.campos["escribano_id"].valor == str(sin_matricula.escribano_id)
 
 
+def test_matricula_repetida_no_identifica_sola() -> None:
+    """La matrícula no es única (el Colegio la reasigna): si dos del equipo la tienen, no se
+    elige uno por la matrícula; decide el apellido o queda sin identificar."""
+    mismo_numero = Candidato(uuid.uuid4(), "Quiroga", "Pedro", 456, "ADSCRIPTO")
+    equipo = ctx(TITULAR, mismo_numero)
+    r = extraer(texto(), equipo)
+    assert r.campos["escribano_id"].valor == str(TITULAR.escribano_id)
+    assert r.campos["escribano_id"].regla.startswith("Por el apellido")
+    sin_nombre = texto(autorizante="ante mí, Escribano del Registro Notarial 12, matrícula 456")
+    assert valores(sin_nombre, equipo)["escribano_id"] is None
+    assert "ESCRIBANO_NO_IDENTIFICADO" in codigos(sin_nombre, equipo)
+
+
 def test_texto_escaso() -> None:
     r = extraer("Escritura", ctx())
     assert "TEXTO_ESCASO" in {a.codigo for a in r.alertas}

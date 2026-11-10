@@ -9,7 +9,9 @@ import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
+import { todayIso } from './labels'
 import {
+  cambiarDomicilio,
   closeRegistro,
   createCircunscripcion,
   createRegistro,
@@ -64,14 +66,18 @@ export function RegistroFormDialog({
         nombre_fantasia: orNull(form.nombre_fantasia),
         circunscripcion_id: circunscripcionId,
         departamento: form.departamento,
-        domicilio_legal: form.domicilio_legal.trim(),
         telefono: orNull(form.telefono),
         email: orNull(form.email),
         fecha_creacion: orNull(form.fecha_creacion),
       }
+      // El domicilio de un registro existente cambia con fecha («Cambiar domicilio»).
       return registro
         ? updateRegistro(registro.id, data)
-        : createRegistro({ ...data, numero_registro: Number(form.numero_registro) })
+        : createRegistro({
+            ...data,
+            domicilio_legal: form.domicilio_legal.trim(),
+            numero_registro: Number(form.numero_registro),
+          })
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['padron'] })
@@ -88,7 +94,7 @@ export function RegistroFormDialog({
     error: problem?.fieldErrors[key],
   })
   const ready =
-    circunscripcionId && form.domicilio_legal.trim() && (registro || form.numero_registro)
+    circunscripcionId && (registro || (form.domicilio_legal.trim() && form.numero_registro))
 
   return (
     <Dialog
@@ -102,7 +108,7 @@ export function RegistroFormDialog({
       }
       description={
         registro
-          ? 'El número de registro no se modifica.'
+          ? 'El número de registro no se modifica. El domicilio se cambia con «Cambiar domicilio», para que quede su historia.'
           : 'El registro nace vacante y pasa a activo al designar a su titular.'
       }
       footer={
@@ -159,15 +165,88 @@ export function RegistroFormDialog({
           }}
           options={(departamentos.data ?? [form.departamento]).map((d) => ({ value: d, label: d }))}
         />
-        <TextArea
-          label="Domicilio legal"
-          rows={2}
-          className="sm:col-span-2"
-          {...bind('domicilio_legal')}
-        />
+        {!registro && (
+          <TextArea
+            label="Domicilio legal"
+            rows={2}
+            className="sm:col-span-2"
+            {...bind('domicilio_legal')}
+          />
+        )}
         <Field label="Teléfono" type="tel" {...bind('telefono')} />
         <Field label="Correo de la oficina" type="email" {...bind('email')} />
         <Field label="Fecha de creación (opcional)" type="date" {...bind('fecha_creacion')} />
+      </div>
+    </Dialog>
+  )
+}
+
+export function CambiarDomicilioDialog({
+  registro,
+  open,
+  onClose,
+}: {
+  registro: Registro
+  open: boolean
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [domicilio, setDomicilio] = useState('')
+  const [desde, setDesde] = useState(todayIso())
+  const save = useMutation({
+    mutationFn: () => cambiarDomicilio(registro.id, domicilio.trim(), desde),
+    onSuccess: async (data) => {
+      queryClient.setQueryData(['registro', registro.id], data)
+      await queryClient.invalidateQueries({ queryKey: ['padron'] })
+      setDomicilio('')
+      onClose()
+    },
+  })
+  return (
+    <Dialog
+      open={open}
+      onClose={() => {
+        save.reset()
+        onClose()
+      }}
+      title="Cambiar domicilio"
+      description={`Domicilio actual: ${registro.domicilio_legal}. Queda en la historia hasta el día anterior a la fecha del nuevo.`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancelar</Button>
+          <Button
+            variant="primary"
+            icon={Save}
+            busy={save.isPending}
+            busyLabel="Guardando…"
+            disabled={!domicilio.trim() || !desde}
+            onClick={() => {
+              save.mutate()
+            }}
+          >
+            Guardar domicilio
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
+        <TextArea
+          label="Nuevo domicilio legal"
+          rows={2}
+          value={domicilio}
+          onChange={(e) => {
+            setDomicilio(e.target.value)
+          }}
+        />
+        <Field
+          label="Rige desde"
+          type="date"
+          value={desde}
+          onChange={(e) => {
+            setDesde(e.target.value)
+          }}
+        />
       </div>
     </Dialog>
   )

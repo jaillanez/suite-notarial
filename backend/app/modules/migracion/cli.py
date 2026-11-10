@@ -1,6 +1,6 @@
 """Consola de la migración: `python -m app.modules.migracion.cli <comando>`.
 
-sintetico   --salida DIR [--registros N] [--defectos] [--sin-creditos]
+sintetico   --salida DIR [--registros N] [--defectos] [--sin-creditos] [--sin-licencias]
                                                          lote de prueba (nunca datos reales)
 simulacro   --lote DIR --operador EMAIL [--homologacion JSON]
 definitiva  --lote DIR --operador EMAIL --homologacion JSON
@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+# Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
+import app.db.models  # noqa: F401
 from app.core.config import get_settings
 from app.core.db import get_engine, get_sessionmaker
 from app.modules.migracion import ensayo, reversa, service, sintetico
@@ -66,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--sin-creditos", action="store_true", help="Sin creditos.csv (archivo opcional)"
     )
+    p.add_argument(
+        "--sin-licencias", action="store_true", help="Sin licencias.csv (archivo opcional)"
+    )
     for nombre in ("simulacro", "definitiva"):
         p = sub.add_parser(nombre)
         p.add_argument("--lote", type=Path, required=True)
@@ -94,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             semilla=args.semilla,
             defectos=args.defectos,
             creditos=not args.sin_creditos,
+            licencias=not args.sin_licencias,
         )
         _out(f"Lote sintético en {args.salida}: {resumen}")
         return 0

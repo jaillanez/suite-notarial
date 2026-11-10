@@ -12,7 +12,11 @@ Fuentes (exportaciones del sistema en uso, entregadas por la Caja el 05/11/2026)
   cada escribano, con lo pagado y cuándo. Su columna MATRICULA trae la matrícula (número
   corto) en algunas filas y el CUIT en otras: de ahí sale la matrícula de cada persona.
 - `--registros`: CSV que entrega la Caja con `numero_registro;departamento;circunscripcion`
-  (las planillas no traen esos datos). Sin él, los registros quedan observados.
+  (las planillas no traen esos datos). Sin él, los registros quedan observados. La Caja tiene
+  una sola circunscripción: sin dato, cada registro va a «San Juan».
+
+Las licencias salen del listado (columnas ALTA DE LICENCIA y BAJA DE LICENCIA): una por
+persona y fecha de inicio; sin BAJA DE LICENCIA queda vigente (`licencias.csv`).
 
 Nadie queda afuera: quien no tiene CUIT, matrícula o fecha de alta se carga con el dato vacío
 («a completar»). Lo que la extracción tuvo que decidir queda en `extraccion.csv` (fila del
@@ -70,6 +74,7 @@ COLUMNAS = {
         "fecha_desde",
         "fecha_hasta",
     ),
+    "licencias": ("codigo_legado", "escribano", "fecha_desde", "fecha_hasta", "motivo"),
     "boletas": (
         "codigo_legado",
         "numero_registro",
@@ -85,6 +90,8 @@ COLUMNAS = {
 }
 # Concepto con el que la Caja registra los créditos a favor que surgen de una inspección.
 CONCEPTO_INSPECCION = "DIF DE INSPECCION"
+# La Caja tiene una sola circunscripción (formato v2: CIRCUNSCRIPCION_POR_DEFECTO).
+CIRCUNSCRIPCION = "San Juan"
 
 
 # ------------------------------------------------------------------ valores
@@ -217,6 +224,14 @@ class FilaCargo:
 
 
 @dataclass
+class FilaLicencia:
+    fila: int
+    persona: str
+    desde: date
+    hasta: date | None
+
+
+@dataclass
 class Lote:
     # Filas e importes leídos de las planillas antes de transformar nada (el «origen»).
     origen: dict[str, tuple[int, Decimal]] = field(default_factory=dict)
@@ -261,11 +276,16 @@ def _codigo_persona(cuit: str, apellido: str, nombre: str) -> str:
 
 
 def leer_listado(
-    filas: Iterable[tuple[int, dict[str, object]]], lote: Lote
+    filas: Iterable[tuple[int, dict[str, object]]],
+    lote: Lote,
+    licencias: list[FilaLicencia] | None = None,
 ) -> tuple[dict[str, Persona], list[FilaCargo]]:
-    """Personas (una por CUIT o, sin CUIT, por nombre) y las filas de cargo de cada una."""
+    """Personas (una por CUIT o, sin CUIT, por nombre) y las filas de cargo de cada una. Si se
+    pasa `licencias`, junta ahí las licencias de cada fila (ALTA / BAJA DE LICENCIA)."""
     personas: dict[str, Persona] = {}
     cargos: list[FilaCargo] = []
+    if licencias is None:
+        licencias = []
     for numero, f in filas:
         apellido = texto(f.get("APELLIDO DEL NOTARIO"))
         if not apellido:
@@ -315,6 +335,18 @@ def leer_listado(
         momento = date.max if baja is None else baja
         if persona.estado_fecha is None or momento >= persona.estado_fecha:
             persona.estado, persona.estado_fecha = texto(f.get("ESTADO")).upper(), momento
+        alta_licencia = una_fecha(f.get("ALTA DE LICENCIA"))
+        baja_licencia = una_fecha(f.get("BAJA DE LICENCIA"))
+        if alta_licencia:
+            licencias.append(FilaLicencia(numero, codigo, alta_licencia, baja_licencia))
+        elif baja_licencia or texto(f.get("ALTA DE LICENCIA")):
+            lote.anotar(
+                LISTADO,
+                numero,
+                codigo,
+                "LICENCIA_SIN_INICIO",
+                "La fila trae datos de licencia sin una fecha de alta válida: no se migra.",
+            )
         registro = digitos(f.get("REGISTRO"))
         if registro:
             cargos.append(
@@ -374,6 +406,9 @@ def leer_listado(
         for cargo in cargos:
             if cargo.persona == codigo:
                 cargo.persona = destino.codigo
+        for licencia in licencias:
+            if licencia.persona == codigo:
+                licencia.persona = destino.codigo
         del personas[codigo]
     return personas, cargos
 
@@ -555,10 +590,58 @@ def escribir_padron(
             {
                 "codigo_legado": f"REG-{numero}",
                 "numero_registro": str(numero),
-                "circunscripcion": dato.get("circunscripcion", ""),
+                "circunscripcion": dato.get("circunscripcion") or CIRCUNSCRIPCION,
                 "departamento": dato.get("departamento", ""),
                 "domicilio_legal": domicilios.get(numero, (date.min, "A completar"))[1],
                 "estado": "CON_TITULAR" if numero in vigentes_titular else "SIN_TITULAR",
+            }
+        )
+
+
+# Estados del listado de quien ya no ejerce: una licencia sin regreso queda para revisar.
+SIN_EJERCICIO = ("FALLECIDO", "JUBILADO", "CESANTE", "BAJA")
+
+
+def escribir_licencias(
+    personas: dict[str, Persona], licencias: list[FilaLicencia], lote: Lote
+) -> None:
+    """Una licencia por persona y fecha de inicio: la misma licencia puede repetirse en las
+    filas de la persona (una por registro en que estuvo)."""
+    vistas: dict[tuple[str, date], FilaLicencia] = {}
+    for lic in licencias:
+        clave = (lic.persona, lic.desde)
+        anterior = vistas.get(clave)
+        if anterior is None:
+            vistas[clave] = lic
+            continue
+        if anterior.hasta != lic.hasta:
+            lote.anotar(
+                LISTADO,
+                lic.fila,
+                f"LIC-{anterior.fila}",
+                "LICENCIA_REPETIDA_DISTINTA",
+                "La misma licencia figura con otra fecha de baja en otra fila: se usa la "
+                "primera, revisar.",
+            )
+    for lic in sorted(vistas.values(), key=lambda x: x.fila):
+        codigo = f"LIC-{lic.fila}"
+        persona = personas.get(lic.persona)
+        if lic.hasta is None and persona is not None and persona.estado.startswith(SIN_EJERCICIO):
+            lote.anotar(
+                LISTADO,
+                lic.fila,
+                codigo,
+                "LICENCIA_A_REVISAR",
+                f"Licencia sin fecha de baja de una persona en estado «{persona.estado}»: la "
+                "validación la rechaza hasta que se cargue la baja de la licencia.",
+            )
+        lote.archivos["licencias"].append(
+            {
+                "codigo_legado": codigo,
+                "escribano": lic.persona,
+                "fecha_desde": iso(lic.desde),
+                "fecha_hasta": iso(lic.hasta),
+                "motivo": "",
             }
         )
 
@@ -738,11 +821,13 @@ def totales_de_origen(filas: list[tuple[int, dict[str, object]]]) -> dict[str, t
 
 def extraer(listado: Path, pagos: Path, departamentos: Path | None = None) -> Lote:
     lote = Lote()
-    personas, cargos = leer_listado(filas_hoja(listado, "TODOS", 3), lote)
+    licencias: list[FilaLicencia] = []
+    personas, cargos = leer_listado(filas_hoja(listado, "TODOS", 3), lote, licencias)
     filas_pagos = list(filas_hoja(pagos, "aportes", 3))
     lote.origen = totales_de_origen(filas_pagos)
     vinculo = matriculas_desde_pagos(filas_pagos, personas, lote)
     escribir_padron(personas, cargos, leer_departamentos(departamentos), lote)
+    escribir_licencias(personas, licencias, lote)
     escribir_pagos(filas_pagos, vinculo, cargos, lote)
     return lote
 

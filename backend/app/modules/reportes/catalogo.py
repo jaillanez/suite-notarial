@@ -91,6 +91,7 @@ def _escribanos(f: Filtros) -> Consulta:
             cargo.cargo.label("cargo"),
             registro.departamento.label("departamento"),
             Escribano.fecha_matriculacion.label("fecha_matriculacion"),
+            Escribano.primera_escritura_fecha.label("primera_escritura"),
             Persona.email.label("email"),
             Persona.telefono.label("telefono"),
         )
@@ -129,7 +130,14 @@ ESCRIBANOS = Reporte(
         Columna("cargo", "Cargo"),
         Columna("departamento", "Departamento", visible=False),
         Columna(
-            "fecha_matriculacion", "Matriculación", Tipo.FECHA, visible=False, vacio=A_COMPLETAR
+            "fecha_matriculacion",
+            "Fecha de juramento",
+            Tipo.FECHA,
+            visible=False,
+            vacio=A_COMPLETAR,
+        ),
+        Columna(
+            "primera_escritura", "Primera escritura", Tipo.FECHA, visible=False, vacio=A_COMPLETAR
         ),
         Columna("email", "Correo", visible=False),
         Columna("telefono", "Teléfono", visible=False),

@@ -4,18 +4,21 @@ Ningún dato es real: nombres de una lista ficticia, CUIT generados con dígito 
 números de documento altos y matrículas y registros en rangos que no usa la demostración. El
 `control.csv` se calcula con todas las filas, como lo declararía el sistema anterior.
 
-Como en el origen real, algunos escribanos vienen sin matrícula, sin fecha de matriculación o
+Como en el origen real, algunos escribanos vienen sin matrícula, sin fecha de juramento o
 sin CUIT ni documento (formato v2: se cargan vacíos, «a completar»). Los cargos referencian al
-escribano por su `codigo_legado`.
+escribano por su `codigo_legado`. Algunos traen su primera escritura y algunos tienen licencias
+(`licencias.csv`, opcional: una terminada y otra vigente); con `licencias=False` el lote no trae
+ese archivo.
 
 Algunos registros traen créditos a favor del escribano (`creditos.csv`, como las diferencias de
 inspección del origen) y uno queda con saldo a favor; con `creditos=False` el lote no trae ese
 archivo opcional, como un lote anterior a su incorporación.
 
-Con `defectos=True` se inyectan problemas conocidos (un CUIT inválido, una matrícula repetida,
-un importe con decimales de punto flotante, un estado sin homologar, dos titulares vigentes, un
-pago de una boleta inexistente, un crédito en cero y uno de un registro rechazado) para ver la
-validación y la cuadratura con rechazos.
+Con `defectos=True` se inyectan problemas conocidos (un CUIT inválido, un CUIT repetido, un
+importe con decimales de punto flotante, un estado sin homologar, dos titulares vigentes, un
+pago de una boleta inexistente, un crédito en cero, uno de un registro rechazado, una licencia
+de un escribano rechazado y dos licencias superpuestas) para ver la validación y la cuadratura
+con rechazos. Una matrícula repetida NO es un defecto: el Colegio reasigna matrículas.
 """
 
 import csv
@@ -46,6 +49,7 @@ class Resumen:
     boletas: int
     pagos: int
     creditos: int = 0
+    licencias: int = 0
 
 
 def _cuit(dni: int, rng: random.Random) -> str:
@@ -91,6 +95,7 @@ def generar(
     semilla: int = 42,
     defectos: bool = False,
     creditos: bool = True,
+    licencias: bool = True,
     hasta: date = date(2026, 9, 30),
 ) -> Resumen:
     """Escribe un lote completo en `directorio` y devuelve cuántas filas tiene cada archivo."""
@@ -103,6 +108,7 @@ def generar(
     filas_bol: list[dict[str, str]] = []
     filas_pag: list[dict[str, str]] = []
     filas_cre: list[dict[str, str]] = []
+    filas_lic: list[dict[str, str]] = []
     matricula = MATRICULA_BASE
     for i in range(registros):
         numero = REGISTRO_BASE + i
@@ -143,8 +149,40 @@ def generar(
                     "tipo_documento": "DNI",
                     "fecha_nacimiento": _fecha(date(1960 + rng.randint(0, 30), 6, 15)),
                     "email": f"escribano{matricula}@ejemplo.test",
+                    # Primera escritura en uno de cada cuatro (después de cualquier juramento).
+                    **(
+                        {
+                            "primera_escritura_fecha": _fecha(date(2021, 5, 10)),
+                            "primera_escritura_numero": str(10 + n),
+                            "primera_escritura_registro": str(numero),
+                            "primera_escritura_folio": "",
+                        }
+                        if n >= 3 and n % 4 == 1
+                        else {}
+                    ),
                 }
             )
+            # Licencias: una terminada en uno de cada seis y una vigente en uno de cada nueve.
+            if licencias and n >= 3 and n % 6 == 2:
+                filas_lic.append(
+                    {
+                        "codigo_legado": f"LIC-{matricula}-1",
+                        "escribano": f"ESC-{matricula}",
+                        "fecha_desde": _fecha(date(2021, 3, 1)),
+                        "fecha_hasta": _fecha(date(2021, 8, 31)),
+                        "motivo": "Licencia por razones particulares",
+                    }
+                )
+            if licencias and n >= 3 and n % 9 == 7:
+                filas_lic.append(
+                    {
+                        "codigo_legado": f"LIC-{matricula}-2",
+                        "escribano": f"ESC-{matricula}",
+                        "fecha_desde": _fecha(hasta.replace(day=1)),
+                        "fecha_hasta": "",
+                        "motivo": "",
+                    }
+                )
             filas_car.append(
                 {
                     "codigo_legado": f"CAR-{matricula}",
@@ -243,7 +281,34 @@ def generar(
             )
         cuit = filas_esc[0]["cuit"]
         filas_esc[0]["cuit"] = cuit[:-1] + str((int(cuit[-1]) + 1) % 10)
-        filas_esc[2]["matricula"] = filas_esc[1]["matricula"]
+        # Mismo CUIT en dos escribanos: se observan los dos (no se elige uno).
+        filas_esc[2]["cuit"] = filas_esc[1]["cuit"]
+        filas_esc[2]["numero_documento"] = filas_esc[1]["numero_documento"]
+        # Matrícula repetida (reasignada por el Colegio): se acepta, no es un defecto.
+        filas_esc[4]["matricula"] = filas_esc[5]["matricula"]
+        if licencias:
+            # Licencia de un escribano rechazado (cae en cascada) y dos que se superponen.
+            filas_lic.append(
+                {
+                    "codigo_legado": "LIC-ESCRIBANO-RECHAZADO",
+                    "escribano": filas_esc[1]["codigo_legado"],
+                    "fecha_desde": _fecha(date(2022, 1, 1)),
+                    "fecha_hasta": _fecha(date(2022, 2, 1)),
+                    "motivo": "",
+                }
+            )
+            for k, (desde, hasta_lic) in enumerate(
+                ((date(2023, 1, 1), date(2023, 6, 30)), (date(2023, 6, 1), date(2023, 12, 31)))
+            ):
+                filas_lic.append(
+                    {
+                        "codigo_legado": f"LIC-SUPERPUESTA-{k}",
+                        "escribano": filas_esc[3]["codigo_legado"],
+                        "fecha_desde": _fecha(desde),
+                        "fecha_hasta": _fecha(hasta_lic),
+                        "motivo": "",
+                    }
+                )
         filas_bol[3]["importe"] = "123456.789"
         filas_reg[4]["estado"] = "ZZ"
         filas_car.append(
@@ -269,6 +334,8 @@ def generar(
     _escribir(directorio, Entidad.REGISTROS, filas_reg)
     _escribir(directorio, Entidad.ESCRIBANOS, filas_esc)
     _escribir(directorio, Entidad.CARGOS, filas_car)
+    if licencias:
+        _escribir(directorio, Entidad.LICENCIAS, filas_lic)
     _escribir(directorio, Entidad.BOLETAS, filas_bol)
     _escribir(directorio, Entidad.PAGOS, filas_pag)
     if creditos:
@@ -285,6 +352,8 @@ def generar(
         writer.writerow([Entidad.REGISTROS.value, len(filas_reg), ""])
         writer.writerow([Entidad.ESCRIBANOS.value, len(filas_esc), ""])
         writer.writerow([Entidad.CARGOS.value, len(filas_car), ""])
+        if licencias:
+            writer.writerow([Entidad.LICENCIAS.value, len(filas_lic), ""])
         writer.writerow([Entidad.BOLETAS.value, len(filas_bol), total(filas_bol)])
         writer.writerow([Entidad.PAGOS.value, len(filas_pag), total(filas_pag)])
         if creditos:
@@ -296,4 +365,5 @@ def generar(
         len(filas_bol),
         len(filas_pag),
         len(filas_cre),
+        len(filas_lic),
     )

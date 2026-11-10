@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import * as authApi from '../features/auth/api'
 import { RedirectIfAuthenticated, RequireAuth } from '../features/auth/guards'
@@ -12,7 +12,14 @@ import { AppShell } from './AppShell'
 vi.mock('../features/auth/api')
 
 describe('cerrar sesión', () => {
+  afterEach(() => {
+    notifyManager.setScheduler((cb) => setTimeout(cb, 0))
+  })
+
   it('vuelve a la pantalla de ingreso sin recargar', async () => {
+    // Avisos de React Query lentos, como en una máquina cargada: así se nota si la navegación se
+    // adelanta a la sesión vacía (el ingreso vería la sesión vieja y terminaría en el sitio).
+    notifyManager.setScheduler((cb) => setTimeout(cb, 30))
     vi.mocked(authApi.fetchMe).mockResolvedValue(ESCRIBANO)
     vi.mocked(authApi.logout).mockResolvedValue()
     const client = new QueryClient()
@@ -24,6 +31,7 @@ describe('cerrar sesión', () => {
               <Route element={<RedirectIfAuthenticated />}>
                 <Route path="/ingresar" element={<p>Pantalla de ingreso</p>} />
               </Route>
+              <Route path="/sitio" element={<p>Portada del sitio</p>} />
               <Route element={<RequireAuth />}>
                 <Route element={<AppShell />}>
                   <Route path="/" element={<p>Página de inicio</p>} />

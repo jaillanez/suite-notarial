@@ -8,8 +8,8 @@ quedó efectivamente en la base (consultado, no tomado de memoria). Cuadra cuand
 - el saldo de cada registro (boletas no anuladas menos pagos menos créditos) es el mismo en
   origen y destino. Un saldo negativo es un saldo a favor del escribano.
 
-Un archivo opcional que el lote no trae (`creditos.csv`) no figura en el informe; si viene,
-cuadra como los demás.
+Un archivo opcional que el lote no trae (`creditos.csv`, `licencias.csv`) no figura en el
+informe; si viene, cuadra como los demás.
 
 Nunca se compensa una diferencia: si algo no cuadra, el informe lo muestra con su magnitud.
 """
@@ -28,7 +28,7 @@ from app.modules.migracion.catalog import Entidad, EstadoBoletaHistorica, Severi
 from app.modules.migracion.formato import Lote
 from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
 from app.modules.migracion.validacion import CERO, Staging
-from app.modules.padron.models import Adscripcion, Escribano, RegistroNotarial
+from app.modules.padron.models import Adscripcion, Escribano, Licencia, RegistroNotarial
 
 CON_IMPORTE = (Entidad.BOLETAS, Entidad.PAGOS, Entidad.CREDITOS)
 
@@ -60,6 +60,7 @@ async def _cargadas(
         Entidad.REGISTROS: (await contar(RegistroNotarial, Entidad.REGISTROS), None),
         Entidad.ESCRIBANOS: (await contar(Escribano, Entidad.ESCRIBANOS), None),
         Entidad.CARGOS: (await contar(Adscripcion, Entidad.CARGOS), None),
+        Entidad.LICENCIAS: (await contar(Licencia, Entidad.LICENCIAS), None),
         Entidad.BOLETAS: await historico(HistoricoBoleta),
         Entidad.PAGOS: await historico(HistoricoPago),
         Entidad.CREDITOS: await historico(HistoricoCredito),
