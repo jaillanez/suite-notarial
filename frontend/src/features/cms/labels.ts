@@ -16,6 +16,7 @@ export const ESTADO_PUBLICACION: Record<EstadoPublicacion, { label: string; tone
 export const TIPO_DOCUMENTO: Record<TipoDocumento, string> = {
   ESTADO_CONTABLE: 'Estados contables',
   MEMORIA_ANUAL: 'Memoria anual',
+  INFORME_ACTUARIAL: 'Informes actuariales',
   RESOLUCION: 'Resoluciones',
   OTRO: 'Otros documentos',
 }

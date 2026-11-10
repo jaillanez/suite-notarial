@@ -14,6 +14,7 @@ class EstadoPublicacion(StrEnum):
 class TipoDocumento(StrEnum):
     ESTADO_CONTABLE = "ESTADO_CONTABLE"
     MEMORIA_ANUAL = "MEMORIA_ANUAL"
+    INFORME_ACTUARIAL = "INFORME_ACTUARIAL"
     RESOLUCION = "RESOLUCION"
     OTRO = "OTRO"
 
@@ -21,6 +22,7 @@ class TipoDocumento(StrEnum):
 TIPO_DOCUMENTO_TEXTO: dict[TipoDocumento, str] = {
     TipoDocumento.ESTADO_CONTABLE: "Estados contables",
     TipoDocumento.MEMORIA_ANUAL: "Memoria anual",
+    TipoDocumento.INFORME_ACTUARIAL: "Informes actuariales",
     TipoDocumento.RESOLUCION: "Resoluciones",
     TipoDocumento.OTRO: "Otros documentos",
 }

@@ -95,7 +95,9 @@ class Documento(UUIDMixin, TimestampMixin, Base):
         CheckConstraint(SLUG_CHECK, name="slug_formato"),
         CheckConstraint(ESTADOS_CHECK, name="estado_valido"),
         CheckConstraint(
-            "tipo IN ('ESTADO_CONTABLE', 'MEMORIA_ANUAL', 'RESOLUCION', 'OTRO')", name="tipo"
+            "tipo IN ('ESTADO_CONTABLE', 'MEMORIA_ANUAL', 'INFORME_ACTUARIAL', 'RESOLUCION', "
+            "'OTRO')",
+            name="tipo",
         ),
         CheckConstraint("ejercicio BETWEEN 1950 AND 2200", name="ejercicio"),
         CheckConstraint(

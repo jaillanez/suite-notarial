@@ -1,13 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, FileDown, Mail, MapPin, Phone } from 'lucide-react'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 
 import { Alert } from '../../components/ui/Alert'
 import { toProblem } from '../../lib/api'
 import { formatDate } from '../padron/labels'
 import { formatTamano } from '../pagos/labels'
-import { fetchPaginaPublica, fetchSitio, type Autoridad, type DocumentoPublico } from '../cms/api'
-import { fechaLarga, fechaLocal, parrafos, rutaLocal } from '../cms/labels'
+import {
+  fetchPaginaPublica,
+  fetchSitio,
+  type Autoridad,
+  type DocumentoPublico,
+  type TipoDocumento,
+} from '../cms/api'
+import { TIPO_DOCUMENTO, fechaLarga, fechaLocal, parrafos, rutaLocal } from '../cms/labels'
 
 function Cargando() {
   return (
@@ -170,17 +176,34 @@ function DocumentoItem({ doc }: { doc: DocumentoPublico }) {
   )
 }
 
+const ORDEN_TIPOS = Object.keys(TIPO_DOCUMENTO) as TipoDocumento[]
+
+function esTipo(valor: string | null): valor is TipoDocumento {
+  return ORDEN_TIPOS.includes(valor as TipoDocumento)
+}
+
+/** Documentos oficiales agrupados por tipo. `?tipo=INFORME_ACTUARIAL` muestra solo ese tipo. */
 export function DocumentosPublicosPage() {
+  const [params] = useSearchParams()
+  const pedido = params.get('tipo')
+  const tipo = esTipo(pedido) ? pedido : null
   const query = useQuery({ queryKey: ['sitio'], queryFn: fetchSitio })
-  const grupos = new Map<string, DocumentoPublico[]>()
-  for (const doc of query.data?.documentos ?? []) {
-    grupos.set(doc.tipo_texto, [...(grupos.get(doc.tipo_texto) ?? []), doc])
+  const grupos = new Map<TipoDocumento, DocumentoPublico[]>()
+  for (const t of ORDEN_TIPOS) {
+    const docs = (query.data?.documentos ?? []).filter((d) => d.tipo === t)
+    if (docs.length > 0 && (tipo === null || tipo === t)) grupos.set(t, docs)
   }
   return (
     <div className="mx-auto max-w-4xl">
-      <Titulo detalle="Estados contables, memorias y resoluciones, publicados con su huella de integridad: el archivo que descargás es idéntico al aprobado.">
-        Estados contables y documentos oficiales
-      </Titulo>
+      {tipo ? (
+        <Titulo detalle="Publicados con su huella de integridad: el archivo que descargás es idéntico al aprobado.">
+          {TIPO_DOCUMENTO[tipo]}
+        </Titulo>
+      ) : (
+        <Titulo detalle="Estados contables, memorias, informes actuariales y resoluciones, publicados con su huella de integridad: el archivo que descargás es idéntico al aprobado.">
+          Estados contables y documentos oficiales
+        </Titulo>
+      )}
       {query.isError && (
         <div className="mt-6">
           <Alert tone="danger">{toProblem(query.error).detail}</Alert>
@@ -188,12 +211,19 @@ export function DocumentosPublicosPage() {
       )}
       {query.isPending && <Cargando />}
       {query.data && grupos.size === 0 && (
-        <p className="mt-8 text-ink-muted">Todavía no hay documentos publicados.</p>
+        <p className="mt-8 text-ink-muted">
+          {tipo
+            ? `Todavía no hay ${TIPO_DOCUMENTO[tipo].toLowerCase()} publicados.`
+            : 'Todavía no hay documentos publicados.'}
+        </p>
       )}
       <div className="mt-8 grid gap-10">
-        {[...grupos.entries()].map(([tipo, docs]) => (
-          <section key={tipo} aria-label={tipo}>
-            <h2 className="text-lg font-semibold text-brand-900">{tipo}</h2>
+        {[...grupos.entries()].map(([t, docs]) => (
+          <section key={t} aria-label={TIPO_DOCUMENTO[t]}>
+            {/* Filtrado por tipo, el título de la página ya lo nombra. */}
+            {tipo === null && (
+              <h2 className="text-lg font-semibold text-brand-900">{TIPO_DOCUMENTO[t]}</h2>
+            )}
             <ul className="mt-2 divide-y divide-line border-y border-line">
               {docs.map((d) => (
                 <DocumentoItem key={d.slug} doc={d} />

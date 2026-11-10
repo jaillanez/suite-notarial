@@ -60,10 +60,11 @@ async def subir(
     titulo: str = "Estados contables",
     ejercicio: int = 2025,
     nombre: str = "eecc.pdf",
+    tipo: str = "ESTADO_CONTABLE",
 ) -> Any:
     return await client.post(
         "/api/v1/cms/documentos",
-        data={"tipo": "ESTADO_CONTABLE", "ejercicio": str(ejercicio), "titulo": titulo},
+        data={"tipo": tipo, "ejercicio": str(ejercicio), "titulo": titulo},
         files={"archivo": (nombre, contenido, "application/pdf")},
     )
 
@@ -155,6 +156,21 @@ async def test_documento_borrador_publicado_y_versionado(
         f"/api/v1/cms/documentos/{doc['id']}/estado", json={"estado": "BORRADOR"}
     )
     assert volver_a_borrador.status_code == 409
+
+
+async def test_informe_actuarial(editor: AsyncClient, client: AsyncClient) -> None:
+    """Anexo I: el sitio publica los informes actuariales junto a los estados contables."""
+    creado = await subir(editor, pdf(2), titulo="Informe actuarial", tipo="INFORME_ACTUARIAL")
+    assert creado.status_code == 201, creado.text
+    doc = creado.json()
+    assert doc["tipo"] == "INFORME_ACTUARIAL"
+    publicado = await editor.post(
+        f"/api/v1/cms/documentos/{doc['id']}/estado", json={"estado": "PUBLICADO"}
+    )
+    assert publicado.status_code == 200, publicado.text
+    [publico] = (await client.get("/api/v1/publico/sitio")).json()["documentos"]
+    assert (publico["tipo"], publico["tipo_texto"]) == ("INFORME_ACTUARIAL", "Informes actuariales")
+    assert (await client.get(f"/api/v1/publico/documentos/{doc['slug']}.pdf")).status_code == 200
 
 
 @pytest.mark.parametrize(
