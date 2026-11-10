@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
-from app.modules.padron.models import Escribano, Persona
+from app.modules.padron.models import Adscripcion, Escribano, Persona, RegistroNotarial
 from tests.iam.factories import make_user
 from tests.iam.test_rbac import login
 from tests.padron.conftest import Factory, valid_cuit
@@ -248,3 +248,130 @@ async def test_alta_manual_sigue_exigiendo_matricula_y_cuit(caja: AsyncClient) -
         },
     )
     assert sin_cuit.status_code == 422
+
+
+# --------------------------------------------------------------------------- cargos y registros
+
+
+async def _cargo_sin_fecha(
+    caja: AsyncClient, db_session: AsyncSession, escribano_id: str, registro_id: str
+) -> str:
+    """Asigna un cargo y le borra la fecha desde, como lo carga la migración sin ese dato."""
+    response = await caja.post(
+        f"/api/v1/padron/escribanos/{escribano_id}/cargos",
+        json={"registro_id": registro_id, "cargo": "TITULAR", "fecha_desde": "2020-01-01"},
+    )
+    assert response.status_code == 201, response.text
+    cargo_id: str = response.json()["cargos"][0]["id"]
+    await db_session.execute(
+        update(Adscripcion).where(Adscripcion.id == uuid.UUID(cargo_id)).values(fecha_desde=None)
+    )
+    await db_session.flush()
+    db_session.expire_all()
+    return cargo_id
+
+
+async def test_cargo_sin_fecha_desde_se_completa_una_vez_y_auditado(
+    caja: AsyncClient, escribano: Factory, registro: Factory, db_session: AsyncSession
+) -> None:
+    item, reg = await escribano(), await registro()
+    cargo_id = await _cargo_sin_fecha(caja, db_session, item["id"], reg["id"])
+
+    ficha = (await caja.get(_url(item))).json()
+    assert ficha["cargos"][0]["fecha_desde"] is None
+    detalle = (await caja.get(f"/api/v1/padron/registros/{reg['id']}")).json()
+    assert detalle["titular"]["fecha_desde"] is None
+
+    url = f"/api/v1/padron/cargos/{cargo_id}/fecha-desde"
+    # No antes del juramento (2015-03-01) ni en el futuro.
+    assert (await caja.post(url, json={"fecha_desde": "2010-01-01"})).status_code == 422
+    assert (await caja.post(url, json={"fecha_desde": "2999-01-01"})).status_code == 422
+
+    response = await caja.post(url, json={"fecha_desde": "2018-07-02"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["fecha_desde"] == "2018-07-02"
+    audit = (
+        await db_session.execute(
+            select(AuditSecurityLog).where(AuditSecurityLog.event_type == "PADRON_CARGO_COMPLETADO")
+        )
+    ).scalar_one()
+    assert audit.old_value is not None and audit.old_value["fecha_desde"] is None
+    assert audit.new_value is not None and audit.new_value["fecha_desde"] == "2018-07-02"
+    # Ya cargada: no se cambia por esta vía.
+    assert (await caja.post(url, json={"fecha_desde": "2018-07-03"})).status_code == 409
+
+
+async def test_cargo_cerrado_no_se_completa_despues_del_cierre_ni_pisando_otro(
+    caja: AsyncClient, escribano: Factory, registro: Factory, db_session: AsyncSession
+) -> None:
+    item, viejo, nuevo = await escribano(), await registro(), await registro()
+    cerrado = await _cargo_sin_fecha(caja, db_session, item["id"], viejo["id"])
+    cierre = await caja.post(
+        f"/api/v1/padron/cargos/{cerrado}/cierre",
+        json={"fecha_hasta": "2021-06-30", "motivo": "Traslado de registro"},
+    )
+    assert cierre.status_code == 200, cierre.text
+    vigente = await caja.post(
+        f"/api/v1/padron/escribanos/{item['id']}/cargos",
+        json={"registro_id": nuevo["id"], "cargo": "ADSCRIPTO", "fecha_desde": "2021-07-01"},
+    )
+    assert vigente.status_code == 201, vigente.text
+    vigente_id = next(c["id"] for c in vigente.json()["cargos"] if c["is_current"])
+    await db_session.execute(
+        update(Adscripcion).where(Adscripcion.id == uuid.UUID(vigente_id)).values(fecha_desde=None)
+    )
+    await db_session.flush()
+    db_session.expire_all()
+
+    url = f"/api/v1/padron/cargos/{cerrado}/fecha-desde"
+    assert (await caja.post(url, json={"fecha_desde": "2021-07-01"})).status_code == 422
+    assert (await caja.post(url, json={"fecha_desde": "2016-01-01"})).status_code == 200
+    # El vigente no puede empezar antes del cierre del anterior.
+    url_vigente = f"/api/v1/padron/cargos/{vigente_id}/fecha-desde"
+    choque = await caja.post(url_vigente, json={"fecha_desde": "2021-06-01"})
+    assert choque.status_code == 422
+    assert "Registro" in choque.json()["detail"]
+    assert (await caja.post(url_vigente, json={"fecha_desde": "2021-07-01"})).status_code == 200
+
+
+async def test_completar_fecha_desde_requiere_permiso_de_escritura(
+    client: AsyncClient,
+    caja: AsyncClient,
+    escribano: Factory,
+    registro: Factory,
+    db_session: AsyncSession,
+) -> None:
+    item, reg = await escribano(), await registro()
+    cargo_id = await _cargo_sin_fecha(caja, db_session, item["id"], reg["id"])
+    secret = pyotp.random_base32()
+    auditor = await make_user(db_session, roles=("ROLE_AUDITOR",), totp_secret=secret)
+    await login(client, auditor, secret)
+
+    response = await client.post(
+        f"/api/v1/padron/cargos/{cargo_id}/fecha-desde", json={"fecha_desde": "2018-07-02"}
+    )
+    assert response.status_code == 403
+
+
+async def test_registro_sin_departamento_se_muestra_y_se_completa_editando(
+    caja: AsyncClient, registro: Factory, db_session: AsyncSession
+) -> None:
+    reg = await registro()
+    await db_session.execute(
+        update(RegistroNotarial)
+        .where(RegistroNotarial.id == uuid.UUID(reg["id"]))
+        .values(departamento=None)
+    )
+    await db_session.flush()
+    db_session.expire_all()
+    url = f"/api/v1/padron/registros/{reg['id']}"
+
+    assert (await caja.get(url)).json()["departamento"] is None
+    listado = await caja.get("/api/v1/padron/registros", params={"q": str(reg["numero_registro"])})
+    assert listado.status_code == 200
+    assert listado.json()["items"][0]["departamento"] is None
+
+    response = await caja.patch(url, json={"departamento": "Rivadavia"})
+    assert response.status_code == 200, response.text
+    assert response.json()["departamento"] == "Rivadavia"

@@ -339,7 +339,7 @@ def _con_cargo(registro_id: Any, periodo: Any, *condiciones: Any) -> ColumnEleme
         .where(
             Adscripcion.registro_id == registro_id,
             Adscripcion.cargo.in_(CARGOS_CON_BOLETA),
-            Adscripcion.fecha_desde <= _ultimo_dia(periodo),
+            Adscripcion.empezo_hasta(_ultimo_dia(periodo)),
             or_(
                 Adscripcion.fecha_hasta.is_(None),
                 Adscripcion.fecha_hasta >= func.to_date(periodo + "-01", "YYYY-MM-DD"),
@@ -745,7 +745,7 @@ def _sin_ddjj_o_pago(f: Filtros) -> Consulta:
         # la DDJJ del registro y no tiene boleta propia obligatoria).
         .where(
             Adscripcion.cargo.in_((Cargo.TITULAR.value, Cargo.ADSCRIPTO.value)),
-            Adscripcion.fecha_desde <= hasta,
+            Adscripcion.empezo_hasta(hasta),
             or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= desde),
         )
     )

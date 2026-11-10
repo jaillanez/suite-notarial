@@ -19,7 +19,7 @@ import {
   type Circunscripcion,
   type EstadoRegistro,
 } from './api'
-import { ESTADO_REGISTRO } from './labels'
+import { departamentoTexto, ESTADO_REGISTRO } from './labels'
 import { CircunscripcionDialog, RegistroFormDialog } from './RegistroDialogs'
 
 const PAGE_SIZE = 20
@@ -149,7 +149,7 @@ export function RegistrosPage() {
                     {r.nombre_fantasia ?? `Registro ${String(r.numero_registro)}`}
                   </span>
                   <span className="block text-sm text-ink-muted">
-                    {r.departamento} · {r.circunscripcion.nombre}
+                    {departamentoTexto(r.departamento)} · {r.circunscripcion.nombre}
                   </span>
                   <span className="block text-sm text-ink">
                     {r.titular ? `Titular: ${r.titular.apellido_nombre}` : 'Sin titular'}

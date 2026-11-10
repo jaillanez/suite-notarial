@@ -9,7 +9,7 @@ import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
-import { todayIso } from './labels'
+import { A_COMPLETAR, todayIso } from './labels'
 import {
   cambiarDomicilio,
   closeRegistro,
@@ -53,7 +53,8 @@ export function RegistroFormDialog({
     numero_registro: registro ? String(registro.numero_registro) : '',
     nombre_fantasia: registro?.nombre_fantasia ?? '',
     circunscripcion_id: registro?.circunscripcion.id ?? '',
-    departamento: registro?.departamento ?? 'Capital',
+    // Un registro migrado sin departamento lo sigue teniendo «a completar» hasta que se elija.
+    departamento: registro ? (registro.departamento ?? '') : 'Capital',
     domicilio_legal: registro?.domicilio_legal ?? '',
     telefono: registro?.telefono ?? '',
     email: registro?.email ?? '',
@@ -70,9 +71,11 @@ export function RegistroFormDialog({
         email: orNull(form.email),
         fecha_creacion: orNull(form.fecha_creacion),
       }
+      // Sin departamento elegido, el migrado lo sigue teniendo «a completar».
+      const { departamento, ...sinDepartamento } = data
       // El domicilio de un registro existente cambia con fecha («Cambiar domicilio»).
       return registro
-        ? updateRegistro(registro.id, data)
+        ? updateRegistro(registro.id, departamento ? data : sinDepartamento)
         : createRegistro({
             ...data,
             domicilio_legal: form.domicilio_legal.trim(),
@@ -163,7 +166,12 @@ export function RegistroFormDialog({
           onChange={(e) => {
             setForm((f) => ({ ...f, departamento: e.target.value }))
           }}
-          options={(departamentos.data ?? [form.departamento]).map((d) => ({ value: d, label: d }))}
+          options={[
+            ...(form.departamento ? [] : [{ value: '', label: A_COMPLETAR }]),
+            ...(departamentos.data ?? [form.departamento])
+              .filter(Boolean)
+              .map((d) => ({ value: d, label: d })),
+          ]}
         />
         {!registro && (
           <TextArea

@@ -1,8 +1,9 @@
 """Validación del lote: normaliza cada fila y registra observaciones (sin base de datos).
 
 Reglas de calidad de la matriz de homologación (módulo 11 §3): CUIT por Módulo 11, unicidad de
-CUIT, número de registro y códigos del origen (CUIT, documento, matrícula y fecha de juramento
-pueden faltar: se cargan vacíos, «a completar»; si vienen, se validan), un único titular vigente
+CUIT, número de registro y códigos del origen (CUIT, documento, matrícula, fecha de juramento,
+departamento del registro y fecha desde del cargo pueden faltar: se cargan vacíos, «a completar»;
+si vienen, se validan), un único titular vigente
 por registro, un único cargo vigente por escribano (por su código del origen), licencias sin
 solapamiento, estados homologados, fechas y períodos válidos e importes exactos. Una fila con
 observación BLOQUEANTE no se carga, ni tampoco las que dependen de ella.
@@ -57,7 +58,7 @@ class RegistroN:
     codigo: str
     numero: int
     circunscripcion: str
-    departamento: str
+    departamento: str | None  # None: «a completar»
     domicilio: str
     estado: str
     nombre_fantasia: str | None
@@ -100,7 +101,7 @@ class CargoN:
     escribano: str  # codigo_legado del escribano
     numero_registro: int
     cargo: str
-    desde: date
+    desde: date | None  # None: «a completar» (cuenta desde antes de todo lo migrado)
     hasta: date | None
 
 
@@ -282,7 +283,7 @@ def _registros(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagin
             f.campo("circunscripcion", _texto(100), obligatorio=False)
             or CIRCUNSCRIPCION_POR_DEFECTO
         )
-        depto_crudo = f.campo("departamento", _texto(100))
+        depto_crudo = f.campo("departamento", _texto(100), obligatorio=False)
         departamento = _DEPARTAMENTOS.get(_clave(depto_crudo)) if depto_crudo else None
         if depto_crudo and departamento is None:
             f.observar("DEPARTAMENTO_DESCONOCIDO", "El departamento no es uno de San Juan.")
@@ -296,7 +297,7 @@ def _registros(lote: Lote, hom: Homologacion, existentes: Existentes, st: Stagin
                     fila.codigo,
                     numero,
                     circ,
-                    departamento or "",
+                    departamento,
                     domicilio,
                     estado or "",
                     fantasia,
@@ -456,7 +457,14 @@ def _cargos(lote: Lote, hom: Homologacion, st: Staging) -> None:
                 "El registro no corresponde a un registro del lote que se pueda cargar.",
             )
         cargo = f.homologar(hom, "cargo", "cargo")
-        desde = f.campo("fecha_desde", valores.fecha)
+        desde = f.campo("fecha_desde", valores.fecha, obligatorio=False)
+        if desde is None and not fila.datos.get("fecha_desde", "").strip():
+            f.observar(
+                "FECHA_DESDE_A_COMPLETAR",
+                "Falta la fecha desde del cargo: queda a completar y el cargo cuenta desde antes "
+                "de todo lo migrado.",
+                Severidad.ADVERTENCIA,
+            )
         hasta = f.campo("fecha_hasta", valores.fecha, obligatorio=False)
         if desde and hasta and hasta < desde:
             f.observar("FECHAS_INVERTIDAS", "«fecha_hasta» es anterior a «fecha_desde».")

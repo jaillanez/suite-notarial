@@ -155,7 +155,7 @@ class CargoResumen(BaseModel):
     matricula_numero: int | None
     apellido_nombre: str
     cargo: Cargo
-    fecha_desde: date
+    fecha_desde: date | None  # None: «a completar» (migrado sin fecha)
     estado_matricula: EstadoMatricula
 
 
@@ -164,7 +164,7 @@ class RegistroOut(BaseModel):
     numero_registro: int
     nombre_fantasia: str | None
     circunscripcion: CircunscripcionOut
-    departamento: str
+    departamento: str | None  # None: «a completar» (migrado sin departamento)
     domicilio_legal: str
     telefono: str | None
     email: str | None
@@ -294,6 +294,12 @@ class CargoAsignacion(BaseModel):
     resolucion_designacion: Corto | None = None
 
 
+class CargoFechaDesde(BaseModel):
+    """Fecha de designación de un cargo migrado sin ella: se carga una sola vez."""
+
+    fecha_desde: date
+
+
 class CargoCierre(BaseModel):
     fecha_hasta: date
     motivo: Motivo
@@ -305,7 +311,7 @@ class CargoOut(BaseModel):
     numero_registro: int
     cargo: Cargo
     resolucion_designacion: str | None
-    fecha_desde: date
+    fecha_desde: date | None  # None: «a completar» (migrado sin fecha)
     fecha_hasta: date | None
     motivo_cierre: str | None
     is_current: bool
@@ -458,7 +464,7 @@ class DesignacionOut(BaseModel):
     id: uuid.UUID
     registro_id: uuid.UUID
     numero_registro: int
-    departamento: str
+    departamento: str | None
     escribano_id: uuid.UUID
     apellido_nombre: str
     matricula_numero: int | None
@@ -508,4 +514,4 @@ class RegistroGestionable(BaseModel):
 
     id: uuid.UUID
     numero_registro: int
-    departamento: str
+    departamento: str | None

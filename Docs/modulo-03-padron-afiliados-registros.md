@@ -11,7 +11,9 @@
 >   realidad reasigna ese número a `23-…-9` (y `27` → `23-…-4`, `30` → `33-…-9`). Se usa el
 >   algoritmo estándar, que valida esos 23/33 y rechaza el 20/27/30 cuyo dígito sería 10.
 > - **Circunscripciones** como catálogo propio (`padron_circunscripciones`) en lugar de texto libre;
->   el **departamento** se valida contra los 19 departamentos de San Juan.
+>   el **departamento** se valida contra los 19 departamentos de San Juan. Un registro migrado
+>   sin departamento lo tiene nulo («a completar») hasta que se edita; lo mismo la fecha desde de
+>   un cargo migrado sin ella (se carga una vez, auditada: `POST /padron/cargos/{id}/fecha-desde`).
 > - **Reglas de cargos en la base:** un titular vigente por registro y un cargo vigente por
 >   escribano (índices únicos parciales). El estado del registro (ACTIVO/VACANTE/CERRADO) se
 >   mantiene al asignar o cerrar la titularidad.

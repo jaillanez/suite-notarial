@@ -43,6 +43,7 @@ from app.modules.padron.schemas import (
     AntiguedadOut,
     CargoAsignacion,
     CargoCierre,
+    CargoFechaDesde,
     CargoOut,
     CargoResumen,
     CircunscripcionIn,
@@ -568,6 +569,19 @@ async def close_cargo(
     ctx: RequestContextDep,
 ) -> CargoOut:
     return cargo_out(await service.close_cargo(session, ctx, principal.user, cargo_id, body))
+
+
+@router.post("/cargos/{cargo_id}/fecha-desde", response_model=CargoOut)
+async def completar_fecha_desde(
+    cargo_id: uuid.UUID,
+    body: CargoFechaDesde,
+    principal: CanWrite,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> CargoOut:
+    """Carga única de la fecha desde de un cargo migrado sin ella («a completar»)."""
+    item = await service.completar_fecha_desde(session, ctx, principal.user, cargo_id, body)
+    return cargo_out(item)
 
 
 @router.post("/escribanos/{escribano_id}/cuenta", response_model=EscribanoDetalle, status_code=201)

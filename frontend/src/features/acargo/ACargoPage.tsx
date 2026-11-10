@@ -12,7 +12,7 @@ import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
-import { formatDate, matriculaTexto, todayIso } from '../padron/labels'
+import { departamentoTexto, formatDate, matriculaTexto, todayIso } from '../padron/labels'
 import {
   anular,
   aprobar,
@@ -234,7 +234,8 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
           </span>
         </p>
         <p className="text-sm text-ink tabular-nums">
-          Del {formatDate(d.fecha_desde)} al {formatDate(d.fecha_hasta)} · {d.departamento}
+          Del {formatDate(d.fecha_desde)} al {formatDate(d.fecha_hasta)} ·{' '}
+          {departamentoTexto(d.departamento)}
         </p>
         <p className="text-sm text-ink-muted">{d.motivo}</p>
         <p className="text-sm text-ink">
@@ -538,7 +539,7 @@ function DesignarDialog({
   requiere,
   onClose,
 }: {
-  registros: { id: string; numero_registro: number; departamento: string }[]
+  registros: { id: string; numero_registro: number; departamento: string | null }[]
   requiere: boolean
   onClose: () => void
 }) {
@@ -611,14 +612,14 @@ function DesignarDialog({
             }}
             options={registros.map((r) => ({
               value: r.id,
-              label: `Nº ${String(r.numero_registro)} · ${r.departamento}`,
+              label: `Nº ${String(r.numero_registro)} · ${departamentoTexto(r.departamento)}`,
             }))}
           />
         ) : (
           <p className="text-sm text-ink">
             Registro Nº{' '}
             <span className="font-semibold tabular-nums">{registros[0]?.numero_registro}</span> ·{' '}
-            {registros[0]?.departamento}
+            {registros[0] && departamentoTexto(registros[0].departamento)}
           </p>
         )}
         {elegido ? (

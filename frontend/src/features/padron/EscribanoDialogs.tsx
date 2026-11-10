@@ -15,6 +15,7 @@ import {
   changeEstado,
   closeCargo,
   completarEscribano,
+  completarFechaDesde,
   fetchRegistros,
   updateEscribano,
   type Cargo,
@@ -22,7 +23,14 @@ import {
   type EscribanoDetalle,
   type EstadoMatricula,
 } from './api'
-import { CAMPO_A_COMPLETAR, CARGO, ESTADO_MATRICULA, ESTADOS_DEFINITIVOS, todayIso } from './labels'
+import {
+  CAMPO_A_COMPLETAR,
+  CARGO,
+  departamentoTexto,
+  ESTADO_MATRICULA,
+  ESTADOS_DEFINITIVOS,
+  todayIso,
+} from './labels'
 import { PrimeraEscrituraCampos } from './LicenciaDialogs'
 import {
   PRIMERA_VACIA,
@@ -223,7 +231,7 @@ export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
           }}
           options={abiertos.map((r) => ({
             value: r.id,
-            label: `Nº ${String(r.numero_registro)} · ${r.departamento}${r.titular ? '' : ' · vacante'}`,
+            label: `Nº ${String(r.numero_registro)} · ${departamentoTexto(r.departamento)}${r.titular ? '' : ' · vacante'}`,
           }))}
         />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -250,6 +258,75 @@ export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
           onChange={(e) => {
             setResolucion(e.target.value)
           }}
+        />
+      </div>
+    </Dialog>
+  )
+}
+
+/** Fecha de designación de un cargo migrado sin ella: se carga una sola vez. */
+export function FechaDesdeCargoDialog({
+  escribano,
+  cargo,
+  onClose,
+}: {
+  escribano: EscribanoDetalle
+  cargo: CargoItem | null
+  onClose: () => void
+}) {
+  const refresh = useRefresh(escribano.id)
+  const [fecha, setFecha] = useState('')
+  const save = useMutation({
+    mutationFn: () => completarFechaDesde(cargo?.id ?? '', fecha),
+    onSuccess: async () => {
+      await refresh()
+      setFecha('')
+      onClose()
+    },
+  })
+  const cerrar = () => {
+    save.reset()
+    setFecha('')
+    onClose()
+  }
+  return (
+    <Dialog
+      open={cargo !== null}
+      onClose={cerrar}
+      title={
+        cargo
+          ? `Fecha desde del cargo de ${CARGO[cargo.cargo].toLowerCase()} en el Registro ${String(cargo.numero_registro)}`
+          : 'Fecha desde del cargo'
+      }
+      description="No venía del sistema anterior. Se carga una sola vez y queda auditada: verificala contra la resolución de designación antes de guardar."
+      footer={
+        <>
+          <Button onClick={cerrar}>Cancelar</Button>
+          <Button
+            variant="primary"
+            busy={save.isPending}
+            busyLabel="Guardando…"
+            disabled={!fecha}
+            onClick={() => {
+              save.mutate()
+            }}
+          >
+            Guardar fecha
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
+        <Field
+          label="Fecha de designación"
+          type="date"
+          value={fecha}
+          max={cargo?.fecha_hasta ?? todayIso()}
+          onChange={(e) => {
+            setFecha(e.target.value)
+          }}
+          hint="Mientras falte, el cargo cuenta desde antes de todo lo registrado."
         />
       </div>
     </Dialog>

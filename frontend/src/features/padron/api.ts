@@ -18,7 +18,8 @@ export interface CargoResumen {
   matricula_numero: number | null
   apellido_nombre: string
   cargo: Cargo
-  fecha_desde: string
+  /** null: migrado sin fecha de designación («a completar»). */
+  fecha_desde: string | null
   estado_matricula: EstadoMatricula
 }
 
@@ -27,7 +28,8 @@ export interface Registro {
   numero_registro: number
   nombre_fantasia: string | null
   circunscripcion: Circunscripcion
-  departamento: string
+  /** null: migrado sin departamento («a completar»). */
+  departamento: string | null
   domicilio_legal: string
   telefono: string | null
   email: string | null
@@ -147,7 +149,8 @@ export interface CargoItem {
   numero_registro: number
   cargo: Cargo
   resolucion_designacion: string | null
-  fecha_desde: string
+  /** null: migrado sin fecha de designación («a completar»). */
+  fecha_desde: string | null
   fecha_hasta: string | null
   motivo_cierre: string | null
   is_current: boolean
@@ -336,6 +339,11 @@ export async function closeCargo(id: string, fechaHasta: string, motivo: string)
   return (
     await api.post<CargoItem>(`${P}/cargos/${id}/cierre`, { fecha_hasta: fechaHasta, motivo })
   ).data
+}
+
+export async function completarFechaDesde(id: string, fechaDesde: string) {
+  return (await api.post<CargoItem>(`${P}/cargos/${id}/fecha-desde`, { fecha_desde: fechaDesde }))
+    .data
 }
 
 export async function createCuenta(id: string, email: string): Promise<EscribanoDetalle> {

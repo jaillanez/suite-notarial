@@ -46,7 +46,7 @@ class RegistroResumen(BaseModel):
     id: uuid.UUID
     numero_registro: int
     nombre_fantasia: str | None
-    departamento: str
+    departamento: str | None  # None: «a completar»
 
 
 class EscribanoResumen(BaseModel):

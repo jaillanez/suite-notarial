@@ -1356,7 +1356,7 @@ export function DeclaracionPage() {
           <Panel>
             <dl className="grid grid-cols-2 gap-4 px-5 py-4 sm:grid-cols-4 sm:px-6">
               <Dato label="Vencimiento">{formatDate(ddjj.vencimiento)}</Dato>
-              <Dato label="Departamento">{ddjj.registro.departamento}</Dato>
+              <Dato label="Departamento">{ddjj.registro.departamento ?? 'A completar'}</Dato>
               <Dato label="Presentada">
                 {ddjj.fecha_presentacion
                   ? formatLocalDateTime(new Date(ddjj.fecha_presentacion))
