@@ -113,7 +113,7 @@ function PaginaDialog({
         <TextArea
           label="Contenido"
           rows={12}
-          hint="Texto sin formato. Separá los párrafos con una línea en blanco."
+          hint="Texto sin formato. Separá los párrafos con una línea en blanco. Un párrafo que empieza con «## » es un título (y «### », un subtítulo); las líneas «| a | b |» forman una tabla."
           {...bind('contenido')}
         />
         <Field

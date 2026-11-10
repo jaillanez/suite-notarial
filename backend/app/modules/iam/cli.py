@@ -153,16 +153,20 @@ async def seed_dev() -> int:
 
 
 async def _seed_sitio(session: AsyncSession) -> None:
-    """Contenido del sitio tomado del sitio público actual de la Caja (ver cms/demo.py)."""
-    from app.modules.cms.demo import seed_sitio
+    """El contenido del sitio oficial de la Caja, como en producción (ver cms/sitio_oficial.py)."""
+    from app.modules.cms import sitio_oficial
 
-    # La publica el usuario de Caja (permiso cms:publish).
-    autor = await session.scalar(select(User.id).where(User.email == DEV_USERS[1][0]))
+    # Lo publica el usuario de Caja (permiso cms:publish).
+    autor = await session.scalar(select(User).where(User.email == DEV_USERS[1][0]))
     if autor is None:
         return
-    creados = await seed_sitio(session, autor)
-    if creados:
-        _out(f"Sitio institucional: {creados} notas, páginas y autoridades del sitio actual.")
+    resumen = await sitio_oficial.cargar(session, autor)
+    await session.commit()
+    if resumen.creadas or resumen.actualizadas:
+        _out(
+            f"Sitio institucional: {len(resumen.creadas)} contenidos creados y "
+            f"{len(resumen.actualizadas)} actualizados desde el sitio oficial."
+        )
 
 
 async def _seed_lineas_prestamo(session: AsyncSession) -> None:

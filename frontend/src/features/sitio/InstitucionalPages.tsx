@@ -13,7 +13,14 @@ import {
   type DocumentoPublico,
   type TipoDocumento,
 } from '../cms/api'
-import { TIPO_DOCUMENTO, fechaLarga, fechaLocal, parrafos, rutaLocal } from '../cms/labels'
+import {
+  TIPO_DOCUMENTO,
+  bloques,
+  fechaLarga,
+  fechaLocal,
+  rutaLocal,
+  type Bloque,
+} from '../cms/labels'
 
 function Cargando() {
   return (
@@ -36,6 +43,64 @@ function Titulo({ children, detalle }: { children: React.ReactNode; detalle?: Re
   )
 }
 
+function BloquePagina({ bloque }: { bloque: Bloque }) {
+  if (bloque.tipo === 'titulo') {
+    return bloque.nivel === 2 ? (
+      <h2 className="mt-6 max-w-[65ch] text-xl font-semibold text-balance text-brand-900">
+        {bloque.texto}
+      </h2>
+    ) : (
+      <h3 className="mt-3 max-w-[65ch] text-lg font-semibold text-balance text-brand-800">
+        {bloque.texto}
+      </h3>
+    )
+  }
+  if (bloque.tipo === 'tabla') {
+    return (
+      // En celular la tabla se desplaza dentro de su caja.
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm tabular-nums">
+          <thead className="bg-surface-sunken text-left text-xs font-semibold text-ink-muted">
+            <tr>
+              {bloque.encabezado.map((c, i) => (
+                <th
+                  key={i}
+                  scope="col"
+                  className="border-b border-line-strong px-3 py-2 align-bottom"
+                >
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {bloque.filas.map((fila, i) => (
+              <tr key={i}>
+                {fila.map((c, j) =>
+                  j === 0 ? (
+                    <th
+                      key={j}
+                      scope="row"
+                      className="px-3 py-2 text-left font-medium whitespace-nowrap"
+                    >
+                      {c}
+                    </th>
+                  ) : (
+                    <td key={j} className="px-3 py-2 text-right whitespace-nowrap">
+                      {c}
+                    </td>
+                  ),
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+  return <p className="max-w-[65ch] whitespace-pre-line">{bloque.texto}</p>
+}
+
 /** Página institucional cargada desde el gestor (Quiénes somos, Ley de creación…). */
 export function PaginaPublicaPage() {
   const { slug = '' } = useParams()
@@ -45,8 +110,11 @@ export function PaginaPublicaPage() {
     retry: false,
   })
   const p = query.data
+  const contenido = p ? bloques(p.contenido) : []
+  // Con una tabla la página se ensancha para mostrarla entera; el texto conserva su medida.
+  const ancho = contenido.some((b) => b.tipo === 'tabla') ? 'max-w-4xl' : 'max-w-[65ch]'
   return (
-    <article className="mx-auto max-w-[65ch]">
+    <article className={`mx-auto ${ancho}`}>
       {query.isError && (
         <Alert tone="warning">
           {toProblem(query.error).status === 404
@@ -63,10 +131,8 @@ export function PaginaPublicaPage() {
           </h1>
           <div className="mt-8 grid gap-4 text-lg leading-relaxed text-ink">
             {/* Texto plano: React lo escapa; nunca se interpreta como HTML. */}
-            {parrafos(p.contenido).map((texto, i) => (
-              <p key={i} className="whitespace-pre-line">
-                {texto}
-              </p>
+            {contenido.map((b, i) => (
+              <BloquePagina key={i} bloque={b} />
             ))}
           </div>
           <p className="mt-10 border-t border-line pt-4 text-sm text-ink-muted">

@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ESCRIBANO, renderWithProviders } from '../../test/render'
 import * as apiModule from '../cms/api'
 import { NovedadesAdmin } from '../cms/NovedadesAdmin'
-import { parrafos, rutaLocal } from '../cms/labels'
+import { bloques, parrafos, rutaLocal } from '../cms/labels'
 import { PortadaAdmin } from '../cms/PortadaAdmin'
-import { DocumentosPublicosPage } from './InstitucionalPages'
+import { DocumentosPublicosPage, PaginaPublicaPage } from './InstitucionalPages'
 import { NovedadPublicaPage } from './NovedadPublicaPage'
 import { SitioPage } from './SitioPage'
 
@@ -84,6 +84,21 @@ describe('utilidades del sitio', () => {
   it('separa párrafos y usa rutas locales para los enlaces', () => {
     expect(parrafos('Uno.\n\nDos\ncon salto.\n\n\n')).toEqual(['Uno.', 'Dos\ncon salto.'])
     expect(rutaLocal(DOC.url)).toBe('/api/v1/publico/documentos/estados-contables-2025.pdf')
+  })
+
+  it('reconoce títulos y tablas; lo demás queda como párrafo', () => {
+    expect(
+      bloques(
+        '## Título I · Institución\n\n### CAPITULO I\n\nArtículo con ## en el medio.\n\n' +
+          '| Período | Mínimo |\n| --- | --- |\n| Octubre 2026 | $ 85.932 |\n\n## dos\nlíneas',
+      ),
+    ).toEqual([
+      { tipo: 'titulo', nivel: 2, texto: 'Título I · Institución' },
+      { tipo: 'titulo', nivel: 3, texto: 'CAPITULO I' },
+      { tipo: 'parrafo', texto: 'Artículo con ## en el medio.' },
+      { tipo: 'tabla', encabezado: ['Período', 'Mínimo'], filas: [['Octubre 2026', '$ 85.932']] },
+      { tipo: 'parrafo', texto: '## dos\nlíneas' },
+    ])
   })
 })
 
@@ -170,6 +185,32 @@ describe('sitio público', () => {
       screen.getByRole('heading', { level: 1, name: 'Informes actuariales' }),
     ).toBeInTheDocument()
     expect(screen.queryByText('Estados contables al 31 de diciembre')).not.toBeInTheDocument()
+  })
+
+  it('una página institucional muestra títulos y tablas, sin interpretar HTML', async () => {
+    vi.mocked(apiModule.fetchPaginaPublica).mockResolvedValue({
+      slug: 'aportes-historicos-y-vigentes',
+      grupo: 'NORMATIVA',
+      titulo: 'Aportes previsionales y médicos históricos y vigentes',
+      grupo_texto: 'Normativa',
+      contenido:
+        '## Aportes históricos\n\n| Período | Médico asistencial |\n| --- | --- |\n' +
+        '| Octubre 2026 | $ 100.000 |\n\n<b>no es HTML</b>',
+      updated_at: '2026-11-10T15:00:00Z',
+    })
+    renderWithProviders(
+      <Routes>
+        <Route path="/sitio/paginas/:slug" element={<PaginaPublicaPage />} />
+      </Routes>,
+      { path: '/sitio/paginas/aportes-historicos-y-vigentes', raw: true },
+    )
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Aportes históricos' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Médico asistencial' })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: 'Octubre 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '$ 100.000' })).toBeInTheDocument()
+    expect(screen.getByText('<b>no es HTML</b>')).toBeInTheDocument()
   })
 
   it('el contenido de una novedad se muestra como texto, nunca como HTML', async () => {
