@@ -78,7 +78,7 @@ async def validar(file: UploadFile, max_bytes: int) -> ArchivoValidado:
     mime_type = magic.from_buffer(contenido[:2048], mime=True)
     if mime_type not in MIME_PERMITIDOS:
         raise ArchivoInvalidoError(
-            "Formato no admitido: el comprobante tiene que ser un PDF, PNG o JPG.", status=415
+            "Formato no admitido: el archivo tiene que ser un PDF, PNG o JPG.", status=415
         )
     return ArchivoValidado(
         contenido=contenido,

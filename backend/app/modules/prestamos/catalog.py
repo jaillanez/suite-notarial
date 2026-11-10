@@ -42,3 +42,23 @@ AVISO_TIPO_CAMBIO = (
     "Préstamo en dólares: el ingreso neto se declara en dólares. La Caja todavía no definió "
     "el tipo de cambio para evaluar la afectación con ingresos o préstamos en pesos."
 )
+
+
+class TipoDocumento(StrEnum):
+    """Documentación de una solicitud de préstamo."""
+
+    DOCUMENTO_IDENTIDAD = "DOCUMENTO_IDENTIDAD"
+    CERTIFICADO_INGRESOS = "CERTIFICADO_INGRESOS"
+    CERTIFICADO_BIENES = "CERTIFICADO_BIENES"
+    # Escritura, tasación o informe de dominio del inmueble o bien que garantiza el préstamo.
+    GARANTIA = "GARANTIA"
+    OTRO = "OTRO"
+
+
+NOMBRE_DOCUMENTO: dict[TipoDocumento, str] = {
+    TipoDocumento.DOCUMENTO_IDENTIDAD: "Documento de identidad",
+    TipoDocumento.CERTIFICADO_INGRESOS: "Certificado de ingresos",
+    TipoDocumento.CERTIFICADO_BIENES: "Certificado de bienes y deudas",
+    TipoDocumento.GARANTIA: "Documentación de la garantía",
+    TipoDocumento.OTRO: "Otro documento",
+}

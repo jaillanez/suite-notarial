@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
 from tests.ddjj.conftest import Escenario
-from tests.pagos.conftest import boleta  # noqa: F401 - fixture compartida
+from tests.pagos.conftest import PDF, boleta  # noqa: F401 - fixture compartida
 
 D = Decimal
 
@@ -34,6 +34,14 @@ async def _otorgado(
 ) -> dict[str, Any]:
     creado = await staff.post("/api/v1/prestamos", json=cuerpo)
     assert creado.status_code == 201, creado.text
+    # La documentación que exige la línea (ver test_documentos_saldo).
+    for requisito in creado.json()["documentacion_requerida"]:
+        cargado = await staff.post(
+            f"/api/v1/prestamos/{creado.json()['id']}/documentos",
+            data={"tipo": requisito["tipo"]},
+            files={"archivo": ("certificado.pdf", PDF, "application/pdf")},
+        )
+        assert cargado.status_code == 201, cargado.text
     otorgado = await admin.post(f"/api/v1/prestamos/{creado.json()['id']}/otorgar")
     assert otorgado.status_code == 200, otorgado.text
     body: dict[str, Any] = otorgado.json()
