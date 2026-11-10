@@ -361,8 +361,13 @@ Ya aplicadas:
   webroot con su huella y se sirve verificada.
 - **Menú del sitio de la Caja:** Novedades, Caja (Quiénes somos, Autoridades, Estados
   contables), Normativa (páginas del gestor y documentos oficiales), Servicios online y
-  Contacto. Las páginas institucionales se cargan en `/cms/paginas`. `make seed-dev` trae el
-  contenido del sitio actual de la Caja (cajanotarial-sj.com.ar) para probar.
+  Contacto. Las páginas institucionales se cargan en `/cms/paginas`; un párrafo que empieza con
+  `## ` es un título y las líneas `| a | b |` forman una tabla.
+- **Contenido del sitio oficial:** `python -m app.modules.cms.sitio_oficial --operador EMAIL
+  [--simular]` trae lo que publica cajanotarial-sj.com.ar (Quiénes somos, Ley de creación,
+  Reglamentación, Aportes con la tabla histórica, novedades y autoridades). Es idempotente,
+  auditado a nombre del operador (`cms:publish`) y nunca borra. `make seed-dev` hace la misma
+  carga. Los estados contables del sitio oficial están detrás del acceso de afiliados.
 
 ## Préstamos (Fase 8)
 

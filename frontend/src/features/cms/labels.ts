@@ -68,6 +68,40 @@ export function parrafos(texto: string): string[] {
     .filter(Boolean)
 }
 
+/** Bloque de una página institucional: el texto se muestra siempre como texto, nunca HTML. */
+export type Bloque =
+  | { tipo: 'parrafo'; texto: string }
+  | { tipo: 'titulo'; nivel: 2 | 3; texto: string }
+  | { tipo: 'tabla'; encabezado: string[]; filas: string[][] }
+
+function celdas(linea: string): string[] {
+  return linea
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((c) => c.trim())
+}
+
+/** Párrafos con dos marcas simples: `## ` / `### ` para títulos y líneas `| a | b |` para
+ * tablas (la primera fila es el encabezado; la fila `| --- |` se ignora). */
+export function bloques(texto: string): Bloque[] {
+  return parrafos(texto).map((p): Bloque => {
+    const titulo = /^(#{2,3}) (.+)$/.exec(p)
+    if (titulo?.[1] && titulo[2] && !p.includes('\n')) {
+      return { tipo: 'titulo', nivel: titulo[1] === '##' ? 2 : 3, texto: titulo[2].trim() }
+    }
+    const lineas = p.split('\n').map((l) => l.trim())
+    if (lineas.length > 1 && lineas.every((l) => l.startsWith('|'))) {
+      const [encabezado = [], ...resto] = lineas
+        .filter((l) => !/^\|[\s|:-]+\|?$/.test(l))
+        .map(celdas)
+      return { tipo: 'tabla', encabezado, filas: resto }
+    }
+    return { tipo: 'parrafo', texto: p }
+  })
+}
+
 /** Fecha calendario en San Juan de un instante UTC: "25/10/2026". */
 export function fechaLocal(iso: string): string {
   return new Intl.DateTimeFormat('es-AR', {
