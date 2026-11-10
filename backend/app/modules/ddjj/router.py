@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Response
@@ -14,6 +15,7 @@ from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
     EstadoDDJJ,
+    ModalidadBoleta,
     MotivoExencion,
     TipoProtocolo,
 )
@@ -30,8 +32,10 @@ from app.modules.ddjj.schemas import (
     DeclaracionIn,
     DeclaracionOut,
     EmitirBoletaIn,
+    EscribanoBoletaOut,
     EscribanoResumen,
     HuecoOut,
+    LiquidacionBoletaOut,
     LiquidacionOut,
     Periodo,
     PresentarIn,
@@ -53,7 +57,7 @@ from app.modules.iam.deps import (
     require_permissions,
 )
 from app.modules.padron.catalog import Cargo
-from app.modules.padron.models import RegistroNotarial
+from app.modules.padron.models import Escribano, RegistroNotarial
 from app.modules.pagos import service as pagos_service
 from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
 from app.modules.pagos.models import Comprobante
@@ -158,16 +162,31 @@ def _comprobante_resumen(c: Comprobante | None) -> ComprobanteResumen | None:
     )
 
 
+def escribano_boleta(e: Escribano, cargo: str, modalidad: str) -> EscribanoBoletaOut:
+    return EscribanoBoletaOut(
+        id=e.id,
+        apellido_nombre=service.nombre_escribano(e),
+        cargo=Cargo(cargo),
+        modalidad=ModalidadBoleta(modalidad),
+    )
+
+
 async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> BoletaOut:
     registro = await session.get(RegistroNotarial, b.registro_id)
     ddjj = await session.get(DeclaracionJurada, b.ddjj_id)
     assert registro is not None and ddjj is not None  # noqa: S101 - FK RESTRICT
+    escribano = None
+    if b.escribano_id is not None and b.cargo is not None and b.modalidad is not None:
+        propio = await session.get(Escribano, b.escribano_id)
+        assert propio is not None  # noqa: S101 - FK RESTRICT
+        escribano = escribano_boleta(propio, b.cargo, b.modalidad)
     return BoletaOut(
         id=b.id,
         numero=b.numero,
         codigo_verificacion=b.codigo_verificacion,
         ddjj_id=b.ddjj_id,
         registro=registro_resumen(registro),
+        escribano=escribano,
         periodo=b.periodo,
         numero_rectificativa=ddjj.numero_rectificativa,
         estado=EstadoBoleta(b.estado),
@@ -200,6 +219,9 @@ async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> Bo
         motivo_anulacion=b.motivo_anulacion,
         comprobante=_comprobante_resumen(
             (await pagos_service.ultimos_por_boleta(session, [b.id])).get(b.id)
+        ),
+        puede_reemitir=await service.puede_reemitir(
+            session, principal, b.registro_id, b.escribano_id
         ),
     )
 
@@ -398,49 +420,60 @@ async def liquidacion(
     item = await service.get_declaracion(session, principal, ddjj_id)
     actos = await service.list_actos(session, item.id)
     pre = await service.preliquidar(session, item, actos, fecha_pago or today_local())
-    liq = pre.liquidacion
+    boletas = [
+        LiquidacionBoletaOut(
+            escribano=escribano_boleta(
+                pre.escribanos[b.obligado.escribano_id], b.obligado.cargo, b.modalidad
+            ),
+            total_protocolos=b.liquidacion.total_protocolos,
+            aporte_minimo=b.liquidacion.aporte_minimo,
+            excedente=b.liquidacion.excedente,
+            aporte_medico=b.liquidacion.aporte_medico,
+            cantidad_aportes_medicos=b.liquidacion.cantidad_aportes_medicos,
+            total_en_termino=b.liquidacion.total_en_termino,
+            dias_mora=b.liquidacion.dias_mora,
+            interes_mora=b.liquidacion.interes_mora,
+            tramos_mora=[
+                TramoMoraOut(
+                    desde=t.desde,
+                    hasta=t.hasta,
+                    dias=t.dias,
+                    tasa=t.tasa,
+                    periodo_tasa=t.periodo_tasa,
+                    interes=t.interes,
+                )
+                for t in b.liquidacion.tramos_mora
+            ],
+            total_a_pagar=b.liquidacion.total_a_pagar,
+        )
+        for b in pre.boletas
+    ]
     return LiquidacionOut(
         aportes=[
             AporteActoOut(acto_id=a.id, aporte=aporte.aporte)
-            for a, aporte in zip(actos, liq.aportes, strict=True)
+            for a, aporte in zip(actos, pre.aportes, strict=True)
         ],
         vencimiento=pre.vencimiento,
         fecha_pago=pre.fecha_pago,
-        total_protocolos=liq.total_protocolos,
-        aporte_minimo=liq.aporte_minimo,
-        excedente=liq.excedente,
-        aporte_medico=liq.aporte_medico,
-        cantidad_aportes_medicos=liq.cantidad_aportes_medicos,
-        total_en_termino=liq.total_en_termino,
-        dias_mora=liq.dias_mora,
-        interes_mora=liq.interes_mora,
-        tramos_mora=[
-            TramoMoraOut(
-                desde=t.desde,
-                hasta=t.hasta,
-                dias=t.dias,
-                tasa=t.tasa,
-                periodo_tasa=t.periodo_tasa,
-                interes=t.interes,
-            )
-            for t in liq.tramos_mora
-        ],
-        total_a_pagar=liq.total_a_pagar,
+        boletas=boletas,
+        total_protocolos=pre.total_protocolos,
+        total_a_pagar=sum((b.total_a_pagar for b in boletas), Decimal("0.00")),
+        avisos=pre.avisos,
         usa_valores_de_ejemplo=pre.usa_valores_de_ejemplo,
     )
 
 
-@router.post("/declaraciones/{ddjj_id}/presentar", response_model=BoletaOut, status_code=201)
+@router.post("/declaraciones/{ddjj_id}/presentar", response_model=list[BoletaOut], status_code=201)
 async def presentar(
     ddjj_id: uuid.UUID,
     body: PresentarIn,
     principal: CanOperate,
     session: SessionDep,
     ctx: RequestContextDep,
-) -> BoletaOut:
-    """Presenta la DDJJ y emite su boleta."""
-    boleta = await service.presentar(session, ctx, principal, ddjj_id, body)
-    return await boleta_out(session, principal, boleta)
+) -> list[BoletaOut]:
+    """Presenta la DDJJ y emite la boleta de cada escribano del registro."""
+    boletas = await service.presentar(session, ctx, principal, ddjj_id, body)
+    return [await boleta_out(session, principal, b) for b in boletas]
 
 
 @router.post("/declaraciones/{ddjj_id}/boletas", response_model=BoletaOut, status_code=201)
@@ -451,8 +484,11 @@ async def emitir_boleta(
     session: SessionDep,
     ctx: RequestContextDep,
 ) -> BoletaOut:
-    """Reemite la boleta para otra fecha de pago; la pendiente anterior queda anulada."""
-    boleta = await service.emitir_boleta(session, ctx, principal, ddjj_id, body.fecha_pago)
+    """Reemite la boleta de un escribano para otra fecha de pago; su pendiente anterior queda
+    anulada."""
+    boleta = await service.emitir_boleta(
+        session, ctx, principal, ddjj_id, body.fecha_pago, body.escribano_id
+    )
     return await boleta_out(session, principal, boleta)
 
 

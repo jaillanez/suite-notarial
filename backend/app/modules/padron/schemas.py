@@ -16,6 +16,7 @@ from pydantic import (
 from app.common.cuit import InvalidCuitError, normalize_cuit
 from app.modules.padron.catalog import (
     DEPARTAMENTOS_SAN_JUAN,
+    AporteACargo,
     Cargo,
     EstadoDesignacion,
     EstadoMatricula,
@@ -433,6 +434,13 @@ class DesignacionIn(BaseModel):
         return self
 
 
+class DesignacionAporteIn(BaseModel):
+    """Qué paga el escribano a cargo por los actos del registro (lo fija la Caja)."""
+
+    aporte: AporteACargo
+    motivo: Motivo
+
+
 class DesignacionBaja(BaseModel):
     """Rechazo o anulación: siempre con motivo."""
 
@@ -458,6 +466,8 @@ class DesignacionOut(BaseModel):
     fecha_hasta: date
     motivo: str
     estado: EstadoDesignacion
+    # Qué paga por los actos del registro (solo el personal de la Caja lo cambia).
+    aporte: AporteACargo
     # Aprobada y con la fecha de hoy dentro del rango.
     rige_hoy: bool
     created_at: datetime
@@ -470,6 +480,7 @@ class DesignacionOut(BaseModel):
     puede_aprobar: bool
     puede_anular: bool
     puede_terminar: bool
+    puede_fijar_aporte: bool
 
 
 class AjustesPadronIn(BaseModel):

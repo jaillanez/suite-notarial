@@ -1,5 +1,14 @@
 import type { Tone } from '../../components/StatusIndicator'
-import type { CategoriaActo, EstadoBoleta, EstadoDDJJ, MotivoExencion, TipoProtocolo } from './api'
+import { CARGO } from '../padron/labels'
+import type {
+  CategoriaActo,
+  EscribanoBoleta,
+  EstadoBoleta,
+  EstadoDDJJ,
+  ModalidadBoleta,
+  MotivoExencion,
+  TipoProtocolo,
+} from './api'
 
 export const ESTADO_DDJJ: Record<EstadoDDJJ, { label: string; tone: Tone }> = {
   BORRADOR: { label: 'Borrador', tone: 'warning' },
@@ -11,6 +20,19 @@ export const ESTADO_BOLETA: Record<EstadoBoleta, { label: string; tone: Tone }> 
   PENDIENTE: { label: 'Pendiente de pago', tone: 'warning' },
   PAGADA: { label: 'Pagada', tone: 'success' },
   ANULADA: { label: 'Anulada', tone: 'unknown' },
+}
+
+/** Qué cobra la boleta de quien está a cargo (titular y adscripto: mínimo, médico y excedente). */
+export const MODALIDAD_BOLETA: Record<ModalidadBoleta, string | null> = {
+  COMPLETA: null,
+  CON_MINIMO: 'mínimo y excedente, sin aporte médico',
+  SOLO_ACTOS: 'solo el aporte de sus actos',
+}
+
+/** «Titular», o «A cargo · solo el aporte de sus actos». */
+export function quienPaga(e: EscribanoBoleta): string {
+  const detalle = MODALIDAD_BOLETA[e.modalidad]
+  return detalle ? `${CARGO[e.cargo]} · ${detalle}` : CARGO[e.cargo]
 }
 
 export const CATEGORIA: Record<CategoriaActo, { label: string; ayuda: string }> = {

@@ -125,7 +125,16 @@ async def test_por_aviso_rige_al_cargarla_y_habilita_solo_entre_fechas(
             params={"fecha_pago": "2026-10-23"},
         )
     ).json()
-    assert liq["cantidad_aportes_medicos"] == 2
+    # Una boleta por escribano. Quien está a cargo (por defecto, solo por sus actos) no paga el
+    # mínimo ni el aporte médico de este registro.
+    boletas = {b["escribano"]["cargo"]: b for b in liq["boletas"]}
+    assert set(boletas) == {"TITULAR", "ADSCRIPTO", "SUPLENTE_INTERINO"}
+    assert [b["cantidad_aportes_medicos"] for b in liq["boletas"]] == [1, 1, 0]
+    a_cargo = boletas["SUPLENTE_INTERINO"]
+    assert a_cargo["escribano"]["modalidad"] == "SOLO_ACTOS"
+    assert (a_cargo["aporte_minimo"], a_cargo["aporte_medico"]) == ("0.00", "0.00")
+    assert a_cargo["total_en_termino"] == a_cargo["total_protocolos"] != "0.00"
+    assert boletas["TITULAR"]["total_protocolos"] == "0.00"
 
 
 async def test_fuera_de_las_fechas_no_opera(

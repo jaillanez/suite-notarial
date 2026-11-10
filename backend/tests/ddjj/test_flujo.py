@@ -48,13 +48,21 @@ async def _cargar_1069(client: AsyncClient, e: Escenario) -> dict[str, Any]:
 
 async def _presentar(
     client: AsyncClient, ddjj_id: str, fecha_pago: str = "2026-10-23"
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
+    """Boletas emitidas al presentar: una por escribano del registro, titular primero."""
     response = await client.post(
         f"/api/v1/ddjj/declaraciones/{ddjj_id}/presentar", json={"fecha_pago": fecha_pago}
     )
     assert response.status_code == 201, response.text
-    body: dict[str, Any] = response.json()
+    body: list[dict[str, Any]] = response.json()
     return body
+
+
+async def _reemitir(client: AsyncClient, ddjj_id: str, escribano: Any, fecha_pago: str) -> Any:
+    return await client.post(
+        f"/api/v1/ddjj/declaraciones/{ddjj_id}/boletas",
+        json={"fecha_pago": fecha_pago, "escribano_id": str(escribano.id)},
+    )
 
 
 async def test_boleta_1069_de_punta_a_punta(
@@ -69,9 +77,16 @@ async def test_boleta_1069_de_punta_a_punta(
             params={"fecha_pago": "2026-10-23"},
         )
     ).json()
-    boleta = await _presentar(notario, ddjj["id"])
+    (boleta,) = await _presentar(notario, ddjj["id"])
 
-    for liq in (preview, boleta):
+    assert preview["total_protocolos"] == "984699.06"
+    assert preview["total_a_pagar"] == "1081699.06"
+    assert preview["avisos"] == []
+    (prevista,) = preview["boletas"]
+    assert prevista["escribano"]["id"] == boleta["escribano"]["id"] == str(escenario.titular.id)
+    assert boleta["escribano"]["cargo"] == "TITULAR"
+    assert boleta["escribano"]["modalidad"] == "COMPLETA"
+    for liq in (prevista, boleta):
         assert liq["total_protocolos"] == "984699.06"
         assert liq["aporte_minimo"] == "85932.00"
         assert liq["excedente"] == "898767.06"
@@ -121,13 +136,20 @@ async def test_aporte_medico_por_titular_y_adscripto(
 ) -> None:
     ddjj = await _borrador(notario, escenario)
 
-    boleta = await _presentar(notario, ddjj["id"])
+    titular, adscripto = await _presentar(notario, ddjj["id"])
 
-    # Sin actos: rige el mínimo. Dos escribanos con cargo propio: dos aportes médicos.
-    assert boleta["total_protocolos"] == "0.00"
-    assert boleta["cantidad_aportes_medicos"] == 2
-    assert boleta["aporte_medico"] == "194000.00"
-    assert boleta["total_a_pagar"] == "279932.00"
+    # Sin actos: cada uno paga su propio mínimo y su aporte médico, en su propia boleta.
+    assert titular["escribano"]["id"] == str(escenario.titular.id)
+    assert adscripto["escribano"]["id"] == str(escenario.adscripto.id)
+    assert adscripto["escribano"]["cargo"] == "ADSCRIPTO"
+    for boleta in (titular, adscripto):
+        assert boleta["total_protocolos"] == "0.00"
+        assert boleta["aporte_minimo"] == "85932.00"
+        assert boleta["cantidad_aportes_medicos"] == 1
+        assert boleta["aporte_medico"] == "97000.00"
+        assert boleta["total_a_pagar"] == "182932.00"
+    assert titular["numero"] != adscripto["numero"]
+    assert titular["codigo_verificacion"] != adscripto["codigo_verificacion"]
 
 
 async def test_cambio_de_parametros_no_altera_lo_emitido(
@@ -135,7 +157,7 @@ async def test_cambio_de_parametros_no_altera_lo_emitido(
 ) -> None:
     await _solo_titular(db_session, escenario)
     ddjj = await _cargar_1069(notario, escenario)
-    original = await _presentar(notario, ddjj["id"])
+    (original,) = await _presentar(notario, ddjj["id"])
 
     # Nueva vigencia del mínimo desde septiembre (cierra la anterior).
     concepto_id = await db_session.scalar(
@@ -163,9 +185,7 @@ async def test_cambio_de_parametros_no_altera_lo_emitido(
     await db_session.commit()
 
     leida = (await notario.get(f"/api/v1/ddjj/boletas/{original['id']}")).json()
-    reemitida = await notario.post(
-        f"/api/v1/ddjj/declaraciones/{ddjj['id']}/boletas", json={"fecha_pago": "2026-10-27"}
-    )
+    reemitida = await _reemitir(notario, ddjj["id"], escenario.titular, "2026-10-27")
 
     assert leida["aporte_minimo"] == "85932.00"
     assert leida["total_a_pagar"] == "1081699.06"
@@ -179,11 +199,9 @@ async def test_reemision_fuera_de_termino_aplica_la_mora_y_anula_la_anterior(
 ) -> None:
     await _solo_titular(db_session, escenario)
     ddjj = await _cargar_1069(notario, escenario)
-    original = await _presentar(notario, ddjj["id"])
+    (original,) = await _presentar(notario, ddjj["id"])
 
-    response = await notario.post(
-        f"/api/v1/ddjj/declaraciones/{ddjj['id']}/boletas", json={"fecha_pago": "2026-11-07"}
-    )
+    response = await _reemitir(notario, ddjj["id"], escenario.titular, "2026-11-07")
 
     assert response.status_code == 201, response.text
     nueva = response.json()
@@ -214,7 +232,7 @@ async def test_la_vista_previa_avisa_valores_de_ejemplo(
 
     # La tasa de mora de este test está marcada "a confirmar".
     assert preview.status_code == 200, preview.text
-    assert preview.json()["dias_mora"] == 10
+    assert [b["dias_mora"] for b in preview.json()["boletas"]] == [10, 10]
     assert preview.json()["usa_valores_de_ejemplo"] is True
 
 
@@ -223,7 +241,7 @@ async def test_rectificativa(
 ) -> None:
     await _solo_titular(db_session, escenario)
     ddjj = await _cargar_1069(notario, escenario)
-    original = await _presentar(notario, ddjj["id"])
+    (original,) = await _presentar(notario, ddjj["id"])
 
     response = await notario.post(f"/api/v1/ddjj/declaraciones/{ddjj['id']}/rectificar")
 
@@ -246,7 +264,7 @@ async def test_rectificativa(
     }
     added = await notario.post(f"/api/v1/ddjj/declaraciones/{rect['id']}/actos", json=acta)
     assert added.status_code == 201, added.text
-    nueva = await _presentar(notario, rect["id"])
+    (nueva,) = await _presentar(notario, rect["id"])
     assert nueva["total_protocolos"] == "994621.06"  # + 9.922 del poder
     assert nueva["numero_rectificativa"] == 1
 

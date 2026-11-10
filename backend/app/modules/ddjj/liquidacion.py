@@ -8,20 +8,23 @@ Reproduce la boleta del sistema en uso (N° 1069, período 09/2026):
     interés               = mora sobre el total en término si se paga después del vencimiento
     total a pagar         = total en término + interés
 
-Se cobra un aporte médico por cada titular y cada adscripto del registro; quien está a cargo no
-lo paga por ese registro (confirmado por la Caja el 27/10/2026).
+Cada escribano del registro tiene su propia boleta y la paga en su fecha (contrato, Anexo I):
+titular y adscripto pagan cada uno su mínimo, su aporte médico y el excedente sobre sus propios
+actos, como en el sistema de la Caja (planilla de pagos 2019-2026: el 98 % de los adscriptos pagó
+el mismo mínimo y médico que su titular). Quien está a cargo no paga el médico por ese registro
+(confirmado por la Caja el 27/10/2026); qué paga lo fija la Caja en cada designación.
 
-TODO(negocio): confirmar con la Caja que el aporte mínimo es un piso por registro y no por
-escribano.
+`liquidar` calcula una boleta; `liquidar_por_escribano`, las del equipo del registro.
 """
 
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
 from app.common.money import to_money
-from app.modules.ddjj.catalog import CategoriaActo
+from app.modules.ddjj.catalog import CategoriaActo, ModalidadBoleta
 from app.modules.parametros import motor
 from app.modules.parametros.motor import VigenciaSnapshot
 
@@ -139,3 +142,94 @@ def totalizar(
         total_a_pagar=total_en_termino + calculo.interes,
         tramos_mora=calculo.tramos,
     )
+
+
+@dataclass(frozen=True)
+class Obligado:
+    """Escribano del equipo del registro en el período y qué le cobra su boleta.
+
+    `modalidad` None: no tiene boleta propia, sus actos van a la del titular (a cargo con
+    AporteACargo.EN_BOLETA_DEL_TITULAR).
+    """
+
+    escribano_id: uuid.UUID
+    cargo: str
+    modalidad: ModalidadBoleta | None
+
+
+@dataclass(frozen=True)
+class LiquidacionEscribano:
+    obligado: Obligado
+    modalidad: ModalidadBoleta
+    liquidacion: Liquidacion
+
+
+TITULAR = "TITULAR"
+SIN_TITULAR_UNICO = (
+    "Los actos del escribano a cargo se cobran en la boleta del titular, pero el registro no "
+    "tiene un único titular en el período: la Caja tiene que fijar otra forma de aporte en la "
+    "designación."
+)
+ACTO_SIN_CARGO = "Hay actos de un escribano que no integra el registro en el período."
+
+
+def liquidar_por_escribano(
+    actos: Sequence[tuple[uuid.UUID, ActoALiquidar, VigenciaSnapshot | None]],
+    obligados: Sequence[Obligado],
+    *,
+    minimo: VigenciaSnapshot,
+    medico: VigenciaSnapshot,
+    vencimiento: date,
+    fecha_pago: date,
+    mora: Sequence[VigenciaSnapshot],
+) -> tuple[tuple[AporteActo, ...], tuple[LiquidacionEscribano, ...]]:
+    """Aporte de cada acto (en el orden recibido) y una liquidación por escribano con boleta.
+
+    Cada acto suma al escribano que lo autorizó, o al titular si ese escribano está a cargo con
+    sus actos en la boleta del titular. Quien está a cargo solo por sus actos y no tiene nada que
+    aportar no recibe boleta.
+    """
+    por_id = {o.escribano_id: o for o in obligados}
+    if len(por_id) != len(obligados):
+        raise LiquidacionError("Un escribano figura dos veces en el equipo del registro.")
+    titulares = [o for o in obligados if o.cargo == TITULAR]
+
+    def destino(escribano_id: uuid.UUID) -> uuid.UUID:
+        obligado = por_id.get(escribano_id)
+        if obligado is None:
+            raise LiquidacionError(ACTO_SIN_CARGO)
+        if obligado.modalidad is not None:
+            return escribano_id
+        if len(titulares) != 1:
+            raise LiquidacionError(SIN_TITULAR_UNICO)
+        return titulares[0].escribano_id
+
+    aportes = tuple(aporte_de_acto(acto, vigencia) for _, acto, vigencia in actos)
+    propios: dict[uuid.UUID, list[AporteActo]] = {}
+    for (escribano_id, _, _), aporte in zip(actos, aportes, strict=True):
+        propios.setdefault(destino(escribano_id), []).append(aporte)
+
+    boletas: list[LiquidacionEscribano] = []
+    for o in obligados:
+        if o.modalidad is None:
+            continue
+        suyos = tuple(propios.get(o.escribano_id, ()))
+        protocolos = to_money(sum((a.aporte for a in suyos), CERO))
+        # Sin nada que cobrar (sin actos, o solo exentos o sin efecto) no hay boleta.
+        if o.modalidad is ModalidadBoleta.SOLO_ACTOS and protocolos == CERO:
+            continue
+        con_medico = o.modalidad is ModalidadBoleta.COMPLETA
+        liquidacion = totalizar(
+            suyos,
+            protocolos,
+            aporte_minimo=CERO
+            if o.modalidad is ModalidadBoleta.SOLO_ACTOS
+            else motor.aporte_fijo(minimo),
+            aporte_medico=motor.aporte_fijo(medico) if con_medico else CERO,
+            cantidad_aportes_medicos=1 if con_medico else 0,
+            vencimiento=vencimiento,
+            fecha_pago=fecha_pago,
+            mora=mora,
+        )
+        boletas.append(LiquidacionEscribano(o, o.modalidad, liquidacion))
+    return aportes, tuple(boletas)

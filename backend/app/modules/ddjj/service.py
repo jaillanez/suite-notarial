@@ -6,9 +6,11 @@ Acceso por registro notarial:
 - El personal de la Caja consulta todo (`ddjj:read_all`) y puede cargar y presentar en nombre
   del registro (`ddjj:approve`), como hoy en el sistema actual.
 
-El cálculo se hace siempre en el servidor (`liquidacion.liquidar`) con las vigencias del primer
-día del período; al presentar se congelan el aporte y la vigencia de cada acto y la boleta guarda
-las vigencias del mínimo, el aporte médico y la mora (SNAP).
+El cálculo se hace siempre en el servidor (`liquidacion.liquidar_por_escribano`) con las
+vigencias del primer día del período. La DDJJ es del registro, pero cada escribano del equipo
+recibe su propia boleta y la paga en su fecha. Al presentar se congelan el aporte y la vigencia
+de cada acto, y cada boleta guarda su escribano, su modalidad y las vigencias del mínimo, el
+aporte médico y la mora (SNAP).
 """
 
 import base64
@@ -31,6 +33,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import today_local
+from app.common.money import to_money
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
 from app.modules.ddjj import protocolo
@@ -42,14 +45,18 @@ from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
     EstadoDDJJ,
+    ModalidadBoleta,
     TipoProtocolo,
 )
 from app.modules.ddjj.liquidacion import (
     ActoALiquidar,
+    AporteActo,
     Liquidacion,
     LiquidacionError,
+    LiquidacionEscribano,
+    Obligado,
     aporte_de_acto,
-    liquidar,
+    liquidar_por_escribano,
     totalizar,
 )
 from app.modules.ddjj.models import Acto, Boleta, BoletaTramoMora, DeclaracionJurada, Vencimiento
@@ -59,7 +66,7 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.padron import a_cargo
-from app.modules.padron.catalog import Cargo, EstadoRegistro
+from app.modules.padron.catalog import AporteACargo, Cargo, EstadoRegistro
 from app.modules.padron.models import Adscripcion, Escribano, RegistroNotarial
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.pagos.models import Comprobante
@@ -77,8 +84,13 @@ CARGO_TEXTO = {
     Cargo.ADSCRIPTO.value: "Adscripto",
     Cargo.SUPLENTE_INTERINO.value: "A cargo",
 }
-# Cargos que tributan el aporte médico asistencial (los "a cargo" no: ver liquidacion.py).
-CARGOS_CON_APORTE_MEDICO = (Cargo.TITULAR.value, Cargo.ADSCRIPTO.value)
+# Qué cobra la boleta de quien está a cargo, según lo que fijó la Caja en su designación. None:
+# no tiene boleta propia, sus actos se cobran en la del titular.
+MODALIDAD_A_CARGO: dict[str, ModalidadBoleta | None] = {
+    AporteACargo.SOLO_ACTOS.value: ModalidadBoleta.SOLO_ACTOS,
+    AporteACargo.CON_MINIMO.value: ModalidadBoleta.CON_MINIMO,
+    AporteACargo.EN_BOLETA_DEL_TITULAR.value: None,
+}
 
 
 def _not_found(what: str) -> ProblemError:
@@ -139,6 +151,25 @@ def _es_staff_lectura(principal: Principal) -> bool:
 
 def _es_staff_carga(principal: Principal) -> bool:
     return Perm.DDJJ_APPROVE.value in principal.permissions
+
+
+async def puede_reemitir(
+    session: AsyncSession,
+    principal: Principal,
+    registro_id: uuid.UUID,
+    escribano_id: uuid.UUID | None,
+) -> bool:
+    """Reemitir anula la boleta pendiente: cada escribano reemite solo la suya (las boletas son
+    independientes) y la Caja, cualquiera. La boleta del registro (anterior a las boletas por
+    notario) la reemite quien opera el registro, como antes."""
+    if _es_staff_carga(principal):
+        return True
+    if not await puede_operar(session, principal, registro_id):
+        return False
+    if escribano_id is None:
+        return True
+    propio = await _escribano_de(session, principal.user)
+    return propio is not None and propio.id == escribano_id
 
 
 async def puede_operar(session: AsyncSession, principal: Principal, registro_id: uuid.UUID) -> bool:
@@ -274,6 +305,9 @@ class CargoEnPeriodo:
     escribano: Escribano
     cargo: str
     fecha_desde: date
+    fecha_hasta: date | None
+    # Solo en las designaciones a cargo: qué paga por los actos (catalog.AporteACargo).
+    aporte: str | None = None
 
     @property
     def escribano_id(self) -> uuid.UUID:
@@ -297,19 +331,69 @@ async def cargos_en_periodo(
         )
     )
     cargos = [
-        CargoEnPeriodo(c.escribano, c.cargo, c.fecha_desde) for c in result.unique().scalars()
+        CargoEnPeriodo(c.escribano, c.cargo, c.fecha_desde, c.fecha_hasta)
+        for c in result.unique().scalars()
     ]
     cargos += [
-        CargoEnPeriodo(d.escribano, Cargo.SUPLENTE_INTERINO.value, d.fecha_desde)
+        CargoEnPeriodo(
+            d.escribano, Cargo.SUPLENTE_INTERINO.value, d.fecha_desde, d.fecha_hasta, d.aporte
+        )
         for d in await a_cargo.aprobadas_en(session, registro_id, desde, hasta)
     ]
     return sorted(cargos, key=lambda c: (_ORDEN_CARGO.get(c.cargo, 2), c.fecha_desde))
 
 
-def cantidad_aportes_medicos(cargos: list[CargoEnPeriodo]) -> int:
-    """Un aporte médico por escribano titular o adscripto del registro en el período (lo
-    confirmó la Caja el 27/10/2026; quien está a cargo no lo paga por ese registro)."""
-    return len({c.escribano_id for c in cargos if c.cargo in CARGOS_CON_APORTE_MEDICO})
+def nombre_escribano(escribano: Escribano) -> str:
+    persona = escribano.persona
+    return f"{persona.apellido.upper()}, {persona.nombre}"
+
+
+def obligados(cargos: list[CargoEnPeriodo]) -> list[Obligado]:
+    """Quién recibe boleta por la DDJJ del registro y qué le cobra.
+
+    Titular y adscripto: mínimo, médico y excedente (cada uno el suyo). Quien está a cargo: lo
+    que fijó la Caja en la designación. Quien tuvo dos lugares en el período (p. ej. pasó de
+    adscripto a titular) tiene una sola boleta, con el de mayor rango.
+    """
+    vistos: dict[uuid.UUID, Obligado] = {}
+    for c in cargos:  # ordenados: titular, adscriptos y al final quienes estuvieron a cargo
+        if c.escribano_id in vistos:
+            continue
+        modalidad = (
+            MODALIDAD_A_CARGO[c.aporte or AporteACargo.SOLO_ACTOS.value]
+            if c.cargo == Cargo.SUPLENTE_INTERINO.value
+            else ModalidadBoleta.COMPLETA
+        )
+        vistos[c.escribano_id] = Obligado(c.escribano_id, c.cargo, modalidad)
+    return list(vistos.values())
+
+
+def avisos_de_minimo(
+    cargos: list[CargoEnPeriodo], equipo: list[Obligado], periodo: str
+) -> list[str]:
+    """Quien empieza o termina su cargo dentro del período paga el mínimo mensual completo.
+
+    TODO(negocio): en el sistema de la Caja hay mínimos proporcionales en esos meses; falta que la
+    Caja defina la fórmula. Mientras tanto se cobra completo y se avisa.
+    """
+    desde, hasta = rango_periodo(periodo)
+    avisos: list[str] = []
+    for o in equipo:
+        if o.modalidad not in (ModalidadBoleta.COMPLETA, ModalidadBoleta.CON_MINIMO):
+            continue
+        tramos = [c for c in cargos if c.escribano_id == o.escribano_id]
+        empieza = min(c.fecha_desde for c in tramos) > desde
+        finales = [c.fecha_hasta for c in tramos if c.fecha_hasta is not None]
+        termina = len(finales) == len(tramos) and max(finales) < hasta
+        if empieza or termina:
+            cuando = " y ".join(
+                verbo for verbo, si in (("empieza", empieza), ("termina", termina)) if si
+            )
+            avisos.append(
+                f"{nombre_escribano(tramos[0].escribano)} {cuando} su cargo dentro del período: "
+                "se cobra el mínimo mensual completo (la Caja todavía no definió un proporcional)."
+            )
+    return avisos
 
 
 # --------------------------------------------------------------------------- vencimientos
@@ -845,13 +929,23 @@ async def baja_acto(
 
 @dataclass(frozen=True)
 class Preliquidacion:
-    liquidacion: Liquidacion
+    # Aporte de cada acto, en el orden de los actos.
+    aportes: tuple[AporteActo, ...]
+    # Una por escribano con boleta, en el orden del equipo (titular primero).
+    boletas: tuple[LiquidacionEscribano, ...]
+    escribanos: dict[uuid.UUID, Escribano]
+    avisos: list[str]
     vencimiento: date
     fecha_pago: date
     minimo: VigenciaSnapshot
     medico: VigenciaSnapshot
     mora: list[VigenciaSnapshot]
     usa_valores_de_ejemplo: bool
+
+    @property
+    def total_protocolos(self) -> Decimal:
+        """Aportes de todos los actos del registro (la suma de lo que va a cada boleta)."""
+        return to_money(sum((a.aporte for a in self.aportes), Decimal("0.00")))
 
 
 async def _hay_ejemplos(session: AsyncSession, ids: set[uuid.UUID]) -> bool:
@@ -874,30 +968,6 @@ async def _tasas_de_mora(
     return await parametros.vigencias_entre(session, CONCEPTO_MORA, vencimiento, fecha_pago)
 
 
-def _liquidar(
-    actos: list[tuple[ActoALiquidar, VigenciaSnapshot | None]],
-    *,
-    minimo: VigenciaSnapshot,
-    medico: VigenciaSnapshot,
-    cantidad_medicos: int,
-    vencimiento: date,
-    fecha_pago: date,
-    mora: list[VigenciaSnapshot],
-) -> Liquidacion:
-    try:
-        return liquidar(
-            actos,
-            minimo=minimo,
-            medico=medico,
-            cantidad_aportes_medicos=cantidad_medicos,
-            vencimiento=vencimiento,
-            fecha_pago=fecha_pago,
-            mora=mora,
-        )
-    except LiquidacionError as exc:
-        raise _invalid(str(exc)) from exc
-
-
 async def preliquidar(
     session: AsyncSession, ddjj: DeclaracionJurada, actos: list[Acto], fecha_pago: date
 ) -> Preliquidacion:
@@ -905,7 +975,7 @@ async def preliquidar(
     inicio, _ = rango_periodo(ddjj.periodo)
     vencimiento = await _vencimiento_requerido(session, ddjj.periodo)
     por_concepto: dict[str, VigenciaSnapshot] = {}
-    a_liquidar: list[tuple[ActoALiquidar, VigenciaSnapshot | None]] = []
+    a_liquidar: list[tuple[uuid.UUID, ActoALiquidar, VigenciaSnapshot | None]] = []
     for acto in actos:
         categoria = CategoriaActo(acto.categoria)
         codigo = CONCEPTO_POR_CATEGORIA[categoria]
@@ -914,24 +984,33 @@ async def preliquidar(
             if codigo not in por_concepto:
                 por_concepto[codigo] = await parametros.get_vigencia(session, codigo, inicio)
             vigencia = por_concepto[codigo]
-        a_liquidar.append((ActoALiquidar(categoria, acto.base_imponible), vigencia))
+        a_liquidar.append(
+            (acto.escribano_id, ActoALiquidar(categoria, acto.base_imponible), vigencia)
+        )
     minimo = await parametros.get_vigencia(session, CONCEPTO_MINIMO, inicio)
     medico = await parametros.get_vigencia(session, CONCEPTO_MEDICO, inicio)
     mora = await _tasas_de_mora(session, vencimiento, fecha_pago)
     cargos = await cargos_en_periodo(session, ddjj.registro_id, ddjj.periodo)
-    liquidacion = _liquidar(
-        a_liquidar,
-        minimo=minimo,
-        medico=medico,
-        cantidad_medicos=cantidad_aportes_medicos(cargos),
-        vencimiento=vencimiento,
-        fecha_pago=fecha_pago,
-        mora=mora,
-    )
+    equipo = obligados(cargos)
+    try:
+        aportes, boletas = liquidar_por_escribano(
+            a_liquidar,
+            equipo,
+            minimo=minimo,
+            medico=medico,
+            vencimiento=vencimiento,
+            fecha_pago=fecha_pago,
+            mora=mora,
+        )
+    except LiquidacionError as exc:
+        raise _invalid(str(exc)) from exc
     usadas = {v.vigencia_id for v in por_concepto.values()} | {minimo.vigencia_id}
     usadas |= {medico.vigencia_id} | {v.vigencia_id for v in mora}
     return Preliquidacion(
-        liquidacion=liquidacion,
+        aportes=aportes,
+        boletas=boletas,
+        escribanos={c.escribano_id: c.escribano for c in cargos},
+        avisos=avisos_de_minimo(cargos, equipo, ddjj.periodo),
         vencimiento=vencimiento,
         fecha_pago=fecha_pago,
         minimo=minimo,
@@ -984,6 +1063,11 @@ def checksum_boleta(boleta: Boleta, registro_numero: int) -> str:
             str(boleta.vigencia_mora_id) if boleta.vigencia_mora_id else None,
         ],
     }
+    # Las boletas del registro (anteriores a las boletas por notario) no lo tienen.
+    if boleta.escribano_id is not None:
+        datos["escribano"] = str(boleta.escribano_id)
+        datos["cargo"] = boleta.cargo
+        datos["modalidad"] = boleta.modalidad
     # Las boletas anteriores al detalle por tramos no lo tienen: su huella no cambia.
     if boleta.tramos_mora:
         datos["tramos_mora"] = [
@@ -1013,6 +1097,9 @@ async def _crear_boleta(
     fecha_pago: date,
     vigencia_minimo_id: uuid.UUID,
     vigencia_medico_id: uuid.UUID,
+    escribano_id: uuid.UUID | None,
+    cargo: str | None,
+    modalidad: str | None,
 ) -> Boleta:
     registro = await session.get(RegistroNotarial, ddjj.registro_id)
     assert registro is not None  # noqa: S101 - FK RESTRICT
@@ -1025,6 +1112,9 @@ async def _crear_boleta(
         registro_id=ddjj.registro_id,
         periodo=ddjj.periodo,
         estado=EstadoBoleta.PENDIENTE.value,
+        escribano_id=escribano_id,
+        cargo=cargo,
+        modalidad=modalidad,
         fecha_emision=today_local(),
         fecha_vencimiento=vencimiento,
         fecha_pago=fecha_pago,
@@ -1078,17 +1168,26 @@ async def _crear_boleta(
             "ddjj_id": str(ddjj.id),
             "registro": registro.numero_registro,
             "periodo": ddjj.periodo,
+            "escribano_id": str(escribano_id) if escribano_id else None,
+            "modalidad": modalidad,
         },
     )
     return boleta
 
 
-async def _boleta_pendiente(session: AsyncSession, ddjj_id: uuid.UUID) -> Boleta | None:
-    return await session.scalar(
+async def _boletas_pendientes(session: AsyncSession, ddjj_id: uuid.UUID) -> list[Boleta]:
+    result = await session.scalars(
         select(Boleta)
         .where(Boleta.ddjj_id == ddjj_id, Boleta.estado == EstadoBoleta.PENDIENTE.value)
+        .order_by(Boleta.numero)
         .with_for_update()
     )
+    return list(result.all())
+
+
+def _de(escribano_id: uuid.UUID | None) -> ColumnElement[bool]:
+    """Boletas de ese escribano (None: las del registro, anteriores a las boletas por notario)."""
+    return Boleta.escribano_id.is_not_distinct_from(escribano_id)
 
 
 def _anular(
@@ -1115,8 +1214,9 @@ async def presentar(
     principal: Principal,
     ddjj_id: uuid.UUID,
     data: PresentarIn,
-) -> Boleta:
-    """Congela la liquidación de cada acto y emite la boleta en la misma transacción."""
+) -> list[Boleta]:
+    """Congela la liquidación de cada acto y emite la boleta de cada escribano del equipo en la
+    misma transacción (todas con la fecha de pago elegida; cada uno puede reemitir la suya)."""
     ddjj = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, ddjj.registro_id)
     _exigir_borrador(ddjj)
@@ -1126,14 +1226,14 @@ async def presentar(
     actos = await list_actos(session, ddjj.id)
     await _exigir_numeracion_sin_repetidos(session, principal, ddjj, actos)
     pre = await preliquidar(session, ddjj, actos, data.fecha_pago)
-    for acto, aporte in zip(actos, pre.liquidacion.aportes, strict=True):
+    for acto, aporte in zip(actos, pre.aportes, strict=True):
         acto.aporte = aporte.aporte
         acto.vigencia_id = aporte.vigencia.vigencia_id if aporte.vigencia else None
     await session.flush()
     ddjj.estado = EstadoDDJJ.PRESENTADA.value
     ddjj.fecha_presentacion = datetime.now(UTC)
     ddjj.presentada_por_user_id = principal.user.id
-    ddjj.total_protocolos = pre.liquidacion.total_protocolos
+    ddjj.total_protocolos = pre.total_protocolos
     ddjj.cantidad_actos = len(actos)
     if data.observaciones:
         ddjj.observaciones = data.observaciones
@@ -1147,35 +1247,48 @@ async def presentar(
         new_value={
             "estado": EstadoDDJJ.PRESENTADA.value,
             "cantidad_actos": len(actos),
-            "total_protocolos": f"{pre.liquidacion.total_protocolos:.2f}",
+            "total_protocolos": f"{pre.total_protocolos:.2f}",
+            "boletas": len(pre.boletas),
         },
         details={"ddjj_id": str(ddjj.id), "periodo": ddjj.periodo},
     )
-    boleta = await _crear_boleta(
-        session,
-        ctx,
-        principal.user,
-        ddjj,
-        liquidacion=pre.liquidacion,
-        vencimiento=pre.vencimiento,
-        fecha_pago=data.fecha_pago,
-        vigencia_minimo_id=pre.minimo.vigencia_id,
-        vigencia_medico_id=pre.medico.vigencia_id,
-    )
+    boletas = [
+        await _crear_boleta(
+            session,
+            ctx,
+            principal.user,
+            ddjj,
+            liquidacion=b.liquidacion,
+            vencimiento=pre.vencimiento,
+            fecha_pago=data.fecha_pago,
+            vigencia_minimo_id=pre.minimo.vigencia_id,
+            vigencia_medico_id=pre.medico.vigencia_id,
+            escribano_id=b.obligado.escribano_id,
+            cargo=b.obligado.cargo,
+            modalidad=b.modalidad.value,
+        )
+        for b in pre.boletas
+    ]
     await session.commit()
-    return boleta
+    return boletas
 
 
-async def _exigir_sin_comprobante_en_revision(session: AsyncSession, ddjj_id: uuid.UUID) -> None:
-    """Mientras Tesorería revisa un pago, la boleta no se anula (regla PAGO)."""
+async def _exigir_sin_comprobante_en_revision(
+    session: AsyncSession, ddjj_id: uuid.UUID, *, solo: ColumnElement[bool] | None = None
+) -> None:
+    """Mientras Tesorería revisa un pago, la boleta no se anula (regla PAGO). `solo` acota a
+    las boletas de un escribano."""
+    condiciones = [
+        Boleta.ddjj_id == ddjj_id,
+        Comprobante.estado == EstadoComprobante.PENDIENTE_REVISION.value,
+    ]
+    if solo is not None:
+        condiciones.append(solo)
     en_revision = await session.scalar(
         select(func.count())
         .select_from(Comprobante)
         .join(Boleta, Boleta.id == Comprobante.boleta_id)
-        .where(
-            Boleta.ddjj_id == ddjj_id,
-            Comprobante.estado == EstadoComprobante.PENDIENTE_REVISION.value,
-        )
+        .where(*condiciones)
     )
     if en_revision:
         raise _conflict(
@@ -1190,29 +1303,38 @@ async def emitir_boleta(
     principal: Principal,
     ddjj_id: uuid.UUID,
     fecha_pago: date,
+    escribano_id: uuid.UUID | None,
 ) -> Boleta:
-    """Nueva boleta de una DDJJ presentada para otra fecha de pago (recalcula solo la mora).
+    """Nueva boleta de un escribano para otra fecha de pago (recalcula solo la mora).
 
-    Los importes de protocolo, mínimo y aporte médico salen de la primera boleta (SNAP): un
-    cambio posterior de parámetros no los altera. La boleta pendiente anterior se anula.
+    Los importes de protocolo, mínimo y aporte médico salen de su primera boleta de la DDJJ
+    (SNAP): un cambio posterior de parámetros no los altera. Su boleta pendiente anterior se
+    anula; las de los demás escribanos no cambian. `escribano_id` None: la boleta del registro,
+    en las DDJJ presentadas antes de las boletas por notario.
     """
     ddjj = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, ddjj.registro_id)
     if ddjj.estado != EstadoDDJJ.PRESENTADA.value:
         raise _conflict("Solo se emiten boletas de una declaración jurada presentada.")
-    _validar_fecha_pago(fecha_pago)
-    await _exigir_sin_comprobante_en_revision(session, ddjj.id)
-    if await session.scalar(
-        select(func.count()).where(
-            Boleta.ddjj_id == ddjj.id, Boleta.estado == EstadoBoleta.PAGADA.value
+    if not await puede_reemitir(session, principal, ddjj.registro_id, escribano_id):
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN,
+            "Cada escribano reemite su propia boleta: la de otro la reemite él o la Caja.",
         )
-    ):
-        raise _conflict("La declaración jurada ya está paga.")
+    _validar_fecha_pago(fecha_pago)
+    suyas = _de(escribano_id)
     base = await session.scalar(
-        select(Boleta).where(Boleta.ddjj_id == ddjj.id).order_by(Boleta.numero).limit(1)
+        select(Boleta).where(Boleta.ddjj_id == ddjj.id, suyas).order_by(Boleta.numero).limit(1)
     )
     if base is None:
-        raise _conflict("La declaración jurada no tiene boleta original.")
+        raise _conflict("Ese escribano no tiene boleta en esta declaración jurada.")
+    await _exigir_sin_comprobante_en_revision(session, ddjj.id, solo=suyas)
+    if await session.scalar(
+        select(func.count()).where(
+            Boleta.ddjj_id == ddjj.id, suyas, Boleta.estado == EstadoBoleta.PAGADA.value
+        )
+    ):
+        raise _conflict("Esa boleta ya está paga.")
     mora = await _tasas_de_mora(session, base.fecha_vencimiento, fecha_pago)
     try:
         liquidacion = totalizar(
@@ -1227,10 +1349,10 @@ async def emitir_boleta(
         )
     except LiquidacionError as exc:
         raise _invalid(str(exc)) from exc
-    pendiente = await _boleta_pendiente(session, ddjj.id)
-    if pendiente is not None:
-        _anular(session, ctx, principal.user, pendiente, "Reemplazada por una boleta nueva.")
-        await session.flush()
+    for pendiente in await _boletas_pendientes(session, ddjj.id):
+        if pendiente.escribano_id == escribano_id:
+            _anular(session, ctx, principal.user, pendiente, "Reemplazada por una boleta nueva.")
+    await session.flush()
     boleta = await _crear_boleta(
         session,
         ctx,
@@ -1241,6 +1363,9 @@ async def emitir_boleta(
         fecha_pago=fecha_pago,
         vigencia_minimo_id=base.vigencia_minimo_id,
         vigencia_medico_id=base.vigencia_medico_id,
+        escribano_id=base.escribano_id,
+        cargo=base.cargo,
+        modalidad=base.modalidad,
     )
     await session.commit()
     return boleta
@@ -1251,8 +1376,9 @@ async def rectificar(
 ) -> DeclaracionJurada:
     """Abre la rectificativa de una DDJJ presentada, con una copia editable de sus actos.
 
-    La original pasa a RECTIFICADA (queda intacta como antecedente) y su boleta pendiente se
-    anula. TODO(negocio): rectificar una DDJJ ya paga requiere definir cómo se imputa lo pagado.
+    La original pasa a RECTIFICADA (queda intacta como antecedente) y sus boletas pendientes se
+    anulan. TODO(negocio): rectificar una DDJJ con alguna boleta paga requiere definir cómo se
+    imputa lo pagado.
     """
     original = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, original.registro_id)
@@ -1264,12 +1390,11 @@ async def rectificar(
         )
     ):
         raise _conflict(
-            "La declaración jurada ya está paga: la rectificación con pago a cuenta todavía no "
-            "está disponible."
+            "La declaración jurada tiene boletas pagas: la rectificación con pago a cuenta "
+            "todavía no está disponible."
         )
     await _exigir_sin_comprobante_en_revision(session, original.id)
-    pendiente = await _boleta_pendiente(session, original.id)
-    if pendiente is not None:
+    for pendiente in await _boletas_pendientes(session, original.id):
         _anular(session, ctx, principal.user, pendiente, "DDJJ en rectificación.")
     original.estado = EstadoDDJJ.RECTIFICADA.value
     await session.flush()
@@ -1374,16 +1499,21 @@ async def datos_pdf(session: AsyncSession, boleta: Boleta) -> DatosBoleta:
     registro = await session.get(RegistroNotarial, boleta.registro_id)
     ddjj = await session.get(DeclaracionJurada, boleta.ddjj_id)
     assert registro is not None and ddjj is not None  # noqa: S101 - FK RESTRICT
-    cargos = await cargos_en_periodo(session, boleta.registro_id, boleta.periodo)
     escribanos: dict[uuid.UUID, EscribanoBoleta] = {}
-    for c in cargos:
-        persona = c.escribano.persona
-        escribanos.setdefault(
-            c.escribano_id,
-            EscribanoBoleta(
-                f"{persona.apellido.upper()}, {persona.nombre}", CARGO_TEXTO.get(c.cargo, c.cargo)
-            ),
+    if boleta.escribano_id is not None:
+        # Boleta de un escribano: es la suya (cargo congelado al emitir).
+        propio = await session.get(Escribano, boleta.escribano_id)
+        assert propio is not None and boleta.cargo is not None  # noqa: S101 - FK RESTRICT
+        escribanos[propio.id] = EscribanoBoleta(
+            nombre_escribano(propio), CARGO_TEXTO.get(boleta.cargo, boleta.cargo)
         )
+    else:
+        # Boleta del registro (anterior a las boletas por notario): todo el equipo.
+        for c in await cargos_en_periodo(session, boleta.registro_id, boleta.periodo):
+            escribanos.setdefault(
+                c.escribano_id,
+                EscribanoBoleta(nombre_escribano(c.escribano), CARGO_TEXTO.get(c.cargo, c.cargo)),
+            )
     return DatosBoleta(
         boleta=boleta,
         registro_numero=registro.numero_registro,

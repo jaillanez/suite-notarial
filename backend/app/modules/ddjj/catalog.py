@@ -39,6 +39,20 @@ class EstadoDDJJ(StrEnum):
     RECTIFICADA = "RECTIFICADA"
 
 
+class ModalidadBoleta(StrEnum):
+    """Qué cobra la boleta de cada escribano por la DDJJ del registro (una boleta por escribano:
+    cada uno paga en su fecha)."""
+
+    # Titular o adscripto: mínimo mensual, aporte médico y excedente sobre sus actos. En el
+    # sistema de la Caja, cada uno paga su propio mínimo y su médico (98 % de los casos
+    # 2019-2026, planilla «Histórico de aportes pagados por día»).
+    COMPLETA = "COMPLETA"
+    # A cargo (AporteACargo.CON_MINIMO): mínimo y excedente, sin aporte médico.
+    CON_MINIMO = "CON_MINIMO"
+    # A cargo (AporteACargo.SOLO_ACTOS): solo el aporte de sus actos.
+    SOLO_ACTOS = "SOLO_ACTOS"
+
+
 class EstadoBoleta(StrEnum):
     PENDIENTE = "PENDIENTE"
     PAGADA = "PAGADA"

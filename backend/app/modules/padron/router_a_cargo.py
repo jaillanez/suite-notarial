@@ -23,11 +23,12 @@ from app.modules.iam.deps import (
 )
 from app.modules.iam.models import User
 from app.modules.padron import a_cargo
-from app.modules.padron.catalog import EstadoDesignacion
+from app.modules.padron.catalog import AporteACargo, EstadoDesignacion
 from app.modules.padron.models import DesignacionACargo
 from app.modules.padron.schemas import (
     AjustesPadronIn,
     AjustesPadronOut,
+    DesignacionAporteIn,
     DesignacionBaja,
     DesignacionIn,
     DesignacionOut,
@@ -76,6 +77,7 @@ async def designacion_out(
         fecha_hasta=item.fecha_hasta,
         motivo=item.motivo,
         estado=EstadoDesignacion(item.estado),
+        aporte=AporteACargo(item.aporte),
         rige_hoy=aprobada and item.fecha_desde <= hoy <= item.fecha_hasta,
         created_at=item.created_at,
         cargada_por=await correo(item.created_by_user_id),
@@ -89,6 +91,7 @@ async def designacion_out(
         ),
         puede_anular=gestiona and abierta,
         puede_terminar=gestiona and aprobada and item.fecha_hasta > item.fecha_desde,
+        puede_fijar_aporte=a_cargo.es_personal(principal) and abierta,
     )
 
 
@@ -224,4 +227,17 @@ async def terminar(
     ctx: RequestContextDep,
 ) -> DesignacionOut:
     item = await a_cargo.terminar(session, ctx, principal, designacion_id, body)
+    return await designacion_out(session, principal, item)
+
+
+@router.post("/{designacion_id}/aporte", response_model=DesignacionOut)
+async def fijar_aporte(
+    designacion_id: uuid.UUID,
+    body: DesignacionAporteIn,
+    principal: CanResolve,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> DesignacionOut:
+    """Qué paga el escribano a cargo por los actos del registro. Solo la Caja."""
+    item = await a_cargo.fijar_aporte(session, ctx, principal, designacion_id, body)
     return await designacion_out(session, principal, item)

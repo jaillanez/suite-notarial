@@ -163,11 +163,15 @@ ESCRIBANOS = Reporte(
 
 
 def _boletas(f: Filtros) -> Consulta:
+    escribano = aliased(Escribano)
+    persona = aliased(Persona)
     stmt = select(
         Boleta.numero.label("numero"),
         Boleta.fecha_emision.label("fecha_emision"),
         Boleta.periodo.label("periodo"),
         RegistroNotarial.numero_registro.label("registro"),
+        (persona.apellido + ", " + persona.nombre).label("escribano"),
+        Boleta.cargo.label("cargo"),
         Boleta.estado.label("estado"),
         Boleta.fecha_vencimiento.label("fecha_vencimiento"),
         Boleta.fecha_pago.label("fecha_pago"),
@@ -179,6 +183,10 @@ def _boletas(f: Filtros) -> Consulta:
         Boleta.interes_mora.label("interes_mora"),
         Boleta.total_a_pagar.label("total_a_pagar"),
     ).join(RegistroNotarial, RegistroNotarial.id == Boleta.registro_id)
+    # Las boletas del registro (anteriores a las boletas por notario) no tienen escribano.
+    stmt = stmt.outerjoin(escribano, escribano.id == Boleta.escribano_id).outerjoin(
+        persona, persona.id == escribano.persona_id
+    )
     # Sin filtro de estado no se cuentan las anuladas: sumarlas duplicaría importes reemplazados.
     if "estado" in f:
         stmt = stmt.where(Boleta.estado == f["estado"])
@@ -186,6 +194,9 @@ def _boletas(f: Filtros) -> Consulta:
         stmt = stmt.where(Boleta.estado != EstadoBoleta.ANULADA.value)
     if "registro" in f:
         stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    if "escribano" in f:
+        like = f"%{f['escribano'].lower()}%"
+        stmt = stmt.where(func.lower(persona.apellido + ", " + persona.nombre).like(like))
     stmt = _rango_periodos(stmt, Boleta.periodo, f)
     return stmt.order_by(Boleta.periodo.desc(), Boleta.numero.desc())
 
@@ -194,13 +205,18 @@ BOLETAS = Reporte(
     codigo="BOLETAS",
     construir=_boletas,
     titulo="Boletas emitidas",
-    descripcion="Boletas con su desglose. Sin filtro de estado no incluye las anuladas.",
+    descripcion=(
+        "Una boleta por escribano y período, con su desglose. Sin filtro de estado no incluye "
+        "las anuladas."
+    ),
     permiso=Perm.REPORTS_FINANCIAL,
     columnas=(
         Columna("numero", "N°", Tipo.ENTERO),
         Columna("fecha_emision", "Emisión", Tipo.FECHA, visible=False),
         Columna("periodo", "Período", Tipo.PERIODO),
         Columna("registro", "Registro", Tipo.ENTERO),
+        Columna("escribano", "Escribano", vacio="Del registro"),
+        Columna("cargo", "Cargo", visible=False, vacio="—"),
         Columna("estado", "Estado"),
         Columna("fecha_vencimiento", "Vencimiento", Tipo.FECHA, visible=False),
         Columna("fecha_pago", "Pagar hasta", Tipo.FECHA),
@@ -225,6 +241,7 @@ BOLETAS = Reporte(
             ),
         ),
         Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+        Filtro("escribano", "Escribano", TipoFiltro.TEXTO, ayuda="Apellido o nombre"),
     ),
 )
 

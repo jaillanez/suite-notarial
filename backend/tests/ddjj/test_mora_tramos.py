@@ -48,12 +48,16 @@ async def test_boleta_con_cambio_de_tasa_durante_la_mora(
 ) -> None:
     await _solo_titular(db_session, escenario)
     ddjj = await _cargar_1069(notario, escenario)
-    original = await _presentar(notario, ddjj["id"])
+    (original,) = await _presentar(notario, ddjj["id"])
     assert original["tramos_mora"] == []  # en término
     await _nueva_tasa(db_session, date(2026, 11, 3), "5.0000")
 
     url = f"/api/v1/ddjj/declaraciones/{ddjj['id']}/boletas"
-    boleta = (await notario.post(url, json={"fecha_pago": "2026-11-07"})).json()
+    boleta = (
+        await notario.post(
+            url, json={"fecha_pago": "2026-11-07", "escribano_id": str(escenario.titular.id)}
+        )
+    ).json()
 
     # Vence el 28/10: 5 días al 4,25 % mensual (29/10 a 02/11) y 5 al 5 % (03/11 a 07/11).
     total = D("1081699.06")
@@ -96,7 +100,7 @@ async def test_boleta_con_cambio_de_tasa_durante_la_mora(
             f"/api/v1/ddjj/declaraciones/{ddjj['id']}/liquidacion",
             params={"fecha_pago": "2026-11-07"},
         )
-    ).json()
+    ).json()["boletas"][0]
     assert preview["interes_mora"] == "16676.19"
     assert [t["interes"] for t in preview["tramos_mora"]] == ["7662.04", "9014.15"]
 
@@ -113,7 +117,11 @@ async def test_el_detalle_de_la_mora_no_se_modifica(
     ddjj = await _cargar_1069(notario, escenario)
     await _presentar(notario, ddjj["id"])
     url = f"/api/v1/ddjj/declaraciones/{ddjj['id']}/boletas"
-    assert (await notario.post(url, json={"fecha_pago": "2026-11-07"})).status_code == 201
+    assert (
+        await notario.post(
+            url, json={"fecha_pago": "2026-11-07", "escribano_id": str(escenario.titular.id)}
+        )
+    ).status_code == 201
 
     try:
         await db_session.execute(update(BoletaTramoMora).values(interes=D("1.00")))

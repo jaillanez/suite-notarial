@@ -56,14 +56,15 @@ async def test_exento_no_aporta_pero_cuenta_y_se_cobra_el_minimo(
         )
     ).json()
     assert [a["aporte"] for a in liq["aportes"]] == ["0.00", "0.00"]
+    titular = liq["boletas"][0]
     assert liq["total_protocolos"] == "0.00"
-    assert liq["excedente"] == "0.00"
-    assert liq["aporte_minimo"] != "0.00"
+    assert titular["excedente"] == "0.00"
+    assert titular["aporte_minimo"] != "0.00"
     presentada = await notario.post(
         f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar", json={"fecha_pago": "2026-10-23"}
     )
     assert presentada.status_code == 201, presentada.text
-    assert presentada.json()["total_en_termino"] == liq["total_en_termino"]
+    assert presentada.json()[0]["total_en_termino"] == titular["total_en_termino"]
 
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
     assert detalle["cantidad_actos"] == 2

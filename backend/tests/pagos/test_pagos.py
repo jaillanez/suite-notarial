@@ -51,8 +51,13 @@ async def test_adjuntar_no_es_pagar(
     assert oct(ruta.stat().st_mode & 0o777) == "0o600"
     assert "COMPROBANTE_ADJUNTADO" in await _eventos(db_session)
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{boleta['ddjj_id']}")).json()
-    assert detalle["boletas"][0]["estado"] == "PENDIENTE"
-    assert detalle["boletas"][0]["comprobante"]["estado"] == "PENDIENTE_REVISION"
+    (suya,) = [b for b in detalle["boletas"] if b["id"] == boleta["id"]]
+    assert suya["estado"] == "PENDIENTE"
+    assert suya["comprobante"]["estado"] == "PENDIENTE_REVISION"
+    # La del adscripto sigue sin comprobante: cada escribano paga la suya.
+    (otra,) = [b for b in detalle["boletas"] if b["id"] != boleta["id"]]
+    assert otra["escribano"]["cargo"] == "ADSCRIPTO"
+    assert otra["comprobante"] is None
 
 
 @pytest.mark.parametrize(

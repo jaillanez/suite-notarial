@@ -24,6 +24,13 @@ const BOLETA: ddjjApi.Boleta = {
   codigo_verificacion: 'ABCDEFGH23456723',
   ddjj_id: 'd1',
   registro: REGISTRO,
+  escribano: {
+    id: 'e1',
+    apellido_nombre: 'SINTÉTICO, Escribano',
+    cargo: 'TITULAR',
+    modalidad: 'COMPLETA',
+  },
+  puede_reemitir: true,
   periodo: '2026-09',
   numero_rectificativa: 0,
   estado: 'PENDIENTE',

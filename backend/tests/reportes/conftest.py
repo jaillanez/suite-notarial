@@ -66,11 +66,11 @@ async def datos(
             f"/api/v1/ddjj/declaraciones/{agosto['id']}/presentar",
             json={"fecha_pago": "2026-10-23"},
         )
-    ).json()
+    ).json()[0]
     vigente = (
         await notario.post(
             f"/api/v1/ddjj/declaraciones/{agosto['id']}/boletas",
-            json={"fecha_pago": "2026-10-30"},
+            json={"fecha_pago": "2026-10-30", "escribano_id": str(escenario.titular.id)},
         )
     ).json()
     comprobante = (await adjuntar(notario, vigente)).json()

@@ -43,6 +43,18 @@ class Cargo(StrEnum):
     SUPLENTE_INTERINO = "SUPLENTE_INTERINO"
 
 
+class AporteACargo(StrEnum):
+    """Cómo aporta un escribano a cargo por los actos que autoriza en el registro ajeno. La fija
+    la Caja en cada designación. TODO(negocio): la Caja ratifica el criterio caso por caso."""
+
+    # Boleta propia solo con el aporte de sus actos (mínimo y médico los paga en su registro).
+    SOLO_ACTOS = "SOLO_ACTOS"
+    # Sus actos se cobran en la boleta del titular del registro.
+    EN_BOLETA_DEL_TITULAR = "EN_BOLETA_DEL_TITULAR"
+    # Boleta propia con el mínimo mensual y el excedente sobre sus actos, sin aporte médico.
+    CON_MINIMO = "CON_MINIMO"
+
+
 class EstadoDesignacion(StrEnum):
     """Designación de un escribano a cargo de un registro."""
 
