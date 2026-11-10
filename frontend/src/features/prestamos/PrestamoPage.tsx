@@ -19,6 +19,7 @@ import { ESTADO_PAGO_MP } from '../pagos/labels'
 import {
   confirmarCobroMP,
   fetchPrestamo,
+  fetchSaldo,
   otorgar,
   pagarCuotaConMercadoPago,
   rechazar,
@@ -27,7 +28,9 @@ import {
   type PrestamoDetalle,
 } from './api'
 import { PlanCuotas } from './componentes'
+import { Documentacion } from './Documentacion'
 import { ESTADO_PRESTAMO, MONEDA, SISTEMA, importe } from './labels'
+import { SaldoConjunto } from './SaldoConjunto'
 
 function Dato({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -426,6 +429,16 @@ export function PrestamoPage() {
   // El de la próxima cuota: un pago de más sobre una cuota ya pagada lo ve Tesorería en el registro.
   const proxima = p?.plan.find((c) => c.estado === 'PENDIENTE')
   const aConfirmar = p?.cobros_mp.find((c) => c.a_confirmar && c.cuota === proxima?.numero)
+  // El personal ve, junto al préstamo, todo lo que el escribano debe en préstamos.
+  const personal = can('prestamos:read_all')
+  const saldo = useQuery({
+    queryKey: ['prestamos', 'saldo', p?.escribano.id],
+    queryFn: () => fetchSaldo(p?.escribano.id),
+    enabled: personal && p !== undefined,
+  })
+  const vigentes = saldo.data?.monedas.reduce((n, m) => n + m.prestamos_vigentes, 0) ?? 0
+  // Si el único vigente es este, el panel repetiría lo que ya muestra la página.
+  const mostrarSaldo = vigentes > (p?.estado === 'OTORGADO' ? 1 : 0)
 
   return (
     <>
@@ -551,6 +564,18 @@ export function PrestamoPage() {
               </p>
             )}
           </Panel>
+
+          {(p.puede_cargar_documentos ||
+            p.documentos.length > 0 ||
+            p.documentacion_requerida.length > 0) && <Documentacion p={p} />}
+
+          {saldo.data && mostrarSaldo && (
+            <SaldoConjunto
+              saldo={saldo.data}
+              title={`Todos los préstamos de ${p.escribano.apellido_nombre}`}
+              description="Préstamos vigentes en los que es titular, incluido este si está vigente."
+            />
+          )}
 
           {p.puede_resolver && <Resolver p={p} />}
           {p.estado === 'SOLICITADO' && !p.puede_resolver && can('prestamos:approve') && (

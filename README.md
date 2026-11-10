@@ -375,6 +375,14 @@ Ya aplicadas:
 - **Cuatro ojos:** la Caja carga la solicitud y la otorga otra persona (Administración), que no
   puede ser titular ni garante; al otorgar se reevalúa y se genera el plan inmutable. Tesorería
   cobra las cuotas en orden y el préstamo se cancela con la última.
+- **Documentación de la solicitud:** el titular o la Caja cargan los archivos (PDF, PNG o JPG,
+  validados como los comprobantes) mientras la solicitud está abierta. Los certificados que exige
+  la línea tienen que estar cargados para otorgar. Nada se borra: uno cargado por error se anula
+  con motivo. El garante no ve la documentación del titular.
+- **Saldo del conjunto:** `GET /api/v1/prestamos/saldo` suma los préstamos vigentes del titular
+  por moneda (saldo de capital, lo que falta pagar, próximo vencimiento y lo vencido). El
+  escribano lo ve en *Préstamos*; el personal, la cartera completa y el de cada escribano en la
+  ficha de sus préstamos.
 - **Valores de negocio:** las líneas de `make seed-dev` son de ejemplo («a confirmar»); tasas,
   plazos y topes los fija el Directorio (`TODO(negocio)`, igual que punitorios y pagos parciales).
 

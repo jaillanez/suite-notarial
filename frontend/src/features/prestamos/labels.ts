@@ -1,6 +1,6 @@
 import type { Tone } from '../../components/StatusIndicator'
 import { formatImporte, formatPercent } from '../../lib/decimal'
-import type { Cuota, EstadoPrestamo, Linea, Moneda, Sistema } from './api'
+import type { Cuota, EstadoPrestamo, Linea, Moneda, Sistema, TipoDocumento } from './api'
 
 export const ESTADO_PRESTAMO: Record<EstadoPrestamo, { label: string; tone: Tone }> = {
   SOLICITADO: { label: 'Solicitado', tone: 'warning' },
@@ -60,4 +60,13 @@ export function estadoCuota(c: Cuota): { label: string; tone: Tone } {
   if (c.estado === 'PAGADA') return { label: 'Pagada', tone: 'success' }
   if (c.vencida) return { label: 'Vencida', tone: 'danger' }
   return { label: 'Pendiente', tone: 'unknown' }
+}
+
+/** Igual que en el servidor (catalog.NOMBRE_DOCUMENTO). */
+export const TIPO_DOCUMENTO: Record<TipoDocumento, string> = {
+  DOCUMENTO_IDENTIDAD: 'Documento de identidad',
+  CERTIFICADO_INGRESOS: 'Certificado de ingresos',
+  CERTIFICADO_BIENES: 'Certificado de bienes y deudas',
+  GARANTIA: 'Documentación de la garantía',
+  OTRO: 'Otro documento',
 }

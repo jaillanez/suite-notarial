@@ -210,3 +210,50 @@ class CuotaPrestamo(UUIDMixin, Base):
     registrado_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
     )
+
+
+class DocumentoPrestamo(UUIDMixin, Base):
+    """Documentación de una solicitud (regla MIME: el archivo se valida y guarda como un
+    comprobante). Solo se agrega mientras la solicitud está abierta; no se borra: uno cargado
+    por error se anula con motivo y deja de contar (trigger)."""
+
+    __tablename__ = "prestamos_documentos"
+    __table_args__ = (
+        CheckConstraint(
+            "tipo IN ('DOCUMENTO_IDENTIDAD', 'CERTIFICADO_INGRESOS', 'CERTIFICADO_BIENES', "
+            "'GARANTIA', 'OTRO')",
+            name="tipo_valido",
+        ),
+        CheckConstraint("tipo <> 'OTRO' OR descripcion IS NOT NULL", name="otro_descripto"),
+        CheckConstraint("mime_type IN ('application/pdf', 'image/png', 'image/jpeg')", name="mime"),
+        CheckConstraint("tamano_bytes > 0", name="tamano"),
+        CheckConstraint(
+            "(anulado_en IS NULL) = (anulado_por_user_id IS NULL) "
+            "AND (anulado_en IS NULL) = (motivo_anulacion IS NULL)",
+            name="anulacion_completa",
+        ),
+        Index("ix_prestamos_documentos_prestamo_tipo", "prestamo_id", "tipo"),
+    )
+
+    prestamo_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("prestamos.id", ondelete="RESTRICT"), nullable=False
+    )
+    tipo: Mapped[str] = mapped_column(String(30), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    nombre_original: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Ruta relativa a UPLOAD_DIR; nunca se envía al cliente.
+    archivo: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    tamano_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    subido_por_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
+    anulado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    anulado_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    motivo_anulacion: Mapped[str | None] = mapped_column(Text, nullable=True)

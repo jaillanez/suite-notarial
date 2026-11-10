@@ -5,10 +5,12 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, File, Form, Path, Response, UploadFile
+from pydantic import StringConstraints
 
 from app.common.dates import today_local
-from app.common.deps import SessionDep
+from app.common.deps import SessionDep, SettingsDep
+from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import (
     Principal,
@@ -17,17 +19,25 @@ from app.modules.iam.deps import (
     require_permissions,
 )
 from app.modules.padron.models import Escribano
-from app.modules.pagos import mercadopago, mercadopago_service
+from app.modules.pagos import mercadopago, mercadopago_service, storage
 from app.modules.pagos.catalog import EstadoPagoMP
 from app.modules.pagos.models import PagoMercadoPago
 from app.modules.pagos.schemas import InicioPagoMPOut
 from app.modules.parametros import service as parametros
-from app.modules.prestamos import motor, service
-from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Moneda, Sistema
-from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
+from app.modules.prestamos import documentos, motor, service
+from app.modules.prestamos.catalog import (
+    EstadoCuota,
+    EstadoPrestamo,
+    Moneda,
+    Sistema,
+    TipoDocumento,
+)
+from app.modules.prestamos.models import CuotaPrestamo, DocumentoPrestamo, Linea, Prestamo
 from app.modules.prestamos.schemas import (
+    AnulacionDocumentoIn,
     CobroCuotaMPOut,
     CuotaOut,
+    DocumentoOut,
     EvaluacionOut,
     LineaIn,
     LineaOut,
@@ -36,6 +46,9 @@ from app.modules.prestamos.schemas import (
     PrestamoDetalle,
     PrestamoOut,
     RechazoIn,
+    RequisitoOut,
+    SaldoConjuntoOut,
+    SaldoMonedaOut,
     SimulacionIn,
     SolicitudIn,
     Totales,
@@ -55,6 +68,9 @@ CanManage = Annotated[Principal, Depends(require_permissions(Perm.PRESTAMOS_MANA
 CanApprove = Annotated[Principal, Depends(require_permissions(Perm.PRESTAMOS_APPROVE))]
 CanCobrar = Annotated[Principal, Depends(require_permissions(Perm.PRESTAMOS_COBRAR))]
 CERO = Decimal("0.00")
+# Si el archivo se abre directo en el navegador: sin scripts ni recursos externos.
+CSP_ARCHIVO = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+Descripcion = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
 
 
 def linea_out(linea: Linea) -> LineaOut:
@@ -273,7 +289,51 @@ async def prestamo_detalle(
             if c.cuota_id in numeros
         ],
         puede_pagar_mp=await _puede_pagar_mp(session, principal, p, cobros),
+        **await _documentacion(session, principal, p),
     )
+
+
+async def documento_out(
+    principal: Principal, p: Prestamo, d: DocumentoPrestamo, emails: dict[uuid.UUID, str]
+) -> DocumentoOut:
+    if d.subido_por_user_id == principal.user.id:
+        subido_por = "Vos"
+    else:
+        subido_por = emails.get(d.subido_por_user_id, "Caja Notarial")
+    return DocumentoOut(
+        id=d.id,
+        tipo=TipoDocumento(d.tipo),
+        descripcion=d.descripcion,
+        nombre_original=d.nombre_original,
+        mime_type=d.mime_type,
+        tamano_bytes=d.tamano_bytes,
+        subido_por=subido_por,
+        created_at=d.created_at,
+        anulado_en=d.anulado_en,
+        motivo_anulacion=d.motivo_anulacion,
+        puede_anular=documentos.puede_anular(principal, p, d),
+    )
+
+
+async def _documentacion(
+    session: SessionDep, principal: Principal, p: Prestamo
+) -> dict[str, object]:
+    """Documentos, requisitos de la línea y si quien mira puede cargar (nada para el garante)."""
+    if not await documentos.puede_ver(session, principal, p):
+        return {}
+    docs = await documentos.listar(session, p.id)
+    ids = {d.subido_por_user_id for d in docs}
+    emails = await parametros.user_emails(session, ids) if service.ve_todo(principal) else {}
+    cargados = await service.tipos_cargados(session, p.id)
+    linea = await service.get_linea(session, p.linea_id)
+    return {
+        "documentos": [await documento_out(principal, p, d, emails) for d in docs],
+        "documentacion_requerida": [
+            RequisitoOut(tipo=t, cargado=t in cargados)
+            for t in service.documentacion_requerida(linea)
+        ],
+        "puede_cargar_documentos": await documentos.puede_cargar(session, principal, p),
+    }
 
 
 async def _puede_pagar_mp(
@@ -297,7 +357,6 @@ async def _puede_pagar_mp(
         and c.confirmado_en is None
         for c in cobros
     )
-    return False
 
 
 # --------------------------------------------------------------------------- líneas
@@ -379,6 +438,35 @@ async def crear_solicitud(
     return await prestamo_detalle(session, principal, p)
 
 
+@router.get("/saldo", response_model=SaldoConjuntoOut)
+async def saldo_conjunto(
+    principal: CanRead, session: SessionDep, escribano_id: uuid.UUID | None = None
+) -> SaldoConjuntoOut:
+    """Saldo del conjunto de préstamos vigentes (Anexo I: un notario puede tener más de uno).
+
+    El escribano ve el suyo como titular; el personal, el de un escribano o el de la cartera.
+    """
+    if service.ve_todo(principal):
+        escribano = await service.get_escribano(session, escribano_id) if escribano_id else None
+    else:
+        escribano = await service.escribano_de(session, principal.user)
+        if escribano is None:
+            return SaldoConjuntoOut(escribano=None, monedas=[], solicitudes_pendientes=0)
+    saldos = await service.saldo_conjunto(
+        session, escribano.id if escribano else None, today_local()
+    )
+    solicitudes = await service.list_prestamos(
+        session, principal, EstadoPrestamo.SOLICITADO, escribano.id if escribano else None
+    )
+    return SaldoConjuntoOut(
+        escribano=persona(escribano) if escribano else None,
+        monedas=[SaldoMonedaOut(**vars(s)) for s in saldos],
+        solicitudes_pendientes=sum(
+            1 for x in solicitudes if escribano is None or x.escribano_id == escribano.id
+        ),
+    )
+
+
 @router.get("/{prestamo_id}", response_model=PrestamoDetalle)
 async def get_prestamo(
     prestamo_id: uuid.UUID, principal: CanRead, session: SessionDep
@@ -446,3 +534,76 @@ async def confirmar_cobro_mp(
     """Tesorería confirma el pago con Mercado Pago: la cuota pasa a pagada."""
     p = await service.confirmar_cobro_mp(session, ctx, principal, prestamo_id, pago_id)
     return await prestamo_detalle(session, principal, p)
+
+
+# --------------------------------------------------------------------------- documentación
+
+
+@router.post("/{prestamo_id}/documentos", response_model=PrestamoDetalle, status_code=201)
+async def cargar_documento(
+    prestamo_id: uuid.UUID,
+    tipo: Annotated[TipoDocumento, Form()],
+    archivo: Annotated[UploadFile, File(description="PDF, PNG o JPG de hasta 10 MB")],
+    principal: CanRead,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+    descripcion: Annotated[Descripcion | None, Form()] = None,
+) -> PrestamoDetalle:
+    """Agrega un documento a una solicitud abierta (el titular o quien administra préstamos)."""
+    try:
+        validado = await storage.validar(archivo, settings.max_upload_bytes)
+    except storage.ArchivoInvalidoError as exc:
+        raise ProblemError(
+            exc.status, str(exc), type_="urn:suite-notarial:prestamos:archivo"
+        ) from exc
+    await documentos.cargar(
+        session, settings, ctx, principal, prestamo_id, tipo, descripcion or None, validado
+    )
+    p = await service.get_prestamo(session, principal, prestamo_id)
+    return await prestamo_detalle(session, principal, p)
+
+
+@router.post("/{prestamo_id}/documentos/{documento_id}/anular", response_model=PrestamoDetalle)
+async def anular_documento(
+    prestamo_id: uuid.UUID,
+    documento_id: uuid.UUID,
+    body: AnulacionDocumentoIn,
+    principal: CanRead,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> PrestamoDetalle:
+    """Un documento cargado por error deja de contar. No se borra (regla INM)."""
+    await documentos.anular(session, ctx, principal, prestamo_id, documento_id, body.motivo)
+    p = await service.get_prestamo(session, principal, prestamo_id)
+    return await prestamo_detalle(session, principal, p)
+
+
+@router.get(
+    "/{prestamo_id}/documentos/{documento_id}/archivo",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}, "image/png": {}, "image/jpeg": {}}}},
+)
+async def archivo_documento(
+    prestamo_id: uuid.UUID,
+    documento_id: uuid.UUID,
+    principal: CanRead,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+) -> Response:
+    doc, contenido = await documentos.contenido(
+        session, settings, ctx, principal, prestamo_id, documento_id
+    )
+    extension = doc.archivo.rsplit(".", 1)[-1]
+    return Response(
+        content=contenido,
+        media_type=doc.mime_type,
+        headers={
+            # El nombre lo arma el servidor: nunca se refleja el nombre que subió el usuario.
+            "Content-Disposition": f'inline; filename="documento-{doc.id.hex[:8]}.{extension}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": CSP_ARCHIVO,
+        },
+    )

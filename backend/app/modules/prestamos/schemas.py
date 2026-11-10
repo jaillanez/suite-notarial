@@ -7,7 +7,13 @@ from typing import Annotated
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from app.modules.parametros.schemas import Money, Rate
-from app.modules.prestamos.catalog import EstadoCuota, EstadoPrestamo, Moneda, Sistema
+from app.modules.prestamos.catalog import (
+    EstadoCuota,
+    EstadoPrestamo,
+    Moneda,
+    Sistema,
+    TipoDocumento,
+)
 
 Codigo = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Z][A-Z0-9_]{2,49}$")]
 Nombre = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=150)]
@@ -176,6 +182,53 @@ class CobroCuotaMPOut(BaseModel):
     a_confirmar: bool
 
 
+class DocumentoOut(BaseModel):
+    id: uuid.UUID
+    tipo: TipoDocumento
+    descripcion: str | None
+    nombre_original: str
+    mime_type: str
+    tamano_bytes: int
+    # Al escribano no se le muestran los correos del personal.
+    subido_por: str
+    created_at: datetime
+    anulado_en: datetime | None
+    motivo_anulacion: str | None
+    puede_anular: bool
+
+
+class RequisitoOut(BaseModel):
+    """Documento que exige la línea y si ya hay uno vigente cargado."""
+
+    tipo: TipoDocumento
+    cargado: bool
+
+
+class AnulacionDocumentoIn(BaseModel):
+    motivo: Motivo
+
+
+class SaldoMonedaOut(BaseModel):
+    moneda: Moneda
+    prestamos_vigentes: int
+    saldo_capital: Money
+    cuotas_pendientes: int
+    total_pendiente: Money
+    cuotas_vencidas: int
+    importe_vencido: Money
+    proximo_vencimiento: date | None
+    importe_proximo_vencimiento: Money
+
+
+class SaldoConjuntoOut(BaseModel):
+    """Saldo del conjunto de préstamos vigentes de un escribano como titular (o de la cartera
+    completa, sin escribano). Una entrada por moneda: nunca se suman monedas distintas."""
+
+    escribano: PersonaResumen | None
+    monedas: list[SaldoMonedaOut]
+    solicitudes_pendientes: int
+
+
 class PrestamoDetalle(PrestamoOut):
     plan: list[CuotaOut]
     totales: Totales
@@ -187,3 +240,7 @@ class PrestamoDetalle(PrestamoOut):
     cobros_mp: list[CobroCuotaMPOut] = []
     # Quien mira tomó el préstamo y puede pagar la próxima cuota con Mercado Pago.
     puede_pagar_mp: bool = False
+    # Documentación de la solicitud: vacía para el garante.
+    documentos: list[DocumentoOut] = []
+    documentacion_requerida: list[RequisitoOut] = []
+    puede_cargar_documentos: bool = False

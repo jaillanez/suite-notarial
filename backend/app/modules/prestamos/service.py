@@ -14,6 +14,8 @@ Reglas (los valores concretos —tasas, plazos, topes— son parámetros de cada
   TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
 - Antigüedad en la matrícula: se exige si la línea la fija y se conoce la fecha de
   juramento; si falta, no bloquea y queda como aviso para quien resuelve.
+- Documentación: los certificados que exige la línea tienen que estar cargados (y no anulados)
+  para otorgar. TODO(negocio): confirmar con la Caja si alguna línea exige otra documentación.
 """
 
 import uuid
@@ -45,13 +47,15 @@ from app.modules.pagos.models import PagoMercadoPago
 from app.modules.prestamos import motor
 from app.modules.prestamos.catalog import (
     AVISO_TIPO_CAMBIO,
+    NOMBRE_DOCUMENTO,
     SIMBOLO_MONEDA,
     EstadoCuota,
     EstadoPrestamo,
     Moneda,
     Sistema,
+    TipoDocumento,
 )
-from app.modules.prestamos.models import CuotaPrestamo, Linea, Prestamo
+from app.modules.prestamos.models import CuotaPrestamo, DocumentoPrestamo, Linea, Prestamo
 from app.modules.prestamos.schemas import LineaIn, SolicitudIn
 
 CERO = Decimal("0.00")
@@ -676,10 +680,46 @@ async def plan_guardado(session: AsyncSession, prestamo_id: uuid.UUID) -> list[C
     return list(result.all())
 
 
-async def reevaluar(session: AsyncSession, prestamo: Prestamo, hoy: date) -> Evaluacion:
-    """La solicitud con los datos de hoy, manteniendo las condiciones pactadas."""
+def documentacion_requerida(linea: Linea) -> list[TipoDocumento]:
+    """Documentos que la línea exige para otorgar."""
+    requeridos = []
+    if linea.requiere_certificado_ingresos:
+        requeridos.append(TipoDocumento.CERTIFICADO_INGRESOS)
+    if linea.requiere_certificado_bienes:
+        requeridos.append(TipoDocumento.CERTIFICADO_BIENES)
+    return requeridos
+
+
+async def tipos_cargados(session: AsyncSession, prestamo_id: uuid.UUID) -> set[TipoDocumento]:
+    """Tipos con al menos un documento vigente (no anulado)."""
+    result = await session.scalars(
+        select(DocumentoPrestamo.tipo)
+        .where(
+            DocumentoPrestamo.prestamo_id == prestamo_id,
+            DocumentoPrestamo.anulado_en.is_(None),
+        )
+        .distinct()
+    )
+    return {TipoDocumento(t) for t in result.all()}
+
+
+async def documentacion_faltante(session: AsyncSession, prestamo: Prestamo) -> list[str]:
     linea = await get_linea(session, prestamo.linea_id)
-    return await evaluar(
+    cargados = await tipos_cargados(session, prestamo.id)
+    return [
+        f"Falta cargar el {NOMBRE_DOCUMENTO[t].lower()}."
+        for t in documentacion_requerida(linea)
+        if t not in cargados
+    ]
+
+
+async def reevaluar(session: AsyncSession, prestamo: Prestamo, hoy: date) -> Evaluacion:
+    """La solicitud con los datos de hoy, manteniendo las condiciones pactadas.
+
+    Además de las reglas de `evaluar`, exige la documentación que pide la línea.
+    """
+    linea = await get_linea(session, prestamo.linea_id)
+    ev = await evaluar(
         session,
         linea,
         capital=prestamo.capital,
@@ -691,6 +731,8 @@ async def reevaluar(session: AsyncSession, prestamo: Prestamo, hoy: date) -> Eva
         excluir=prestamo.id,
         condiciones=(Sistema(prestamo.sistema), prestamo.tna, prestamo.tasa_es_ejemplo),
     )
+    ev.impedimentos += await documentacion_faltante(session, prestamo)
+    return ev
 
 
 async def _cuatro_ojos(session: AsyncSession, prestamo: Prestamo, actor: User) -> None:
@@ -983,3 +1025,67 @@ async def confirmar_cobro_mp(
     await session.commit()
     await session.refresh(prestamo)
     return prestamo
+
+
+# --------------------------------------------------------------------------- saldo conjunto
+
+
+@dataclass(frozen=True)
+class SaldoMoneda:
+    """Situación de los préstamos vigentes de una moneda (nunca se suman monedas distintas)."""
+
+    moneda: Moneda
+    prestamos_vigentes: int
+    saldo_capital: Decimal
+    cuotas_pendientes: int
+    # Capital más intereses de las cuotas que faltan pagar.
+    total_pendiente: Decimal
+    cuotas_vencidas: int
+    importe_vencido: Decimal
+    proximo_vencimiento: date | None
+    importe_proximo_vencimiento: Decimal
+
+
+async def saldo_conjunto(
+    session: AsyncSession, escribano_id: uuid.UUID | None, hoy: date
+) -> list[SaldoMoneda]:
+    """Saldo del conjunto de préstamos vigentes de un escribano (o de toda la cartera).
+
+    Solo como titular: lo que garantiza no es deuda propia mientras el titular pague.
+    """
+    stmt = (
+        select(Prestamo.moneda, CuotaPrestamo)
+        .join(Prestamo, Prestamo.id == CuotaPrestamo.prestamo_id)
+        .where(Prestamo.estado == VIGENTE, CuotaPrestamo.estado == PENDIENTE)
+        .order_by(Prestamo.moneda, CuotaPrestamo.vencimiento, CuotaPrestamo.numero)
+    )
+    if escribano_id is not None:
+        stmt = stmt.where(Prestamo.escribano_id == escribano_id)
+    por_moneda: dict[str, list[CuotaPrestamo]] = {}
+    for moneda, cuota in await session.execute(stmt):
+        por_moneda.setdefault(moneda, []).append(cuota)
+    saldos = []
+    for moneda, cuotas in por_moneda.items():
+        # La primera cuota pendiente de cada préstamo (vienen ordenadas) tiene su saldo.
+        primeras: dict[uuid.UUID, CuotaPrestamo] = {}
+        for c in sorted(cuotas, key=lambda c: c.numero):
+            primeras.setdefault(c.prestamo_id, c)
+        vencidas = [c for c in cuotas if c.vencimiento < hoy]
+        futuras = [c for c in cuotas if c.vencimiento >= hoy]
+        proximo = futuras[0].vencimiento if futuras else None
+        saldos.append(
+            SaldoMoneda(
+                moneda=Moneda(moneda),
+                prestamos_vigentes=len(primeras),
+                saldo_capital=sum((c.saldo_inicial for c in primeras.values()), CERO),
+                cuotas_pendientes=len(cuotas),
+                total_pendiente=sum((c.cuota for c in cuotas), CERO),
+                cuotas_vencidas=len(vencidas),
+                importe_vencido=sum((c.cuota for c in vencidas), CERO),
+                proximo_vencimiento=proximo,
+                importe_proximo_vencimiento=sum(
+                    (c.cuota for c in futuras if c.vencimiento == proximo), CERO
+                ),
+            )
+        )
+    return saldos
