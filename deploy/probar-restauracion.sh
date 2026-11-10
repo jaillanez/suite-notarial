@@ -14,7 +14,8 @@ BASE=$(ls -1t "$DESTINO"/base-*.dump 2>/dev/null | head -1 || true)
 FECHA=${BASE##*/base-}; FECHA=${FECHA%.dump}
 ARCHIVOS="$DESTINO/archivos-$FECHA.tar.gz"
 
-# El mismo candado que backup.sh: no probar un backup a medio escribir.
+# El mismo candado que backup.sh, solo mientras se elige y verifica el backup: no probar uno a
+# medio escribir, sin trabar el backup del día durante la restauración.
 exec 9>"$DESTINO/.lock"
 flock -n 9 || { echo "$(date -Is) ERROR: hay un backup en curso"; exit 1; }
 
@@ -23,6 +24,7 @@ flock -n 9 || { echo "$(date -Is) ERROR: hay un backup en curso"; exit 1; }
   || { echo "$(date -Is) ERROR: falta la suma de control del backup $FECHA"; exit 1; }
 (cd "$DESTINO" && sha256sum --quiet -c "suma-$FECHA.sha256") \
   || { echo "$(date -Is) ERROR: el backup $FECHA no coincide con su suma de control"; exit 1; }
+exec 3<"$BASE" 9>&-
 
 # La copia tiene datos reales: que no quede en el servidor aunque la prueba falle.
 limpiar() {
@@ -37,7 +39,7 @@ limpiar
 $PSQL -d postgres -c "CREATE DATABASE $PRUEBA" </dev/null
 $PSQL -d postgres -c "REVOKE CONNECT, TEMPORARY ON DATABASE $PRUEBA FROM PUBLIC" </dev/null
 $COMPOSE exec -T postgres pg_restore -U postgres -d "$PRUEBA" --no-owner --no-privileges \
-  --exit-on-error < "$BASE"
+  --exit-on-error <&3
 
 version=$($PSQL -d "$PRUEBA" -c "SELECT version_num FROM alembic_version" </dev/null)
 tablas=$($PSQL -d "$PRUEBA" -c \
