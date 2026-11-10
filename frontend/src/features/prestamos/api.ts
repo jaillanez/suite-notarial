@@ -125,6 +125,50 @@ export interface CobroCuotaMP {
   a_confirmar: boolean
 }
 
+export type TipoDocumento =
+  'DOCUMENTO_IDENTIDAD' | 'CERTIFICADO_INGRESOS' | 'CERTIFICADO_BIENES' | 'GARANTIA' | 'OTRO'
+
+/** Documento de la solicitud. Anulado sigue a la vista, pero ya no cuenta. */
+export interface DocumentoPrestamo {
+  id: string
+  tipo: TipoDocumento
+  descripcion: string | null
+  nombre_original: string
+  mime_type: string
+  tamano_bytes: number
+  subido_por: string
+  created_at: string
+  anulado_en: string | null
+  motivo_anulacion: string | null
+  puede_anular: boolean
+}
+
+/** Documento que exige la línea y si ya hay uno vigente cargado. */
+export interface Requisito {
+  tipo: TipoDocumento
+  cargado: boolean
+}
+
+export interface SaldoMoneda {
+  moneda: Moneda
+  prestamos_vigentes: number
+  saldo_capital: string
+  cuotas_pendientes: number
+  /** Capital más intereses de las cuotas que faltan pagar. */
+  total_pendiente: string
+  cuotas_vencidas: number
+  importe_vencido: string
+  proximo_vencimiento: string | null
+  importe_proximo_vencimiento: string
+}
+
+/** Préstamos vigentes de un escribano como titular (o de toda la cartera), por moneda. */
+export interface SaldoConjunto {
+  escribano: PersonaResumen | null
+  monedas: SaldoMoneda[]
+  solicitudes_pendientes: number
+}
+
 export interface PrestamoDetalle extends Prestamo {
   plan: Cuota[]
   totales: Totales
@@ -135,6 +179,10 @@ export interface PrestamoDetalle extends Prestamo {
   cobros_mp: CobroCuotaMP[]
   /** Quien mira tomó el préstamo y puede pagar la próxima cuota con Mercado Pago. */
   puede_pagar_mp: boolean
+  /** Vacíos para el garante: no ve la documentación del titular. */
+  documentos: DocumentoPrestamo[]
+  documentacion_requerida: Requisito[]
+  puede_cargar_documentos: boolean
 }
 
 export interface SimulacionInput {
@@ -209,4 +257,50 @@ export async function confirmarCobroMP(id: string, pagoId: string): Promise<Pres
       `${P}/${id}/mercadopago/${encodeURIComponent(pagoId)}/confirmar`,
     )
   ).data
+}
+
+export async function fetchSaldo(escribanoId?: string): Promise<SaldoConjunto> {
+  return (await api.get<SaldoConjunto>(`${P}/saldo`, { params: { escribano_id: escribanoId } }))
+    .data
+}
+
+export async function cargarDocumento(
+  id: string,
+  data: { tipo: TipoDocumento; descripcion: string; archivo: File },
+): Promise<PrestamoDetalle> {
+  const form = new FormData()
+  form.append('tipo', data.tipo)
+  if (data.descripcion) form.append('descripcion', data.descripcion)
+  form.append('archivo', data.archivo)
+  return (await api.post<PrestamoDetalle>(`${P}/${id}/documentos`, form, { timeout: 120_000 })).data
+}
+
+export async function anularDocumento(
+  id: string,
+  documentoId: string,
+  motivo: string,
+): Promise<PrestamoDetalle> {
+  return (
+    await api.post<PrestamoDetalle>(`${P}/${id}/documentos/${documentoId}/anular`, { motivo })
+  ).data
+}
+
+/** Descarga el archivo por el cliente HTTP (renueva la sesión si venció) y lo guarda. */
+export async function descargarDocumento(
+  id: string,
+  doc: DocumentoPrestamo,
+  nombre: string,
+): Promise<void> {
+  const response = await api.get<Blob>(`${P}/${id}/documentos/${doc.id}/archivo`, {
+    responseType: 'blob',
+    timeout: 60_000,
+  })
+  const url = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = nombre
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }

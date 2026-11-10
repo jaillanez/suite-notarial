@@ -11,8 +11,9 @@ import { Select } from '../../components/ui/Select'
 import { toProblem } from '../../lib/api'
 import { formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
-import { fetchPrestamos, type EstadoPrestamo } from './api'
+import { fetchPrestamos, fetchSaldo, type EstadoPrestamo } from './api'
 import { ESTADO_PRESTAMO, importe } from './labels'
+import { SaldoConjunto } from './SaldoConjunto'
 
 export function PrestamosPage() {
   const { can } = useSession()
@@ -24,6 +25,7 @@ export function PrestamosPage() {
     queryKey: ['prestamos', 'lista', estado],
     queryFn: () => fetchPrestamos(estado),
   })
+  const saldo = useQuery({ queryKey: ['prestamos', 'saldo'], queryFn: () => fetchSaldo() })
 
   return (
     <>
@@ -35,7 +37,19 @@ export function PrestamosPage() {
             : 'Tus préstamos y los que garantizás. Podés simular uno nuevo antes de pedirlo en la Caja.'
         }
       />
+      {saldo.data && saldo.data.monedas.length > 0 && (
+        <SaldoConjunto
+          saldo={saldo.data}
+          title={personal ? 'Cartera vigente' : 'Saldo de tus préstamos'}
+          description={
+            personal
+              ? 'Todos los préstamos vigentes de la Caja.'
+              : 'Los préstamos vigentes de los que sos titular. Los que garantizás no suman.'
+          }
+        />
+      )}
       <Panel
+        className={saldo.data && saldo.data.monedas.length > 0 ? 'mt-6' : ''}
         title={personal ? 'Préstamos' : 'Mis préstamos'}
         actions={
           <>

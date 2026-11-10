@@ -7,6 +7,7 @@ import * as apiModule from './api'
 import { PlanCuotas, ResumenEvaluacion } from './componentes'
 import { importe, requisitosLinea, textoMeses } from './labels'
 import { PrestamoPage } from './PrestamoPage'
+import { PrestamosPage } from './PrestamosPage'
 
 vi.mock('./api')
 
@@ -143,6 +144,29 @@ describe('líneas', () => {
   })
 })
 
+const SIN_SALDO: apiModule.SaldoConjunto = {
+  escribano: null,
+  monedas: [],
+  solicitudes_pendientes: 0,
+}
+const SALDO: apiModule.SaldoConjunto = {
+  escribano: { id: 'e1', apellido_nombre: 'Sintético, Escribano', matricula_numero: 101 },
+  monedas: [
+    {
+      moneda: 'ARS',
+      prestamos_vigentes: 2,
+      saldo_capital: '192115.12',
+      cuotas_pendientes: 23,
+      total_pendiente: '204352.18',
+      cuotas_vencidas: 1,
+      importe_vencido: '8884.88',
+      proximo_vencimiento: '2026-11-23',
+      importe_proximo_vencimiento: '8884.88',
+    },
+  ],
+  solicitudes_pendientes: 1,
+}
+
 describe('ficha del préstamo', () => {
   const BASE: apiModule.PrestamoDetalle = {
     id: 'p1',
@@ -180,6 +204,9 @@ describe('ficha del préstamo', () => {
     puede_resolver: false,
     cobros_mp: [],
     puede_pagar_mp: false,
+    documentos: [],
+    documentacion_requerida: [],
+    puede_cargar_documentos: false,
   }
 
   function renderFicha(permisos: string[]) {
@@ -193,6 +220,7 @@ describe('ficha del préstamo', () => {
 
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(apiModule.fetchSaldo).mockResolvedValue(SIN_SALDO)
   })
 
   it('solo ofrece otorgar a quien puede resolver (cuatro ojos)', async () => {
@@ -302,5 +330,122 @@ describe('ficha del préstamo', () => {
     await waitFor(() => {
       expect(apiModule.confirmarCobroMP).toHaveBeenCalledWith('p1', 'mp1')
     })
+  })
+
+  const DOC: apiModule.DocumentoPrestamo = {
+    id: 'd1',
+    tipo: 'CERTIFICADO_INGRESOS',
+    descripcion: null,
+    nombre_original: 'ingresos.pdf',
+    mime_type: 'application/pdf',
+    tamano_bytes: 2048,
+    subido_por: 'Vos',
+    created_at: '2026-10-23T13:00:00Z',
+    anulado_en: null,
+    motivo_anulacion: null,
+    puede_anular: true,
+  }
+
+  it('muestra lo que exige la línea y carga el documento que falta', async () => {
+    const pendiente = {
+      ...BASE,
+      impedimentos_actuales: ['Falta cargar el certificado de bienes y deudas.'],
+      documentos: [DOC],
+      documentacion_requerida: [
+        { tipo: 'CERTIFICADO_INGRESOS' as const, cargado: true },
+        { tipo: 'CERTIFICADO_BIENES' as const, cargado: false },
+      ],
+      puede_cargar_documentos: true,
+    }
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue(pendiente)
+    vi.mocked(apiModule.cargarDocumento).mockResolvedValue(pendiente)
+    renderFicha(['prestamos:read_own'])
+
+    expect(
+      await screen.findByText(/sin ellos la solicitud no se puede otorgar/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(': falta')).toBeInTheDocument()
+    expect(screen.getByText(/ingresos\.pdf · 2 KB · Vos/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar documento' }))
+    // Propone lo que falta.
+    expect(screen.getByRole('combobox', { name: 'Documento' })).toHaveValue('CERTIFICADO_BIENES')
+    const cargar = screen.getByRole('button', { name: 'Cargar documento' })
+    expect(cargar).toBeDisabled()
+    const archivo = new File(['%PDF-1.4'], 'bienes.pdf', { type: 'application/pdf' })
+    fireEvent.change(screen.getByLabelText('Archivo'), { target: { files: [archivo] } })
+    fireEvent.click(cargar)
+    await waitFor(() => {
+      expect(apiModule.cargarDocumento).toHaveBeenCalledWith('p1', {
+        tipo: 'CERTIFICADO_BIENES',
+        descripcion: '',
+        archivo,
+      })
+    })
+  })
+
+  it('anular pide el motivo; el anulado queda a la vista', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({
+      ...BASE,
+      documentos: [
+        DOC,
+        {
+          ...DOC,
+          id: 'd2',
+          tipo: 'OTRO',
+          descripcion: 'Recibo de sueldo',
+          anulado_en: '2026-10-23T14:00:00Z',
+          motivo_anulacion: 'Archivo equivocado',
+          puede_anular: false,
+        },
+      ],
+      puede_cargar_documentos: true,
+    })
+    vi.mocked(apiModule.anularDocumento).mockResolvedValue(BASE)
+    renderFicha(['prestamos:read_own'])
+
+    expect(await screen.findByText('Anulado: Archivo equivocado')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Anular' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Anular' }))
+    const confirmar = screen.getByRole('button', { name: 'Anular documento' })
+    expect(confirmar).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'No es el último' } })
+    fireEvent.click(confirmar)
+    await waitFor(() => {
+      expect(apiModule.anularDocumento).toHaveBeenCalledWith('p1', 'd1', 'No es el último')
+    })
+  })
+
+  it('el personal ve todo lo que el escribano debe en préstamos', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue(BASE)
+    vi.mocked(apiModule.fetchSaldo).mockResolvedValue(SALDO)
+    renderFicha(['prestamos:read_all'])
+
+    expect(
+      await screen.findByText('Todos los préstamos de Sintético, Escribano'),
+    ).toBeInTheDocument()
+    expect(apiModule.fetchSaldo).toHaveBeenCalledWith('e1')
+    expect(screen.getByText('$ 192.115,12')).toBeInTheDocument()
+    expect(screen.getByText(/1 solicitud pendiente/)).toBeInTheDocument()
+    // Sin documentación exigida ni cargada y sin poder cargar, no hay panel.
+    expect(screen.queryByText('Documentación')).not.toBeInTheDocument()
+  })
+})
+
+describe('mis préstamos', () => {
+  it('el escribano ve el saldo del conjunto de sus préstamos', async () => {
+    vi.resetAllMocks()
+    vi.mocked(apiModule.fetchPrestamos).mockResolvedValue([])
+    vi.mocked(apiModule.fetchSaldo).mockResolvedValue(SALDO)
+    renderWithProviders(<PrestamosPage />, {
+      user: { ...ESCRIBANO, permissions: ['prestamos:read_own'] },
+    })
+
+    expect(await screen.findByText('Saldo de tus préstamos')).toBeInTheDocument()
+    expect(apiModule.fetchSaldo).toHaveBeenCalledWith()
+    expect(screen.getByText('$ 204.352,18')).toBeInTheDocument()
+    expect(screen.getByText('2 préstamos vigentes')).toBeInTheDocument()
+    expect(screen.getByText('23/11/2026')).toBeInTheDocument()
+    expect(screen.getAllByText('$ 8.884,88')).toHaveLength(2)
   })
 })
