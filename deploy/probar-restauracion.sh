@@ -29,7 +29,9 @@ exec 8>"$DESTINO/.lock-restauracion"
 flock -n 8 || { echo "$(date -Is) ERROR: ya hay una prueba de restauración en curso"; exit 1; }
 # Se abren el dump y los archivos verificados antes de soltar el candado del backup.
 exec 3<"$BASE"
-if [[ -f "$ARCHIVOS" ]]; then exec 4<"$ARCHIVOS"; else exec 4</dev/null; fi
+# backup.sh siempre deja el tar de archivos: si falta, el backup está incompleto.
+[[ -f "$ARCHIVOS" ]] || { echo "$(date -Is) ERROR: falta $ARCHIVOS"; exit 1; }
+exec 4<"$ARCHIVOS"
 exec 9>&-
 
 # La copia tiene datos reales: que no quede en el servidor aunque la prueba falle.
@@ -57,10 +59,7 @@ filas=$($PSQL -d "$PRUEBA" -c "SELECT
 [[ -n "$version" && "$tablas" -gt 0 ]] || { echo "$(date -Is) ERROR: restauración incompleta"; exit 1; }
 
 # Los archivos subidos: que el tar se lea entero y cuántos trae.
-cantidad=0
-if [[ -f "$ARCHIVOS" ]]; then
-  listado=$(tar -tzf - <&4) \
-    || { echo "$(date -Is) ERROR: no se pudo leer $ARCHIVOS"; exit 1; }
-  cantidad=$(grep -vc '/$' <<<"$listado" || true)
-fi
+# Puede no haber ninguno todavía: cero archivos no es un error, un tar ilegible sí.
+listado=$(tar -tzf - <&4) || { echo "$(date -Is) ERROR: no se pudo leer $ARCHIVOS"; exit 1; }
+cantidad=$(printf '%s' "$listado" | grep -vc '/$' || true)
 echo "$(date -Is) restauración OK ($FECHA): migración $version, $tablas tablas, $filas, $cantidad archivos"
