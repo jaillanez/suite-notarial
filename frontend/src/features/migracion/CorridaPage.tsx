@@ -184,6 +184,11 @@ function Cuadratura({ c }: { c: CorridaDetalle }) {
               <tr key={e.entidad} className={e.cuadra_importe ? '' : 'bg-danger-50'}>
                 <th scope="row" className="px-6 py-3 text-left font-semibold text-ink">
                   {ENTIDAD[e.entidad]}
+                  {e.ajuste_redondeo && !/^-?0(\.0+)?$/.test(e.ajuste_redondeo) && (
+                    <span className="block text-xs font-normal text-ink-muted tabular-nums">
+                      Redondeo al centavo: {e.ajuste_redondeo} (detalle en redondeos.csv)
+                    </span>
+                  )}
                   {Boolean(e.filas_importe_ilegible) && (
                     <span className="block text-xs font-normal text-danger-700">
                       {e.filas_importe_ilegible} ilegible{e.filas_importe_ilegible === 1 ? '' : 's'}
@@ -275,9 +280,9 @@ function Saldos({ c }: { c: CorridaDetalle }) {
           <Alert tone="danger" title="Registros con saldo distinto">
             <ul className="space-y-1 tabular-nums">
               {s.diferencias.map((d) => (
-                <li key={d.registro}>
-                  Registro {d.registro}: origen {formatMoney(d.origen)}, Suite{' '}
-                  {formatMoney(d.destino)}
+                <li key={d.registro ?? 'sin-registro'}>
+                  {d.registro === null ? 'Sin registro' : `Registro ${String(d.registro)}`}: origen{' '}
+                  {formatMoney(d.origen)}, Suite {formatMoney(d.destino)}
                 </li>
               ))}
             </ul>

@@ -3,7 +3,9 @@
 Tres fuentes por entidad: el control que declara el sistema anterior, lo leído del lote y lo que
 quedó efectivamente en la base (consultado, no tomado de memoria). Cuadra cuando:
 
-- control = leído (el lote está completo), en filas e importes;
+- control = leído (el lote está completo), en filas e importes. Si la extracción redondeó
+  importes del origen al centavo, `control.csv` declara el ajuste exacto (`ajuste_redondeo`,
+  con el detalle en `redondeos.csv`) y se exige control = leído - ajuste redondeado al centavo;
 - leído = cargado + rechazado (toda fila no cargada tiene su observación bloqueante);
 - el saldo de cada registro (boletas no anuladas menos pagos menos créditos) es el mismo en
   origen y destino. Un saldo negativo es un saldo a favor del escribano.
@@ -16,7 +18,7 @@ Nunca se compensa una diferencia: si algo no cuadra, el informe lo muestra con s
 
 import uuid
 from collections import Counter, defaultdict
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import func, select
@@ -29,6 +31,9 @@ from app.modules.migracion.formato import Lote
 from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
 from app.modules.migracion.validacion import CERO, Staging
 from app.modules.padron.models import Adscripcion, Escribano, Licencia, RegistroNotarial
+
+CENTAVO = Decimal("0.01")
+MEDIO_CENTAVO = Decimal("0.005")
 
 CON_IMPORTE = (Entidad.BOLETAS, Entidad.PAGOS, Entidad.CREDITOS)
 
@@ -67,9 +72,10 @@ async def _cargadas(
     }
 
 
-def _saldos_origen(st: Staging) -> dict[int, Decimal]:
-    saldo: dict[int, Decimal] = defaultdict(lambda: CERO)
-    registro_de = {}
+# Saldos por número de registro; None agrupa las boletas con el registro «a completar».
+def _saldos_origen(st: Staging) -> dict[int | None, Decimal]:
+    saldo: dict[int | None, Decimal] = defaultdict(lambda: CERO)
+    registro_de: dict[str, int | None] = {}
     for b in st.boletas:
         registro_de[b.codigo] = b.numero_registro
         # Toda boleta deja al registro en el informe, aunque esté anulada (saldo 0).
@@ -81,7 +87,9 @@ def _saldos_origen(st: Staging) -> dict[int, Decimal]:
     return dict(saldo)
 
 
-async def _saldos_destino(session: AsyncSession, corrida_id: uuid.UUID) -> dict[int, Decimal]:
+async def _saldos_destino(
+    session: AsyncSession, corrida_id: uuid.UUID
+) -> dict[int | None, Decimal]:
     emitido = (
         select(
             HistoricoBoleta.registro_id,
@@ -103,10 +111,11 @@ async def _saldos_destino(session: AsyncSession, corrida_id: uuid.UUID) -> dict[
         .where(HistoricoCredito.corrida_id == corrida_id)
         .group_by(HistoricoCredito.registro_id)
     )
-    numeros = dict(
+    numeros: dict[uuid.UUID | None, int | None] = dict(
         (await session.execute(select(RegistroNotarial.id, RegistroNotarial.numero_registro))).all()
     )
-    saldo: dict[int, Decimal] = defaultdict(lambda: CERO)
+    numeros[None] = None
+    saldo: dict[int | None, Decimal] = defaultdict(lambda: CERO)
     for registro_id, total in (await session.execute(emitido)).all():
         saldo[numeros[registro_id]] += Decimal(total or 0)
     for registro_id, total in (await session.execute(pagado)).all():
@@ -128,11 +137,31 @@ async def calcular(
         control_filas, control_importe_texto = lote.control[entidad.value]
         control_importe: Decimal | None = None
         control_importe_error = None
+        ajuste = CERO
         if entidad in CON_IMPORTE:
             try:
                 control_importe = valores.importe(control_importe_texto or "")
             except valores.ValorInvalidoError as exc:
                 control_importe_error = str(exc)
+            if entidad.value in lote.ajustes:
+                try:
+                    ajuste = Decimal(lote.ajustes[entidad.value])
+                except InvalidOperation:
+                    ajuste = CERO
+                    control_importe_error = "ajuste de redondeo ilegible"
+                    control_importe = None
+                # Redondear una fila al centavo la mueve a lo sumo medio centavo: un ajuste
+                # mayor que eso por fila leída no es redondeo y no explica nada.
+                if control_importe is not None and (
+                    not ajuste.is_finite()
+                    or ajuste.copy_abs() > MEDIO_CENTAVO * st.leidas[entidad.value]
+                ):
+                    ajuste = CERO
+                    control_importe_error = (
+                        "el ajuste de redondeo supera lo que puede explicar el redondeo de las "
+                        "filas leídas"
+                    )
+                    control_importe = None
         leidas = st.leidas[entidad.value]
         rechazadas = st.rechazadas[entidad.value]
         cargadas_filas, importe_cargado = cargadas[entidad]
@@ -152,13 +181,16 @@ async def calcular(
                 "control_importe": _texto(control_importe),
                 "control_importe_error": control_importe_error,
                 "importe_leido": _texto(leido),
+                # Suma exacta de (redondeado - origen) de las filas redondeadas; 0 si no hubo.
+                "ajuste_redondeo": str(ajuste),
                 "importe_rechazado": _texto(rechazado),
                 "importe_cargado": _texto(importe_cargado),
                 "filas_importe_ilegible": ilegibles,
                 "cuadra_importe": (
                     control_importe is not None
                     and ilegibles == 0
-                    and control_importe == leido
+                    and control_importe
+                    == (leido - ajuste).quantize(CENTAVO, rounding=ROUND_HALF_UP)
                     and importe_cargado is not None
                     and leido == rechazado + importe_cargado
                 ),
@@ -174,7 +206,7 @@ async def calcular(
             "origen": _texto(origen.get(numero)),
             "destino": _texto(destino.get(numero)),
         }
-        for numero in sorted(set(origen) | set(destino))
+        for numero in sorted(set(origen) | set(destino), key=lambda n: (n is None, n or 0))
         if origen.get(numero, CERO) != destino.get(numero, CERO)
     ]
     cuadra = cuadra and not diferencias

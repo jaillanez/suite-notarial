@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.modules.migracion.catalog import AreaConformidad, EstadoCorrida, ModoCorrida, Severidad
 
@@ -63,3 +64,23 @@ class ConformidadIn(BaseModel):
     observaciones: (
         Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] | None
     ) = None
+
+
+class BoletaSinRegistroOut(BaseModel):
+    id: uuid.UUID
+    codigo_legado: str
+    escribano_origen: str | None
+    periodo: str
+    fecha_vencimiento: date
+    estado: str
+    importe: Decimal
+    pagado: Decimal
+
+
+class AsignacionRegistroIn(BaseModel):
+    boleta_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    numero_registro: int = Field(gt=0, lt=100_000)
+
+
+class AsignacionRegistroOut(BaseModel):
+    asignadas: int

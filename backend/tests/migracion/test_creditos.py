@@ -64,8 +64,8 @@ def _validar(directorio: Path) -> Staging:
     return validar(formato.leer_lote(directorio), homologacion.cargar(), Existentes())
 
 
-def _saldos_esperados(st: Staging) -> dict[int, Decimal]:
-    saldo: dict[int, Decimal] = defaultdict(lambda: CERO)
+def _saldos_esperados(st: Staging) -> dict[int | None, Decimal]:
+    saldo: dict[int | None, Decimal] = defaultdict(lambda: CERO)
     registro_de = {b.codigo: b.numero_registro for b in st.boletas}
     for b in st.boletas:
         saldo[b.numero_registro] += b.importe if b.estado != "ANULADA" else CERO

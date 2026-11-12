@@ -48,6 +48,8 @@ export interface CuadraturaEntidad {
   importe_cargado?: string | null
   filas_importe_ilegible?: number
   cuadra_importe?: boolean
+  /** Suma exacta de (redondeado − origen) de las filas redondeadas; "0" si no hubo. */
+  ajuste_redondeo?: string
 }
 
 export interface Informe {
@@ -61,7 +63,8 @@ export interface Informe {
     registros_a_favor?: number
     a_favor_origen?: string
     a_favor_destino?: string
-    diferencias: { registro: number; origen: string | null; destino: string | null }[]
+    /** registro null: boletas con el registro «a completar». */
+    diferencias: { registro: number | null; origen: string | null; destino: string | null }[]
   }
   boletas_por_estado: { estado: string; filas: number; importe: string }[]
   circunscripciones_nuevas: number
@@ -125,4 +128,33 @@ export async function firmarConformidad(
   data: { area: Area; observaciones: string | null },
 ): Promise<CorridaDetalle> {
   return (await api.post<CorridaDetalle>(`${P}/corridas/${id}/conformidad`, data)).data
+}
+
+/** Boleta del sistema anterior migrada sin registro («a completar»). */
+export interface BoletaSinRegistro {
+  id: string
+  codigo_legado: string
+  /** Quien pagó, tal como figura en el origen. */
+  escribano_origen: string | null
+  periodo: string
+  fecha_vencimiento: string
+  estado: string
+  importe: string
+  pagado: string
+}
+
+export async function fetchBoletasSinRegistro(): Promise<BoletaSinRegistro[]> {
+  return (await api.get<BoletaSinRegistro[]>(`${P}/boletas-sin-registro`)).data
+}
+
+export async function asignarRegistro(
+  boletaIds: string[],
+  numeroRegistro: number,
+): Promise<{ asignadas: number }> {
+  return (
+    await api.post<{ asignadas: number }>(`${P}/boletas-sin-registro/asignacion`, {
+      boleta_ids: boletaIds,
+      numero_registro: numeroRegistro,
+    })
+  ).data
 }

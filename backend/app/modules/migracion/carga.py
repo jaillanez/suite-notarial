@@ -192,7 +192,12 @@ async def cargar(
                 "id": bid,
                 "corrida_id": corrida_id,
                 "codigo_legado": b.codigo,
-                "registro_id": c.registro_por_numero[b.numero_registro],
+                "registro_id": (
+                    c.registro_por_numero[b.numero_registro]
+                    if b.numero_registro is not None
+                    else None
+                ),
+                "escribano_origen": b.escribano_origen,
                 "periodo": b.periodo,
                 "numero_boleta": b.numero_boleta,
                 "fecha_emision": b.emision,
