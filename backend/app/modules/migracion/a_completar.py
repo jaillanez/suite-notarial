@@ -60,6 +60,12 @@ async def asignar_registro(
     ).all()
     if len(boletas) != len(set(boleta_ids)):
         raise ProblemError(HTTPStatus.NOT_FOUND, "Alguna de las boletas no existe.")
+    # Una asignación es de un escribano: no se mezclan pagos de distintas personas.
+    if len({b.escribano_origen for b in boletas}) > 1:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "Las boletas son de distintos escribanos: asigná el registro de a uno.",
+        )
     ya = [b.codigo_legado for b in boletas if b.registro_id is not None]
     if ya:
         raise ProblemError(

@@ -33,6 +33,7 @@ from app.modules.migracion.validacion import CERO, Staging
 from app.modules.padron.models import Adscripcion, Escribano, Licencia, RegistroNotarial
 
 CENTAVO = Decimal("0.01")
+MEDIO_CENTAVO = Decimal("0.005")
 
 CON_IMPORTE = (Entidad.BOLETAS, Entidad.PAGOS, Entidad.CREDITOS)
 
@@ -146,7 +147,20 @@ async def calcular(
                 try:
                     ajuste = Decimal(lote.ajustes[entidad.value])
                 except InvalidOperation:
+                    ajuste = CERO
                     control_importe_error = "ajuste de redondeo ilegible"
+                    control_importe = None
+                # Redondear una fila al centavo la mueve a lo sumo medio centavo: un ajuste
+                # mayor que eso por fila leída no es redondeo y no explica nada.
+                if control_importe is not None and (
+                    not ajuste.is_finite()
+                    or ajuste.copy_abs() > MEDIO_CENTAVO * st.leidas[entidad.value]
+                ):
+                    ajuste = CERO
+                    control_importe_error = (
+                        "el ajuste de redondeo supera lo que puede explicar el redondeo de las "
+                        "filas leídas"
+                    )
                     control_importe = None
         leidas = st.leidas[entidad.value]
         rechazadas = st.rechazadas[entidad.value]

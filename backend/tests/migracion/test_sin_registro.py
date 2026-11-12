@@ -44,7 +44,7 @@ def _editar(
         escritor.writerows(filas)
 
 
-def _sin_registro(directorio: Path, cantidad: int = 3) -> list[str]:
+def _sin_registro(directorio: Path, cantidad: int = 3, *, otro_nombre: bool = False) -> list[str]:
     """Deja sin registro las primeras boletas pagadas («P» en el origen), con quien pagó."""
     codigos: list[str] = []
 
@@ -53,6 +53,8 @@ def _sin_registro(directorio: Path, cantidad: int = 3) -> list[str]:
             fila["numero_registro"] = ""
             fila["escribano_origen"] = "PRUEBA Sin Registro"
             codigos.append(fila["codigo_legado"])
+        if otro_nombre:
+            next(f for f in filas if f["codigo_legado"] == codigos[0])["escribano_origen"] = "OTRO"
 
     _editar(directorio, "boletas.csv", cambio, extra=("escribano_origen",))
     return codigos
@@ -144,11 +146,31 @@ def test_ajustes_de_redondeo_del_extractor() -> None:
     }
 
 
+@pytest.mark.parametrize("ajuste", ["1000", "NaN", "Infinity", "-5000"])
+async def test_un_ajuste_desmedido_o_no_finito_no_cuadra(
+    maker: Maker, lote: Callable[..., Path], operador: User, ajuste: str
+) -> None:
+    directorio = lote()
+    leido = _importe_control(directorio, "boletas")
+    _control(directorio, "boletas", str(leido), ajuste)
+
+    r = await service.correr(directorio, ModoCorrida.SIMULACRO, operador.email, maker=maker)
+
+    assert r.cuadra is False
+    boletas = next(e for e in r.informe["entidades"] if e["entidad"] == "boletas")
+    assert boletas["control_importe_error"]
+
+
 async def _cargado(
-    maker: Maker, lote: Callable[..., Path], operador: User, db_session: AsyncSession
+    maker: Maker,
+    lote: Callable[..., Path],
+    operador: User,
+    db_session: AsyncSession,
+    *,
+    otro_nombre: bool = False,
 ) -> list[str]:
     directorio = lote()
-    codigos = _sin_registro(directorio)
+    codigos = _sin_registro(directorio, otro_nombre=otro_nombre)
     r = await service.correr(directorio, ModoCorrida.SIMULACRO, operador.email, maker=maker)
     assert r.cuadra is True
     st = validar(formato.leer_lote(directorio), homologacion.cargar(), Existentes())
@@ -228,6 +250,24 @@ async def test_asignar_requiere_administracion(
         f"{URL}/asignacion", json={"boleta_ids": [sin[0]["id"]], "numero_registro": 1}
     )
     assert response.status_code == 403
+
+
+async def test_no_mezcla_escribanos_en_una_asignacion(
+    maker: Maker,
+    lote: Callable[..., Path],
+    operador: User,
+    db_session: AsyncSession,
+    caja: Firmante,
+) -> None:
+    await _cargado(maker, lote, operador, db_session, otro_nombre=True)
+    sin = (await caja.client.get(URL)).json()
+    assert len({b["escribano_origen"] for b in sin}) == 2
+
+    response = await caja.client.post(
+        f"{URL}/asignacion",
+        json={"boleta_ids": [b["id"] for b in sin], "numero_registro": 1},
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
