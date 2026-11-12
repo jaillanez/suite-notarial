@@ -108,13 +108,15 @@ class CargoN:
 @dataclass(frozen=True)
 class BoletaN:
     codigo: str
-    numero_registro: int
+    # None: el origen no tiene el registro («a completar»): va con `escribano_origen`.
+    numero_registro: int | None
     periodo: str
     numero_boleta: str | None
     emision: date
     vencimiento: date
     importe: Decimal
     estado: str
+    escribano_origen: str | None = None
 
 
 @dataclass(frozen=True)
@@ -591,7 +593,21 @@ def _boletas(lote: Lote, hom: Homologacion, st: Staging) -> None:
         f = _Fila(st, Entidad.BOLETAS, fila)
         if fila.numero in codigos:
             f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
-        numero = f.campo("numero_registro", valores.entero)
+        escribano_origen = f.campo("escribano_origen", _texto(200), obligatorio=False)
+        # Sin registro en el origen, la boleta se carga igual si dice quién pagó: la Caja le
+        # asigna el registro después (una sola vez, auditado).
+        numero = f.campo("numero_registro", valores.entero, obligatorio=escribano_origen is None)
+        if (
+            numero is None
+            and escribano_origen
+            and not fila.datos.get("numero_registro", "").strip()
+        ):
+            f.observar(
+                "REGISTRO_A_COMPLETAR",
+                "Sin registro en el origen: se carga con el nombre de quien pagó y el registro "
+                "queda a completar.",
+                Severidad.ADVERTENCIA,
+            )
         if numero is not None and numero not in registros:
             f.observar(
                 "REGISTRO_NO_MIGRADO",
@@ -624,6 +640,7 @@ def _boletas(lote: Lote, hom: Homologacion, st: Staging) -> None:
                     vencimiento,
                     importe,
                     estado or "",
+                    escribano_origen,
                 )
             )
 

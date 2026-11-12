@@ -146,17 +146,32 @@ class HistoricoBoleta(UUIDMixin, Base):
         CheckConstraint("importe >= 0", name="importe"),
         Index("ix_historico_boletas_registro_periodo", "registro_id", "periodo"),
         Index("ix_historico_boletas_estado_vencimiento", "estado", "fecha_vencimiento"),
+        CheckConstraint(
+            "registro_id IS NOT NULL OR escribano_origen IS NOT NULL", name="registro_o_escribano"
+        ),
+        CheckConstraint(
+            "(registro_asignado_por_user_id IS NULL) = (registro_asignado_en IS NULL)",
+            name="asignacion_completa",
+        ),
     )
 
     corrida_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("migracion_corridas.id", ondelete="RESTRICT"), nullable=False
     )
     codigo_legado: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    registro_id: Mapped[uuid.UUID] = mapped_column(
+    # None: el origen no tiene el registro («a completar»); la Caja lo asigna una sola vez
+    # (único UPDATE que admite el histórico, ver migracion_guard).
+    registro_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("padron_registros_notariales.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
+    # Nombre de quien pagó tal como figura en el origen (para asignar el registro).
+    escribano_origen: Mapped[str | None] = mapped_column(String(200))
+    registro_asignado_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id", ondelete="RESTRICT")
+    )
+    registro_asignado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     periodo: Mapped[str] = mapped_column(String(7), nullable=False)
     numero_boleta: Mapped[str | None] = mapped_column(String(50))
     fecha_emision: Mapped[date] = mapped_column(Date, nullable=False)

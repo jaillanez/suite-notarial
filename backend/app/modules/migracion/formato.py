@@ -17,6 +17,14 @@ su `codigo_legado`; `fecha_hasta` vacía = vigente). Si viene, `control.csv` dec
 Otros agregados compatibles a la versión 2: en `registros.csv`, `circunscripcion` es opcional
 (vacía = «San Juan», la única circunscripción de la Caja) y `escribanos.csv` admite los datos de
 la primera escritura (`primera_escritura_fecha`, `_numero`, `_registro`, `_folio`).
+
+`control.csv` admite la columna opcional `ajuste_redondeo`: por entidad, la suma exacta de
+(importe redondeado - importe del origen) de las filas que la extracción redondeó al centavo (el
+detalle va en `redondeos.csv`). Con ella, la cuadratura exige control = leído - ajuste
+redondeado al centavo: la diferencia de centavos queda explicada fila por fila, no compensada.
+
+`boletas.csv` admite `escribano_origen` (nombre de quien pagó, tal como figura en el origen):
+con él, `numero_registro` puede faltar y la boleta se carga «registro a completar».
 """
 
 import csv
@@ -76,7 +84,7 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "importe",
             "estado",
         ),
-        ("numero_boleta",),
+        ("numero_boleta", "escribano_origen"),
     ),
     Entidad.PAGOS: (
         ("codigo_legado", "boleta", "fecha_pago", "importe"),
@@ -119,6 +127,8 @@ class Lote:
     # Huella del lote (archivos y contenido): identifica la extracción en cada corrida.
     huella: str
     codificaciones: dict[str, str] = field(default_factory=dict)
+    # Ajuste de redondeo declarado en control.csv: entidad → texto (ver docstring).
+    ajustes: dict[str, str] = field(default_factory=dict)
     # Archivos que trae el lote (los obligatorios siempre; los opcionales, si vinieron).
     presentes: frozenset[Entidad] = frozenset(e for e in Entidad if e not in OPCIONALES)
 
@@ -202,6 +212,7 @@ def leer_lote(directorio: Path) -> Lote:
     if [c for c in COLUMNAS_CONTROL if c not in columnas]:
         raise FormatoInvalidoError("control.csv: columnas esperadas entidad;filas;importe.")
     control: dict[str, tuple[int, str | None]] = {}
+    ajustes: dict[str, str] = {}
     for d in datos:
         entidad_control = d["entidad"].strip().lower()
         if entidad_control not in {e.value for e in Entidad}:
@@ -213,6 +224,8 @@ def leer_lote(directorio: Path) -> Lote:
                 f"control.csv: filas inválidas en {entidad_control}."
             ) from exc
         control[entidad_control] = (cantidad, d.get("importe") or None)
+        if (d.get("ajuste_redondeo") or "").strip():
+            ajustes[entidad_control] = d["ajuste_redondeo"].strip()
     faltan_control = [e.value for e in Entidad if e in presentes and e.value not in control]
     if faltan_control:
         raise FormatoInvalidoError(
@@ -225,4 +238,4 @@ def leer_lote(directorio: Path) -> Lote:
             "el archivo."
         )
     codificaciones["control.csv"] = codificacion
-    return Lote(filas, control, huella.hexdigest(), codificaciones, frozenset(presentes))
+    return Lote(filas, control, huella.hexdigest(), codificaciones, ajustes, frozenset(presentes))

@@ -93,7 +93,9 @@ LIC-40;ESC-27222222228;01/08/2025;;
 ```
 
 ### boletas.csv
-**codigo_legado**, **numero_registro**, **periodo**, **fecha_emision**, **fecha_vencimiento**, **importe**, **estado** (se homologa: impaga, pagada o anulada), numero_boleta.
+**codigo_legado**, **numero_registro**, **periodo**, **fecha_emision**, **fecha_vencimiento**, **importe**, **estado** (se homologa: impaga, pagada o anulada), numero_boleta, escribano_origen.
+
+`escribano_origen` es el nombre de quien pagó tal como figura en el origen. Con él, `numero_registro` puede venir vacío: la boleta se carga igual, con una advertencia (`REGISTRO_A_COMPLETAR`), y la Caja le asigna el registro después desde «Migración» → «Boletas sin registro» (por escribano y por meses; una sola vez por boleta, auditado: es el único cambio que admite el histórico). Sin registro ni nombre, la boleta se rechaza.
 
 ### pagos.csv
 **codigo_legado**, **boleta** (el `codigo_legado` de la boleta), **fecha_pago**, **importe**, medio.
@@ -123,6 +125,8 @@ creditos;12;84210,30
 ```
 
 (Las cifras del ejemplo son ilustrativas.)
+
+Columna opcional `ajuste_redondeo`: si la extracción redondeó importes del origen al centavo (p. ej. un `float` de Excel como 18618,0744), declara por entidad la suma **exacta** de (redondeado − origen) de esas filas, con el detalle fila por fila en `redondeos.csv`. La cuadratura exige entonces `importe` = leído − ajuste, redondeado al centavo, y el informe muestra el ajuste. No es una tolerancia: un ajuste que no explica exactamente la diferencia no cuadra.
 
 ## Homologación
 

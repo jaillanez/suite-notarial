@@ -8,6 +8,7 @@ import { PageHeader, Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { fetchCorridas, type Corrida } from './api'
+import { BoletasSinRegistro } from './BoletasSinRegistro'
 import { AREA, ESTADO, MODO } from './labels'
 
 export function Cuadra({ corrida }: { corrida: Pick<Corrida, 'cuadra' | 'estado'> }) {
@@ -100,6 +101,7 @@ export function CorridasPage() {
           ))}
         </ul>
       </Panel>
+      <BoletasSinRegistro />
     </>
   )
 }

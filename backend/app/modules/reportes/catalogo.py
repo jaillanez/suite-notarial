@@ -448,7 +448,8 @@ def _aportes_periodo(f: Filtros) -> Consulta:
         func.count().filter(a.c.con_atraso).label("con_atraso"),
         func.count().filter(a.c.vencida_impaga).label("vencidas_impagas"),
         func.count().filter(a.c.origen == "ANTERIOR").label("del_anterior"),
-    ).join(RegistroNotarial, RegistroNotarial.id == a.c.registro_id)
+        # outer: los aportes del sistema anterior con el registro «a completar» también suman.
+    ).outerjoin(RegistroNotarial, RegistroNotarial.id == a.c.registro_id)
     if "origen" in f:
         stmt = stmt.where(a.c.origen == f["origen"])
     if "registro" in f:
@@ -1163,14 +1164,16 @@ def _boletas_historicas(f: Filtros) -> Consulta:
         pagado.label("pagado"),
         case((anulada, 0), else_=HistoricoBoleta.importe - pagado).label("saldo"),
         HistoricoBoleta.codigo_legado.label("codigo_legado"),
-    ).join(RegistroNotarial, RegistroNotarial.id == HistoricoBoleta.registro_id)
+        HistoricoBoleta.escribano_origen.label("escribano_origen"),
+        # outer: las boletas con el registro «a completar» (sin registro) también se listan.
+    ).outerjoin(RegistroNotarial, RegistroNotarial.id == HistoricoBoleta.registro_id)
     if "estado" in f:
         stmt = stmt.where(HistoricoBoleta.estado == f["estado"])
     if "registro" in f:
         stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
     stmt = _rango_periodos(stmt, HistoricoBoleta.periodo, f)
     return stmt.order_by(
-        RegistroNotarial.numero_registro, HistoricoBoleta.periodo, HistoricoBoleta.id
+        RegistroNotarial.numero_registro.nulls_last(), HistoricoBoleta.periodo, HistoricoBoleta.id
     )
 
 
@@ -1193,6 +1196,7 @@ BOLETAS_HISTORICAS = Reporte(
         Columna("pagado", "Pagado", Tipo.MONEDA, total=True),
         Columna("saldo", "Saldo", Tipo.MONEDA, total=True),
         Columna("codigo_legado", "Código en el sistema anterior", visible=False),
+        Columna("escribano_origen", "Pagó (sin registro en el origen)", visible=False),
     ),
     filtros=(
         *PERIODOS,

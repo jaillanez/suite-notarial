@@ -5,6 +5,7 @@ cuadratura y las observaciones, y Tesorería y Caja dan su conformidad sobre un 
 """
 
 import uuid
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -14,10 +15,13 @@ from app.common.deps import SessionDep
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal, RequestContextDep, require_permissions
 from app.modules.iam.models import User
-from app.modules.migracion import service
+from app.modules.migracion import a_completar, service
 from app.modules.migracion.catalog import AreaConformidad, Entidad, ModoCorrida, Severidad
 from app.modules.migracion.models import Corrida
 from app.modules.migracion.schemas import (
+    AsignacionRegistroIn,
+    AsignacionRegistroOut,
+    BoletaSinRegistroOut,
     ConformidadIn,
     ConformidadOut,
     CorridaDetalle,
@@ -30,6 +34,11 @@ router = APIRouter(prefix="/migracion", tags=["migracion"])
 
 CanRead = Annotated[Principal, Depends(require_permissions(Perm.MIGRACION_READ))]
 CanConformar = Annotated[Principal, Depends(require_permissions(Perm.MIGRACION_CONFORMAR))]
+# Asignar el registro que faltaba en el origen es un dato del padrón: lo hace Administración.
+CanAsignar = Annotated[
+    Principal,
+    Depends(require_permissions(Perm.MIGRACION_READ, Perm.ESCRIBANOS_WRITE)),
+]
 
 
 async def _nombres(session: SessionDep, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
@@ -142,3 +151,35 @@ async def conformar(
 ) -> CorridaDetalle:
     await service.conformar(session, ctx, principal, corrida_id, body.area, body.observaciones)
     return await corrida_detalle(session, await service.get_corrida(session, corrida_id))
+
+
+@router.get("/boletas-sin-registro", response_model=list[BoletaSinRegistroOut])
+async def boletas_sin_registro(_: CanRead, session: SessionDep) -> list[BoletaSinRegistroOut]:
+    """Boletas del sistema anterior migradas con el registro «a completar»."""
+    return [
+        BoletaSinRegistroOut(
+            id=b.id,
+            codigo_legado=b.codigo_legado,
+            escribano_origen=b.escribano_origen,
+            periodo=b.periodo,
+            fecha_vencimiento=b.fecha_vencimiento,
+            estado=b.estado,
+            importe=b.importe,
+            pagado=Decimal(str(pagado)),
+        )
+        for b, pagado in await a_completar.sin_registro(session)
+    ]
+
+
+@router.post("/boletas-sin-registro/asignacion", response_model=AsignacionRegistroOut)
+async def asignar_registro(
+    body: AsignacionRegistroIn,
+    principal: CanAsignar,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> AsignacionRegistroOut:
+    """Asigna el registro a boletas que lo tenían a completar (una sola vez, auditado)."""
+    asignadas = await a_completar.asignar_registro(
+        session, ctx, principal.user, body.boleta_ids, body.numero_registro
+    )
+    return AsignacionRegistroOut(asignadas=asignadas)

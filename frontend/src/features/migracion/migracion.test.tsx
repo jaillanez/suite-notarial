@@ -107,6 +107,7 @@ describe('migración', () => {
       page: 1,
       page_size: 25,
     })
+    vi.mocked(api.fetchBoletasSinRegistro).mockResolvedValue([])
   })
 
   it('lista las corridas con su cuadratura y conformidades', async () => {
@@ -115,6 +116,62 @@ describe('migración', () => {
     expect(await screen.findByText('Simulacro')).toBeInTheDocument()
     expect(screen.getByText('No cuadra')).toBeInTheDocument()
     expect(screen.getByText(/Tesorería pendiente, Caja pendiente/)).toBeInTheDocument()
+  })
+
+  it('la Caja asigna el registro a las boletas migradas sin él, por meses', async () => {
+    const boleta = (id: string, periodo: string): api.BoletaSinRegistro => ({
+      id,
+      codigo_legado: `APD-${id}`,
+      escribano_origen: 'NEBRO Mauricio Andres',
+      periodo,
+      fecha_vencimiento: `${periodo}-28`,
+      estado: 'PAGADA',
+      importe: '1000.00',
+      pagado: '1000.00',
+    })
+    vi.mocked(api.fetchCorridas).mockResolvedValue([])
+    vi.mocked(api.fetchBoletasSinRegistro).mockResolvedValue([
+      boleta('1', '2017-01'),
+      boleta('2', '2017-02'),
+      boleta('3', '2017-03'),
+    ])
+    vi.mocked(api.asignarRegistro).mockResolvedValue({ asignadas: 2 })
+    renderWithProviders(<CorridasPage />, {
+      user: {
+        ...TESORERIA,
+        roles: ['ROLE_CAJA'],
+        permissions: ['migracion:read', 'escribanos:write'],
+      },
+    })
+
+    expect(await screen.findByText('NEBRO Mauricio Andres')).toBeInTheDocument()
+    const asignar = screen.getByRole('button', { name: 'Asignar a 3 boletas' })
+    expect(asignar).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '2017-02' } })
+    fireEvent.change(screen.getByLabelText('Registro'), { target: { value: '66' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Asignar a 2 boletas' }))
+    await waitFor(() => {
+      expect(api.asignarRegistro).toHaveBeenCalledWith(['1', '2'], 66)
+    })
+  })
+
+  it('sin permiso de padrón ve las boletas sin registro pero no las asigna', async () => {
+    vi.mocked(api.fetchCorridas).mockResolvedValue([])
+    vi.mocked(api.fetchBoletasSinRegistro).mockResolvedValue([
+      {
+        id: '1',
+        codigo_legado: 'APD-1',
+        escribano_origen: 'RETA UÑAC Alejandro',
+        periodo: '2019-06',
+        fecha_vencimiento: '2019-07-28',
+        estado: 'PAGADA',
+        importe: '6117.66',
+        pagado: '6117.66',
+      },
+    ])
+    renderWithProviders(<CorridasPage />, { user: TESORERIA })
+    expect(await screen.findByText('RETA UÑAC Alejandro')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Asignar/ })).not.toBeInTheDocument()
   })
 
   it('explica por qué no cuadra, sin compensar: importe ilegible', async () => {

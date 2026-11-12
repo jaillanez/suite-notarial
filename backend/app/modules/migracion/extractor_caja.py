@@ -84,6 +84,7 @@ COLUMNAS = {
         "importe",
         "estado",
         "numero_boleta",
+        "escribano_origen",
     ),
     "pagos": ("codigo_legado", "boleta", "fecha_pago", "importe", "medio"),
     "creditos": ("codigo_legado", "numero_registro", "fecha", "importe", "periodo", "concepto"),
@@ -678,7 +679,8 @@ def escribir_pagos(
                     numero,
                     codigo,
                     "SIN_REGISTRO",
-                    "La fila no trae registro y no se pudo deducir: queda observada.",
+                    "La fila no trae registro y no se pudo deducir: se carga con el nombre de "
+                    "quien pagó y el registro a completar.",
                 )
         mes, anio = digitos(f.get("CUOTA")), digitos(f.get("_"))
         periodo = f"{int(anio):04d}-{int(mes):02d}" if mes and anio and 1 <= int(mes) <= 12 else ""
@@ -742,6 +744,8 @@ def escribir_pagos(
                 "importe": monto(valor) if valor is not None else "",
                 "estado": estado,
                 "numero_boleta": concepto[:50],
+                # Sin registro, quién pagó: la Caja asigna el registro después.
+                "escribano_origen": "" if registro else " ".join(nombres.split())[:200],
             }
         )
         if estado == "PAGADA" and valor is not None and valor > 0:
@@ -789,6 +793,28 @@ def leer_departamentos(ruta: Path | None) -> dict[int, dict[str, str]]:
         if fila.get("numero_registro", "").isdigit():
             datos[int(fila["numero_registro"])] = fila
     return datos
+
+
+def ajustes_de_redondeo(
+    redondeos: list[dict[str, str]], pagos: list[dict[str, str]]
+) -> dict[str, Decimal]:
+    """Por entidad, la suma exacta de (redondeado - origen) de las filas redondeadas al centavo.
+
+    Una fila de la planilla redondeada es una boleta (y su pago, si se pagó) o un crédito: el
+    mismo redondeo cuenta en cada archivo donde quedó ese importe. La cuadratura lo usa para
+    explicar la diferencia de centavos con el total de la planilla (`control.csv`).
+    """
+    con_pago = {p["boleta"] for p in pagos}
+    ajustes = {"boletas": Decimal("0"), "pagos": Decimal("0"), "creditos": Decimal("0")}
+    for r in redondeos:
+        diferencia = Decimal(r["redondeado"]) - Decimal(r["original"])
+        if r["codigo_legado"].startswith("CRE-"):
+            ajustes["creditos"] += diferencia
+            continue
+        ajustes["boletas"] += diferencia
+        if r["codigo_legado"] in con_pago:
+            ajustes["pagos"] += diferencia
+    return ajustes
 
 
 def totales_de_origen(filas: list[tuple[int, dict[str, object]]]) -> dict[str, tuple[int, Decimal]]:
@@ -852,6 +878,7 @@ def guardar(lote: Lote, salida: Path) -> None:
             escritor.writeheader()
             escritor.writerows(filas)
 
+    ajustes = ajustes_de_redondeo(lote.redondeos, lote.archivos["pagos"])
     control = []
     for entidad, columnas in COLUMNAS.items():
         filas = lote.archivos[entidad]
@@ -865,9 +892,10 @@ def guardar(lote: Lote, salida: Path) -> None:
                 "entidad": entidad,
                 "filas": str(cantidad),
                 "importe": monto(total) if total is not None else "",
+                "ajuste_redondeo": str(ajustes[entidad]) if ajustes.get(entidad) else "",
             }
         )
-    volcar("control.csv", ("entidad", "filas", "importe"), control)
+    volcar("control.csv", ("entidad", "filas", "importe", "ajuste_redondeo"), control)
     volcar(
         "extraccion.csv",
         ("fuente", "fila_excel", "codigo_legado", "accion", "motivo"),
