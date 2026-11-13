@@ -420,6 +420,8 @@ export interface RenglonPlanilla {
   folio: number | null
   naturaleza: string
   categoria: CategoriaActo
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
   base_imponible: string | null
   /** Lo que aporta el acto solo, en su columna (variable o fijo). */
   aporte_variable: string | null
@@ -465,6 +467,8 @@ export interface Planilla {
   totales: TotalesPlanilla
   /** Si los aportes del borrador no se pudieron calcular, por qué. */
   sin_aportes: string | null
+  /** Rectificada: número de la rectificativa que la reemplazó. */
+  reemplazada_por: number | null
 }
 
 export async function fetchPlanilla(id: string): Promise<Planilla> {

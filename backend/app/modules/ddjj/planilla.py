@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from app.common.money import to_money
-from app.modules.ddjj.catalog import CategoriaActo, TipoProtocolo
+from app.modules.ddjj.catalog import CategoriaActo, MotivoExencion, TipoProtocolo
 from app.modules.ddjj.liquidacion import AporteActo
 from app.modules.padron.catalog import Cargo
 
@@ -41,6 +41,9 @@ class ActoPlanilla:
     escribano: str
     cargo: Cargo
     acto_id: uuid.UUID | None = None
+    # Un acto exento declara por qué (va en la declaración jurada).
+    motivo_exencion: MotivoExencion | None = None
+    detalle_exencion: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,8 @@ class Renglon:
     folio: int | None
     naturaleza: str
     categoria: CategoriaActo
+    motivo_exencion: MotivoExencion | None
+    detalle_exencion: str | None
     base_imponible: Decimal | None
     # Variable o fijo, según la categoría (el otro queda vacío). None: sin aporte calculado.
     aporte_variable: Decimal | None
@@ -123,6 +128,8 @@ def armar(actos: Sequence[ActoPlanilla], aportes: Sequence[AporteActo] | None) -
                 folio=acto.folio,
                 naturaleza=acto.naturaleza,
                 categoria=acto.categoria,
+                motivo_exencion=acto.motivo_exencion,
+                detalle_exencion=acto.detalle_exencion,
                 base_imponible=acto.base_imponible if variable else None,
                 aporte_variable=individual if variable else None,
                 aporte_fijo=individual if fijo else None,

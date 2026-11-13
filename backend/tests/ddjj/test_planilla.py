@@ -161,3 +161,73 @@ async def test_la_planilla_respeta_el_acceso(
     await login(client, otro)
     assert (await client.get(f"{url}/planilla")).status_code == 404
     assert (await client.get(f"{url}/pdf")).status_code == 404
+
+
+async def test_exentos_y_rectificada_en_la_planilla(
+    notario: AsyncClient, escenario: Escenario
+) -> None:
+    ddjj = await _borrador(notario, escenario, "2026-09")
+    exento = {
+        **escritura(escenario.titular, 40, "0"),
+        "categoria": "EXENTO",
+        "motivo_exencion": "OTRO",
+        "detalle_exencion": "Donación al Estado provincial",
+    }
+    assert (await _agregar(notario, ddjj["id"], exento)).status_code == 201
+    url = f"/api/v1/ddjj/declaraciones/{ddjj['id']}"
+    renglon = (await notario.get(f"{url}/planilla")).json()["protocolos"][0]["renglones"][0]
+    # La declaración jurada dice por qué el acto no aporta.
+    assert renglon["motivo_exencion"] == "OTRO"
+    assert renglon["detalle_exencion"] == "Donación al Estado provincial"
+
+    presentada = await notario.post(f"{url}/presentar", json={"fecha_pago": "2026-10-23"})
+    assert presentada.status_code == 201, presentada.text
+    assert (await notario.get(f"{url}/planilla")).json()["reemplazada_por"] is None
+    rect = (await notario.post(f"{url}/rectificar")).json()
+    original = (await notario.get(f"{url}/planilla")).json()
+    assert original["estado"] == "RECTIFICADA"
+    assert original["reemplazada_por"] == rect["numero_rectificativa"] == 1
+    assert (await notario.get(f"{url}/pdf")).status_code == 200
+
+
+def test_el_pdf_marca_la_rectificada_y_el_motivo_de_exencion() -> None:
+    from types import SimpleNamespace
+
+    from app.core.config import get_settings
+    from app.modules.ddjj import pdf
+    from app.modules.ddjj.catalog import MotivoExencion
+    from app.modules.ddjj.router import planilla_out
+    from app.modules.ddjj.service import DatosPlanilla
+
+    acto = ActoPlanilla(
+        TipoProtocolo.GENERAL,
+        1,
+        1,
+        None,
+        "Hipoteca",
+        CategoriaActo.EXENTO,
+        D("0.00"),
+        "X",
+        Cargo.TITULAR,
+        motivo_exencion=MotivoExencion.CONVENIO_IPV,
+    )
+    datos = DatosPlanilla(
+        ddjj=SimpleNamespace(  # type: ignore[arg-type]
+            id=None,
+            periodo="2026-09",
+            estado="RECTIFICADA",
+            numero_rectificativa=0,
+            fecha_presentacion=None,
+        ),
+        registro=SimpleNamespace(numero_registro=39),  # type: ignore[arg-type]
+        equipo={c: [] for c in (Cargo.TITULAR, Cargo.ADSCRIPTO, Cargo.SUPLENTE_INTERINO)},
+        planilla=armar([acto], [AporteActo(D("0.00"), None)]),
+        sin_aportes=None,
+        reemplazada_por=1,
+    )
+    datos.ddjj.id = __import__("uuid").uuid4()
+    html = pdf.render_planilla_html(get_settings(), planilla_out(datos))
+    assert "RECTIFICADA · SIN VALIDEZ" in html
+    assert "rectificativa N° 1" in html
+    assert "Firma y sello" not in html
+    assert "Exento · Emanada del IPV" in html

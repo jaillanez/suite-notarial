@@ -603,6 +603,8 @@ def planilla_out(datos: service.DatosPlanilla) -> PlanillaOut:
                         folio=r.folio,
                         naturaleza=r.naturaleza,
                         categoria=r.categoria,
+                        motivo_exencion=r.motivo_exencion,
+                        detalle_exencion=r.detalle_exencion,
                         base_imponible=r.base_imponible,
                         aporte_variable=r.aporte_variable,
                         aporte_fijo=r.aporte_fijo,
@@ -623,6 +625,7 @@ def planilla_out(datos: service.DatosPlanilla) -> PlanillaOut:
         ],
         totales=totales_out(datos.planilla.totales),
         sin_aportes=datos.sin_aportes,
+        reemplazada_por=datos.reemplazada_por,
     )
 
 

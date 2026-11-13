@@ -18,6 +18,8 @@
   .titulo { text-align: right; }
   .titulo h1 { font-size: 13pt; margin: 0; color: #113347; letter-spacing: 0.02em; }
   .titulo p { margin: 2pt 0 0; color: #4c5c66; }
+  .anulada { display: inline-block; margin-top: 4pt; padding: 1pt 6pt; border: 1pt solid #a8201a; color: #a8201a; font-weight: 600; letter-spacing: 0.06em; }
+  .aviso.rechazo { border-color: #e7a6a2; background: #fcebea; color: #a8201a; }
   .borrador { display: inline-block; margin-top: 4pt; padding: 1pt 6pt; border: 1pt solid #845300; color: #845300; font-weight: 600; letter-spacing: 0.06em; }
   .cabecera { display: flex; gap: 10pt; margin-top: 8pt; }
   .cabecera div { flex: 1; border: 0.75pt solid #d3dce2; padding: 5pt 8pt; }
@@ -48,6 +50,7 @@
     <h1>Declaración Jurada de Aportes</h1>
     <p>Registro Notarial N° <strong class="num">{{ d.registro_numero }}</strong> · Período <strong class="num">{{ periodo }}</strong>{% if d.numero_rectificativa %} · Rectificativa {{ d.numero_rectificativa }}{% endif %}</p>
     {% if d.estado == "BORRADOR" %}<span class="borrador">BORRADOR · NO PRESENTADA</span>{% endif %}
+    {% if d.estado == "RECTIFICADA" %}<span class="anulada">RECTIFICADA · SIN VALIDEZ</span>{% endif %}
   </div>
 </header>
 
@@ -72,6 +75,9 @@
   </div>
 </div>
 
+{% if d.estado == "RECTIFICADA" %}
+<p class="aviso rechazo"><strong>Esta declaración fue rectificada y no tiene validez.</strong>{% if d.reemplazada_por %} La reemplaza la rectificativa N° {{ d.reemplazada_por }} del mismo período.{% endif %}</p>
+{% endif %}
 {% if d.sin_aportes %}
 <p class="aviso">Los aportes no se pudieron calcular: {{ d.sin_aportes }}</p>
 {% elif d.estado == "BORRADOR" %}
@@ -101,7 +107,7 @@
       <tr>
         <td class="num">{{ r.numero_escritura }}{% if r.orden_en_escritura > 1 %} · acto {{ r.orden_en_escritura }}{% endif %}</td>
         <td class="num">{{ r.folio if r.folio is not none else "" }}</td>
-        <td>{{ r.naturaleza }}{% if r.incluido_en_otro %}<br><span class="detalle">Incluido en el acto principal</span>{% endif %}</td>
+        <td>{{ r.naturaleza }}{% if r.motivo_exencion %}<br><span class="detalle">Exento · {{ r.detalle_exencion if r.motivo_exencion == "OTRO" and r.detalle_exencion else motivo_exencion[r.motivo_exencion] }}</span>{% endif %}{% if r.incluido_en_otro %}<br><span class="detalle">Incluido en el acto principal</span>{% endif %}</td>
         <td class="der num">{{ r.base_imponible|pesos if r.base_imponible is not none else "" }}</td>
         <td class="der num">{{ r.aporte_variable|pesos if r.aporte_variable is not none else "" }}</td>
         <td class="der num">{{ r.aporte_fijo|pesos if r.aporte_fijo is not none else "" }}</td>
@@ -166,12 +172,14 @@
 
 <div class="juramento">
   <p><strong>Declaro bajo juramento que los datos expresados son completos y correctos, responsabilizándome por cualquier error u omisión.</strong></p>
-  {% if presentada %}<p class="detalle">Presentada en la Suite Notarial de la {{ caja.CAJA_NOMBRE }} el {{ presentada }}.</p>{% endif %}
+  {% if presentada %}<p class="detalle">Presentada en la Suite Notarial de la {{ caja.CAJA_NOMBRE }} el {{ presentada }}{% if d.estado == "RECTIFICADA" %}; luego rectificada: no tiene validez{% endif %}.</p>{% endif %}
+  {% if d.estado != "RECTIFICADA" %}
   <div class="firmas">
     <div>Firma y sello del Titular</div>
     <div>Firma y sello del Adscripto</div>
     <div>Firma y sello del Notario a cargo</div>
   </div>
+  {% endif %}
 </div>
 </body>
 </html>

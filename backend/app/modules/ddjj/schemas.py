@@ -431,6 +431,8 @@ class RenglonPlanillaOut(BaseModel):
     folio: int | None
     naturaleza: str
     categoria: CategoriaActo
+    motivo_exencion: MotivoExencion | None
+    detalle_exencion: str | None
     base_imponible: Money | None
     aporte_variable: Money | None
     aporte_fijo: Money | None
@@ -475,3 +477,5 @@ class PlanillaOut(BaseModel):
     totales: TotalesPlanillaOut
     # Si los aportes del borrador no se pudieron calcular, por qué (los renglones van igual).
     sin_aportes: str | None
+    # Rectificada: número de la rectificativa que la reemplazó (esta ya no vale).
+    reemplazada_por: int | None

@@ -190,8 +190,7 @@ function ProtocoloGrilla({
                 <td className={TD}>
                   <span className="block text-ink">{r.naturaleza}</span>
                   <span className="block text-ink-muted">
-                    {categoriaDe({ ...r, motivo_exencion: null, detalle_exencion: null })} ·{' '}
-                    {CARGO[r.cargo]}: {r.escribano}
+                    {categoriaDe(r)} · {CARGO[r.cargo]}: {r.escribano}
                   </span>
                   {detalle(r)}
                 </td>
@@ -241,7 +240,9 @@ function ProtocoloGrilla({
                 )}
               </span>
             </div>
-            <p className="mt-1 text-sm text-ink">{r.naturaleza}</p>
+            <p className="mt-1 text-sm text-ink">
+              {r.naturaleza} · <span className="text-ink-muted">{categoriaDe(r)}</span>
+            </p>
             <p className="text-sm text-ink-muted">
               {CARGO[r.cargo]} · {r.escribano}
             </p>

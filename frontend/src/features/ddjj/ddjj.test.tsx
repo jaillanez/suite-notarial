@@ -176,6 +176,8 @@ function planillaDe(
         folio: a.folio,
         naturaleza: a.naturaleza,
         categoria: a.categoria,
+        motivo_exencion: a.motivo_exencion,
+        detalle_exencion: a.detalle_exencion,
         base_imponible: variable ? a.base_imponible : null,
         aporte_variable: variable ? individual : null,
         aporte_fijo: variable ? null : individual,
@@ -208,6 +210,7 @@ function planillaDe(
     protocolos,
     totales: totales(protocolos.map((p) => p.totales.total)),
     sin_aportes: null,
+    reemplazada_por: null,
   }
 }
 
@@ -803,6 +806,24 @@ describe('planilla de la DDJJ', () => {
     await waitFor(() => {
       expect(apiModule.descargarDeclaracion).toHaveBeenCalled()
     })
+  })
+
+  it('un acto exento muestra su motivo', async () => {
+    const exento = {
+      ...ACTO,
+      categoria: 'EXENTO' as const,
+      base_imponible: '0.00',
+      motivo_exencion: 'OTRO' as const,
+      detalle_exencion: 'Donación al Estado provincial',
+    }
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [exento] })
+    vi.mocked(apiModule.fetchPlanilla).mockResolvedValue(
+      planillaDe([exento], { a1: ['0.00', '0.00'] }),
+    )
+    renderFicha()
+    expect(
+      (await screen.findAllByText(/Exento · Donación al Estado provincial/)).length,
+    ).toBeGreaterThan(0)
   })
 
   it('agregar desde una pestaña propone ese protocolo y su número', async () => {

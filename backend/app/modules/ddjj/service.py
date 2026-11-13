@@ -48,6 +48,7 @@ from app.modules.ddjj.catalog import (
     EstadoBoleta,
     EstadoDDJJ,
     ModalidadBoleta,
+    MotivoExencion,
     TipoProtocolo,
 )
 from app.modules.ddjj.liquidacion import (
@@ -1637,6 +1638,8 @@ class DatosPlanilla:
     planilla: planilla_mod.Planilla
     # Si los aportes no se pudieron calcular, por qué (borrador sin parámetros, p. ej.).
     sin_aportes: str | None
+    # Rectificada: número de la rectificativa que la reemplazó.
+    reemplazada_por: int | None = None
 
 
 async def datos_planilla(
@@ -1681,13 +1684,22 @@ async def datos_planilla(
             escribano=nombre_escribano(a.escribano),
             cargo=Cargo(a.cargo),
             acto_id=a.id,
+            motivo_exencion=MotivoExencion(a.motivo_exencion) if a.motivo_exencion else None,
+            detalle_exencion=a.detalle_exencion,
         )
         for a in actos
     ]
+    # Una DDJJ rectificada no vale: el PDF dice qué rectificativa la reemplazó.
+    reemplazo = await session.scalar(
+        select(DeclaracionJurada.numero_rectificativa).where(
+            DeclaracionJurada.rectifica_a_id == ddjj.id
+        )
+    )
     return DatosPlanilla(
         ddjj=ddjj,
         registro=registro,
         equipo=equipo,
         planilla=planilla_mod.armar(renglones, aportes),
         sin_aportes=sin_aportes,
+        reemplazada_por=reemplazo,
     )
