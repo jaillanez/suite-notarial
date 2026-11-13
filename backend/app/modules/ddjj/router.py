@@ -43,9 +43,10 @@ from app.modules.ddjj.schemas import (
     RegistroResumen,
     TramoMoraOut,
     TramoOut,
-    VademecumBajaIn,
+    VademecumAprobacionIn,
     VademecumIn,
     VademecumOut,
+    VademecumRechazoIn,
     VencimientoIn,
     VencimientoOut,
     VerificacionActoIn,
@@ -65,7 +66,7 @@ from app.modules.pagos import service as pagos_service
 from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
 from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
-from app.modules.parametros.catalog import PeriodoTasa
+from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa
 
 router = APIRouter(prefix="/ddjj", tags=["ddjj"])
 public_router = APIRouter(prefix="/boletas", tags=["boletas"])
@@ -90,6 +91,8 @@ CanReadVademecum = Annotated[
     ),
 ]
 CanEditVademecum = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_WRITE))]
+CanApproveVademecum = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_APPROVE))]
+CanReadParametros = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_READ))]
 
 
 # --------------------------------------------------------------------------- serialización
@@ -338,6 +341,9 @@ def vademecum_out(v: VademecumActo) -> VademecumOut:
         fecha_desde=v.fecha_desde,
         fecha_hasta=v.fecha_hasta,
         resolucion=v.resolucion,
+        estado=EstadoVigencia(v.estado),
+        created_by_user_id=v.created_by_user_id,
+        aprobado_por_user_id=v.aprobado_por_user_id,
         created_at=v.created_at,
     )
 
@@ -352,31 +358,43 @@ async def vademecum_vigente(
     return [vademecum_out(v) for v in await vademecum.vigentes(session, fecha or today_local())]
 
 
-@router.get("/vademecum/historial", response_model=list[VademecumOut])
-async def vademecum_historial(_: CanEditVademecum, session: SessionDep) -> list[VademecumOut]:
-    """Todas las versiones de cada acto, vigentes, futuras y cerradas."""
-    return [vademecum_out(v) for v in await vademecum.historial(session)]
+@router.get("/vademecum/pendientes", response_model=list[VademecumOut])
+async def vademecum_pendientes(_: CanReadParametros, session: SessionDep) -> list[VademecumOut]:
+    """Propuestas que esperan la aprobación de otra persona."""
+    return [vademecum_out(v) for v in await vademecum.pendientes(session)]
 
 
 @router.post("/vademecum", response_model=VademecumOut, status_code=201)
-async def vademecum_agregar(
+async def vademecum_proponer(
     body: VademecumIn, principal: CanEditVademecum, session: SessionDep, ctx: RequestContextDep
 ) -> VademecumOut:
-    """Agrega un acto o una versión nueva de uno existente (cierra la anterior)."""
-    return vademecum_out(await vademecum.agregar(session, ctx, principal.user, body))
+    """Propone un acto o una versión nueva de uno existente. Rige cuando otra persona la aprueba."""
+    return vademecum_out(await vademecum.proponer(session, ctx, principal.user, body))
 
 
-@router.post("/vademecum/{vademecum_id}/baja", response_model=VademecumOut)
-async def vademecum_baja(
+@router.post("/vademecum/aprobacion", response_model=list[VademecumOut])
+async def vademecum_aprobar(
+    body: VademecumAprobacionIn,
+    principal: CanApproveVademecum,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> list[VademecumOut]:
+    """Aprueba propuestas de otra persona (todas o ninguna)."""
+    return [
+        vademecum_out(v) for v in await vademecum.aprobar(session, ctx, principal.user, body.ids)
+    ]
+
+
+@router.post("/vademecum/{vademecum_id}/rechazo", response_model=VademecumOut)
+async def vademecum_rechazar(
     vademecum_id: uuid.UUID,
-    body: VademecumBajaIn,
-    principal: CanEditVademecum,
+    body: VademecumRechazoIn,
+    principal: CanApproveVademecum,
     session: SessionDep,
     ctx: RequestContextDep,
 ) -> VademecumOut:
-    """Deja de regir desde la fecha indicada. No borra: los actos ya declarados la conservan."""
     return vademecum_out(
-        await vademecum.dar_de_baja(session, ctx, principal.user, vademecum_id, body)
+        await vademecum.rechazar(session, ctx, principal.user, vademecum_id, body.motivo)
     )
 
 

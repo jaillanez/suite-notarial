@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.ddjj import vademecum as vademecum_service
 from app.modules.ddjj import vademecum_caja
 from app.modules.ddjj.catalog import CategoriaActo
 from app.modules.ddjj.liquidacion import ActoALiquidar, AporteActo, aplicar_pluralidad
@@ -156,6 +157,11 @@ async def vademecum(db_session: AsyncSession, escenario: Escenario) -> dict[str,
     aprobador = await make_user(db_session, roles=("ROLE_ADMIN",))
     resumen = await vademecum_caja.cargar(db_session, autor)
     assert resumen.propuesta_id is not None
+    # Lo cargado queda pendiente: sin aprobar, no rige.
+    assert await vademecum_service.vigentes(db_session, date(2026, 9, 1)) == []
+    await vademecum_service.aprobar(
+        db_session, vademecum_caja.CONSOLA, aprobador, resumen.actos_ids
+    )
     await parametros.aprobar_vigencia(
         db_session, vademecum_caja.CONSOLA, aprobador, resumen.propuesta_id
     )
@@ -316,24 +322,41 @@ async def test_pluralidad_en_la_liquidacion_y_al_presentar(
 
 
 async def test_la_respuesta_de_las_partes_rige_para_toda_la_escritura(
-    notario: AsyncClient, escenario: Escenario, vademecum: dict[str, VademecumActo]
+    notario: AsyncClient,
+    escenario: Escenario,
+    vademecum: dict[str, VademecumActo],
+    db_session: AsyncSession,
 ) -> None:
     ddjj = await _borrador(notario, escenario, "2026-09")
     venta = _del_vademecum(escenario, vademecum["VENTA"], 20, precio="1000000.00")
-    assert (await _agregar(notario, ddjj["id"], venta)).status_code == 201
-    poder = _del_vademecum(
-        escenario, vademecum["PODER"], 20, acto_multiple=True, mismas_partes=False
-    )
+    creada = await _agregar(notario, ddjj["id"], venta)
+    assert creada.status_code == 201
+    # En un acto múltiple la pregunta es obligatoria: no hay respuesta por defecto.
+    sin_respuesta = _del_vademecum(escenario, vademecum["PODER"], 20, acto_multiple=True)
+    rechazo = await _agregar(notario, ddjj["id"], sin_respuesta)
+    assert rechazo.status_code == 422
+    poder = {**sin_respuesta, "mismas_partes": False}
     assert (await _agregar(notario, ddjj["id"], poder)).status_code == 201
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
     assert [a["mismas_partes"] for a in detalle["actos"]] == [False, False]
+    # El cambio en la venta ya cargada queda auditado con su valor anterior.
+    auditado = (
+        await db_session.execute(
+            text(
+                "SELECT old_value, new_value FROM audit_security_logs "
+                "WHERE event_type = 'DDJJ_ACTO_PARTES_ACTUALIZADAS' AND details->>'acto_id' = :id"
+            ),
+            {"id": creada.json()["id"]},
+        )
+    ).one()
+    assert auditado.old_value == {"mismas_partes": True}
+    assert auditado.new_value == {"mismas_partes": False}
 
 
 # --------------------------------------------------------------------------- administración
 
 
-async def test_version_nueva_cierra_la_anterior_y_queda_auditada(
-    staff: AsyncClient,
+async def test_un_cambio_lo_aprueba_otra_persona_y_cierra_la_version_anterior(
     app: Any,
     db_session: AsyncSession,
     vademecum: dict[str, VademecumActo],
@@ -341,48 +364,99 @@ async def test_version_nueva_cierra_la_anterior_y_queda_auditada(
     from tests.ddjj.conftest import _client
     from tests.iam.test_rbac import login
 
-    admin = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret="JBSWY3DPEHPK3PXP")
+    secreto = "JBSWY3DPEHPK3PXP"
+    autor = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret=secreto)
+    revisor = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret=secreto)
+    cambio = {
+        "codigo": "TESTAMENTO",
+        "nombre": "Testamento",
+        "categoria": "ACTA_O_PODER",
+        "fecha_desde": "2027-01-01",
+        "resolucion": "Asamblea de prueba",
+        "motivo": "Cambio de política de prueba",
+    }
     async with await _client(app) as ac:
-        await login(ac, admin, "JBSWY3DPEHPK3PXP")
-        nueva = {
-            "codigo": "TESTAMENTO",
-            "nombre": "Testamento",
-            "categoria": "ACTA_O_PODER",
-            "fecha_desde": "2027-01-01",
-            "resolucion": "Asamblea de prueba",
-            "motivo": "Cambio de política de prueba",
-        }
-        creada = await ac.post("/api/v1/ddjj/vademecum", json=nueva)
-        assert creada.status_code == 201, creada.text
-        assert creada.json()["version"] == 2
-        # No puede empezar antes ni junto con una versión que ya empezó.
-        repetida = await ac.post("/api/v1/ddjj/vademecum", json=nueva)
-        assert repetida.status_code == 409
-
-        baja = await ac.post(
-            f"/api/v1/ddjj/vademecum/{creada.json()['id']}/baja",
-            json={"desde": "2027-06-01", "motivo": "Deja de figurar en el vademécum"},
+        await login(ac, autor, secreto)
+        # Un cambio sobre un acto vigente no puede regir desde hoy o antes.
+        hoy = await ac.post("/api/v1/ddjj/vademecum", json={**cambio, "fecha_desde": "2026-10-23"})
+        assert hoy.status_code == 409
+        propuesta = await ac.post("/api/v1/ddjj/vademecum", json=cambio)
+        assert propuesta.status_code == 201, propuesta.text
+        assert propuesta.json()["estado"] == "PENDIENTE_APROBACION"
+        # Una sola propuesta pendiente por acto.
+        assert (await ac.post("/api/v1/ddjj/vademecum", json=cambio)).status_code == 409
+        # Quien propone no aprueba.
+        propia = await ac.post(
+            "/api/v1/ddjj/vademecum/aprobacion", json={"ids": [propuesta.json()["id"]]}
         )
-        assert baja.status_code == 200, baja.text
-        assert baja.json()["fecha_hasta"] == "2027-05-31"
+        assert propia.status_code == 403
+    # Mientras está pendiente, rige la versión anterior.
+    enero = await vademecum_service.vigentes(db_session, date(2027, 1, 15))
+    assert next(a for a in enero if a.codigo == "TESTAMENTO").categoria == "OTRO_ACTO"
+
+    async with await _client(app) as ac:
+        await login(ac, revisor, secreto)
+        pendientes = await ac.get("/api/v1/ddjj/vademecum/pendientes")
+        assert [p["codigo"] for p in pendientes.json()] == ["TESTAMENTO"]
+        aprobada = await ac.post(
+            "/api/v1/ddjj/vademecum/aprobacion", json={"ids": [propuesta.json()["id"]]}
+        )
+        assert aprobada.status_code == 200, aprobada.text
+        assert aprobada.json()[0]["estado"] == "VIGENTE"
 
     anterior = await db_session.get(VademecumActo, vademecum["TESTAMENTO"].id)
+    assert anterior is not None
     await db_session.refresh(anterior)
-    assert anterior is not None and anterior.fecha_hasta == date(2026, 12, 31)
+    assert anterior.fecha_hasta == date(2026, 12, 31)
+    enero = await vademecum_service.vigentes(db_session, date(2027, 1, 15))
+    assert next(a for a in enero if a.codigo == "TESTAMENTO").categoria == "ACTA_O_PODER"
     eventos = (
         await db_session.execute(
             text(
                 "SELECT event_type FROM audit_security_logs "
-                "WHERE event_type LIKE 'VADEMECUM_%' AND actor_user_id = :id"
+                "WHERE event_type LIKE 'VADEMECUM_%' AND actor_user_id IN (:a, :r)"
             ),
-            {"id": admin.id},
+            {"a": autor.id, "r": revisor.id},
         )
     ).scalars()
     assert sorted(eventos) == [
-        "VADEMECUM_ACTO_AGREGADO",
+        "VADEMECUM_ACTO_APROBADO",
         "VADEMECUM_ACTO_CERRADO",
-        "VADEMECUM_ACTO_CERRADO",
+        "VADEMECUM_ACTO_PROPUESTO",
     ]
+
+
+async def test_una_propuesta_rechazada_no_rige(
+    db_session: AsyncSession, vademecum: dict[str, VademecumActo]
+) -> None:
+    from app.core.errors import ProblemError
+    from app.modules.ddjj.schemas import VademecumIn
+
+    autor = await make_user(db_session, roles=("ROLE_ADMIN",))
+    revisor = await make_user(db_session, roles=("ROLE_ADMIN",))
+    nuevo = await vademecum_service.proponer(
+        db_session,
+        vademecum_caja.CONSOLA,
+        autor,
+        VademecumIn(
+            codigo="ACTO_NUEVO",
+            nombre="Acto nuevo",
+            categoria=CategoriaActo.OTRO_ACTO,
+            fecha_desde=date(2027, 1, 1),
+            resolucion="Asamblea de prueba",
+            motivo="Propuesta que se rechaza",
+        ),
+    )
+    with pytest.raises(ProblemError):
+        await vademecum_service.rechazar(
+            db_session, vademecum_caja.CONSOLA, autor, nuevo.id, "No corresponde"
+        )
+    await vademecum_service.rechazar(
+        db_session, vademecum_caja.CONSOLA, revisor, nuevo.id, "No corresponde"
+    )
+    assert nuevo.estado == "RECHAZADA"
+    vigentes = await vademecum_service.vigentes(db_session, date(2027, 2, 1))
+    assert "ACTO_NUEVO" not in {a.codigo for a in vigentes}
 
 
 async def test_solo_quien_administra_parametros_edita_el_vademecum(
@@ -398,7 +472,11 @@ async def test_solo_quien_administra_parametros_edita_el_vademecum(
     }
     assert (await notario.post("/api/v1/ddjj/vademecum", json=nueva)).status_code == 403
     assert (await staff.post("/api/v1/ddjj/vademecum", json=nueva)).status_code == 403
-    assert (await notario.get("/api/v1/ddjj/vademecum/historial")).status_code == 403
+    assert (await notario.get("/api/v1/ddjj/vademecum/pendientes")).status_code == 403
+    aprobar = {"ids": [str(vademecum["VENTA"].id)]}
+    assert (
+        await notario.post("/api/v1/ddjj/vademecum/aprobacion", json=aprobar)
+    ).status_code == 403
 
 
 async def test_una_version_no_se_modifica_ni_se_borra(

@@ -19,7 +19,7 @@ from app.modules.ddjj.catalog import (
 from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
 from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
-from app.modules.parametros.catalog import CriterioPluralidad, PeriodoTasa
+from app.modules.parametros.catalog import CriterioPluralidad, EstadoVigencia, PeriodoTasa
 from app.modules.parametros.schemas import Money, Rate
 
 PERIODO_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -98,11 +98,17 @@ class ActoIn(BaseModel):
     # Otro acto de una escritura ya cargada en esta DDJJ (aporte múltiple).
     acto_multiple: bool = False
     # Escritura con varios actos: ¿intervienen solo las mismas partes? Se aplica a todos los
-    # actos de la escritura.
-    mismas_partes: bool = True
+    # actos de la escritura. Obligatorio en un acto múltiple: no hay respuesta por defecto.
+    mismas_partes: bool | None = None
     # Obligatorio para un acto exento; con «otro motivo», también el detalle.
     motivo_exencion: MotivoExencion | None = None
     detalle_exencion: DetalleExencion | None = None
+
+    @model_validator(mode="after")
+    def _partes_en_acto_multiple(self) -> "ActoIn":
+        if self.acto_multiple and self.mismas_partes is None:
+            raise ValueError("Indicá si intervienen solo las mismas partes en la escritura.")
+        return self
 
     @model_validator(mode="after")
     def _base_de_precio_o_avaluo(self) -> "ActoIn":
@@ -390,9 +396,12 @@ class VademecumIn(BaseModel):
     motivo: Motivo
 
 
-class VademecumBajaIn(BaseModel):
-    # Primer día en que deja de regir.
-    desde: date
+class VademecumAprobacionIn(BaseModel):
+    # Propuestas de otra persona a aprobar juntas (todas o ninguna).
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class VademecumRechazoIn(BaseModel):
     motivo: Motivo
 
 
@@ -409,4 +418,7 @@ class VademecumOut(BaseModel):
     fecha_desde: date
     fecha_hasta: date | None
     resolucion: str
+    estado: EstadoVigencia
+    created_by_user_id: uuid.UUID
+    aprobado_por_user_id: uuid.UUID | None
     created_at: datetime

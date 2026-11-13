@@ -109,10 +109,10 @@ class DeclaracionJurada(UUIDMixin, TimestampMixin, Base):
 class VademecumActo(UUIDMixin, Base):
     """Acto del vademécum de aportes de la Caja: cómo aporta cada naturaleza de acto.
 
-    Versionado como los parámetros: una fila nunca cambia (trigger) salvo para cerrar su
-    vigencia; un cambio es una versión nueva del mismo código. Cada acto declarado guarda la fila
-    con que se valorizó (SNAP). Los montos no están acá: salen del motor paramétrico según la
-    categoría.
+    Versionado como los parámetros, con aprobación de otra persona: una fila nunca cambia
+    (trigger) salvo su aprobación o rechazo y el cierre de su vigencia; un cambio es una versión
+    nueva del mismo código. Cada acto declarado guarda la fila con que se valorizó (SNAP). Los
+    montos no están acá: salen del motor paramétrico según la categoría.
     """
 
     __tablename__ = "ddjj_vademecum"
@@ -132,8 +132,19 @@ class VademecumActo(UUIDMixin, Base):
         ),
         CheckConstraint("fecha_hasta IS NULL OR fecha_hasta >= fecha_desde", name="rango_valido"),
         CheckConstraint("version > 0", name="version"),
+        CheckConstraint(
+            "estado IN ('PENDIENTE_APROBACION', 'VIGENTE', 'RECHAZADA')", name="estado_valido"
+        ),
+        CheckConstraint(
+            "(estado = 'VIGENTE') = (aprobado_por_user_id IS NOT NULL)", name="aprobacion"
+        ),
+        CheckConstraint(
+            "aprobado_por_user_id IS NULL OR aprobado_por_user_id <> created_by_user_id",
+            name="cuatro_ojos",
+        ),
+        CheckConstraint("fecha_hasta IS NULL OR estado = 'VIGENTE'", name="cierre_aprobada"),
         Index("uq_ddjj_vademecum_codigo_version", "codigo", "version", unique=True),
-        # La exclusión sin solapamiento por código vive en la migración (SQLAlchemy no la modela).
+        # La exclusión sin solapamiento entre versiones aprobadas vive en la migración.
     )
 
     codigo: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
@@ -149,11 +160,20 @@ class VademecumActo(UUIDMixin, Base):
     fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_hasta: Mapped[date | None] = mapped_column(Date, nullable=True)
     resolucion: Mapped[str] = mapped_column(String(150), nullable=False)
+    estado: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="PENDIENTE_APROBACION", index=True
+    )
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    aprobado_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    fecha_aprobacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

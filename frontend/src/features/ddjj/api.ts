@@ -30,6 +30,10 @@ export interface VademecumActo {
   fecha_desde: string
   fecha_hasta: string | null
   resolucion: string
+  /** Rige solo aprobada por una persona distinta de quien la propuso. */
+  estado: 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA'
+  created_by_user_id: string
+  aprobado_por_user_id: string | null
   created_at: string
 }
 export type TipoProtocolo = 'GENERAL' | 'AUXILIAR'
@@ -262,7 +266,8 @@ export interface ActoInput {
   precio: string | null
   avaluo: string | null
   acto_multiple: boolean
-  mismas_partes: boolean
+  /** Obligatorio en un acto múltiple (null en un acto suelto). */
+  mismas_partes: boolean | null
   motivo_exencion: MotivoExencion | null
   detalle_exencion: string | null
 }
@@ -346,9 +351,9 @@ export async function fetchVademecum(fecha: string): Promise<VademecumActo[]> {
   return (await api.get<VademecumActo[]>(`${P}/vademecum`, { params: { fecha } })).data
 }
 
-/** Todas las versiones de cada acto (administración). */
-export async function fetchVademecumHistorial(): Promise<VademecumActo[]> {
-  return (await api.get<VademecumActo[]>(`${P}/vademecum/historial`)).data
+/** Propuestas del vademécum que esperan la aprobación de otra persona. */
+export async function fetchVademecumPendientes(): Promise<VademecumActo[]> {
+  return (await api.get<VademecumActo[]>(`${P}/vademecum/pendientes`)).data
 }
 
 export interface VademecumInput {
@@ -364,15 +369,18 @@ export interface VademecumInput {
   motivo: string
 }
 
-export async function agregarVademecum(data: VademecumInput): Promise<VademecumActo> {
+/** Propone un acto o una versión nueva: queda pendiente hasta que la apruebe otra persona. */
+export async function proponerVademecum(data: VademecumInput): Promise<VademecumActo> {
   return (await api.post<VademecumActo>(`${P}/vademecum`, data)).data
 }
 
-export async function bajaVademecum(
-  id: string,
-  data: { desde: string; motivo: string },
-): Promise<VademecumActo> {
-  return (await api.post<VademecumActo>(`${P}/vademecum/${id}/baja`, data)).data
+/** Aprueba propuestas de otra persona (todas o ninguna). */
+export async function aprobarVademecum(ids: string[]): Promise<VademecumActo[]> {
+  return (await api.post<VademecumActo[]>(`${P}/vademecum/aprobacion`, { ids })).data
+}
+
+export async function rechazarVademecum(id: string, motivo: string): Promise<VademecumActo> {
+  return (await api.post<VademecumActo>(`${P}/vademecum/${id}/rechazo`, { motivo })).data
 }
 
 export async function bajaActo(id: string, actoId: string, motivo: string): Promise<void> {

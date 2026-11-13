@@ -276,7 +276,8 @@ export function ActoCampos({
             ))}
           </div>
           <p id={`${partesId}-ayuda`} className="mt-1.5 text-sm text-ink-muted">
-            Vale para toda la escritura: si ya cargaste otros actos con este número, se actualizan.
+            Obligatorio. Vale para toda la escritura: si ya cargaste otros actos con este número, se
+            actualizan.
           </p>
         </fieldset>
       )}

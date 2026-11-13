@@ -1,7 +1,7 @@
 """vademécum de aportes, criterio de pluralidad, precio y avalúo de cada acto
 
-- `ddjj_vademecum`: actos del vademécum con su categoría y vigencia; inmutable salvo para cerrar
-  la vigencia, sin borrado y sin solapamiento por código.
+- `ddjj_vademecum`: actos del vademécum con su categoría y vigencia, aprobados por otra persona;
+  inmutable salvo la aprobación y el cierre de la vigencia, sin borrado ni solapamiento.
 - Motor paramétrico: tipo CRITERIO_PLURALIDAD con la columna `criterio`, inmutable como el resto
   de los valores de una vigencia.
 - `ddjj_actos`: vademécum elegido (o «fuera de vademécum»), precio, avalúo, mismas partes de la
@@ -79,7 +79,17 @@ BEGIN
         RAISE EXCEPTION 'ddjj_vademecum: % no permitido (un acto del vademécum nunca se borra)',
             TG_OP USING ERRCODE = 'insufficient_privilege';
     END IF;
-    -- Una versión no cambia: solo se cierra su vigencia abierta (fecha_hasta de NULL a fecha).
+    -- Una versión no cambia: solo se aprueba o rechaza una vez (cuatro ojos, lo controlan los
+    -- CHECK) y se cierra su vigencia abierta (fecha_hasta de NULL a fecha).
+    IF NEW.estado IS DISTINCT FROM OLD.estado AND OLD.estado <> 'PENDIENTE_APROBACION' THEN
+        RAISE EXCEPTION 'ddjj_vademecum: el estado % es definitivo', OLD.estado
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF NEW.estado = OLD.estado AND (NEW.aprobado_por_user_id, NEW.fecha_aprobacion)
+       IS DISTINCT FROM (OLD.aprobado_por_user_id, OLD.fecha_aprobacion) THEN
+        RAISE EXCEPTION 'ddjj_vademecum: la aprobación no se modifica'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
     IF (NEW.id, NEW.codigo, NEW.version, NEW.nombre, NEW.categoria, NEW.motivo_exencion,
         NEW.aclaracion, NEW.sinonimos, NEW.orden, NEW.fecha_desde, NEW.resolucion,
         NEW.created_by_user_id, NEW.created_at)
@@ -149,6 +159,9 @@ def upgrade() -> None:
         sa.Column("fecha_desde", sa.Date(), nullable=False),
         sa.Column("fecha_hasta", sa.Date(), nullable=True),
         sa.Column("resolucion", sa.String(length=150), nullable=False),
+        sa.Column(
+            "estado", sa.String(length=30), server_default="PENDIENTE_APROBACION", nullable=False
+        ),
         sa.Column("created_by_user_id", sa.UUID(), nullable=False),
         sa.Column(
             "created_at",
@@ -156,7 +169,25 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
+        sa.Column("aprobado_por_user_id", sa.UUID(), nullable=True),
+        sa.Column("fecha_aprobacion", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.UUID(), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.CheckConstraint(
+            "estado IN ('PENDIENTE_APROBACION', 'VIGENTE', 'RECHAZADA')",
+            name=op.f("ck_ddjj_vademecum_estado_valido"),
+        ),
+        sa.CheckConstraint(
+            "(estado = 'VIGENTE') = (aprobado_por_user_id IS NOT NULL)",
+            name=op.f("ck_ddjj_vademecum_aprobacion"),
+        ),
+        sa.CheckConstraint(
+            "aprobado_por_user_id IS NULL OR aprobado_por_user_id <> created_by_user_id",
+            name=op.f("ck_ddjj_vademecum_cuatro_ojos"),
+        ),
+        sa.CheckConstraint(
+            "fecha_hasta IS NULL OR estado = 'VIGENTE'",
+            name=op.f("ck_ddjj_vademecum_cierre_aprobada"),
+        ),
         sa.CheckConstraint(
             "codigo ~ '^[A-Z][A-Z0-9_]{2,59}$'", name=op.f("ck_ddjj_vademecum_codigo_formato")
         ),
@@ -183,16 +214,23 @@ def upgrade() -> None:
             ["security_users.id"],
             name=op.f("fk_ddjj_vademecum_created_by_user_id_security_users"),
         ),
+        sa.ForeignKeyConstraint(
+            ["aprobado_por_user_id"],
+            ["security_users.id"],
+            name=op.f("fk_ddjj_vademecum_aprobado_por_user_id_security_users"),
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_ddjj_vademecum")),
     )
     op.create_index(op.f("ix_ddjj_vademecum_codigo"), "ddjj_vademecum", ["codigo"], unique=False)
+    op.create_index(op.f("ix_ddjj_vademecum_estado"), "ddjj_vademecum", ["estado"], unique=False)
     op.create_index(
         "uq_ddjj_vademecum_codigo_version", "ddjj_vademecum", ["codigo", "version"], unique=True
     )
-    # Dos versiones del mismo acto nunca rigen el mismo día.
+    # Dos versiones aprobadas del mismo acto nunca rigen el mismo día.
     op.execute(
         "ALTER TABLE ddjj_vademecum ADD CONSTRAINT ex_ddjj_vademecum_sin_solapamiento "
-        "EXCLUDE USING gist (codigo WITH =, daterange(fecha_desde, fecha_hasta, '[]') WITH &&)"
+        "EXCLUDE USING gist (codigo WITH =, daterange(fecha_desde, fecha_hasta, '[]') WITH &&) "
+        "WHERE (estado = 'VIGENTE')"
     )
     op.execute(VADEMECUM_GUARD)
     op.execute(

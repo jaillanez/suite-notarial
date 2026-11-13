@@ -532,6 +532,9 @@ const VADEMECUM_BASE = {
   fecha_desde: '2026-06-01',
   fecha_hasta: null,
   resolucion: 'Vademécum de aportes · Asamblea Extraordinaria del 19/05/2026',
+  estado: 'VIGENTE',
+  created_by_user_id: 'u-autor',
+  aprobado_por_user_id: 'u-revisor',
   created_at: '2026-06-01T12:00:00Z',
 } as const
 
@@ -615,7 +618,7 @@ describe('vademécum de aportes', () => {
           precio: '1000000.00',
           avaluo: '1250000',
           base_imponible: '0',
-          mismas_partes: true,
+          mismas_partes: null,
         }),
       )
     })
@@ -650,7 +653,9 @@ describe('vademécum de aportes', () => {
     const grupo = within(dialogo).getByRole('group', {
       name: /Intervienen solo las mismas partes/,
     })
-    expect(within(grupo).getByLabelText(/Sí, las mismas partes/)).toBeChecked()
+    // Sin respuesta por defecto: hay que elegir.
+    expect(within(grupo).getByLabelText(/Sí, las mismas partes/)).not.toBeChecked()
+    expect(within(grupo).getByLabelText(/No, hay partes distintas/)).not.toBeChecked()
     fireEvent.click(within(grupo).getByLabelText(/No, hay partes distintas/))
     expect(within(grupo).getByLabelText(/No, hay partes distintas/)).toBeChecked()
   })

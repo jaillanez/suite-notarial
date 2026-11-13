@@ -25,7 +25,7 @@ const BASE: ActoForm = {
   precio: '',
   avaluo: '',
   acto_multiple: false,
-  mismas_partes: true,
+  mismas_partes: null,
   motivo_exencion: '',
   detalle_exencion: '',
 }

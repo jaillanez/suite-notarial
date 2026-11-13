@@ -17,7 +17,9 @@ acto y solo dos partes, solo corresponde aportar por uno de ellos, el de mayor v
 vigencia desde junio 2026, pendiente de aprobación por otra persona, como cualquier parámetro.
 «El de mayor valor» se toma como el acto que más aporta. TODO(negocio): confirmarlo con la Caja.
 
-Carga (idempotente por código: no toca los actos que ya están):
+Los actos y el criterio quedan pendientes: los aprueba otra persona (Parámetros → Vademécum de
+aportes, y el concepto del criterio en Parámetros). Carga (idempotente por código: no toca los
+actos que ya están, aprobados o pendientes):
 
     python -m app.modules.ddjj.vademecum_caja --operador EMAIL [--simular]
 """
@@ -225,7 +227,8 @@ class Resumen:
     creados: list[str] = field(default_factory=list)
     ya_cargados: list[str] = field(default_factory=list)
     criterio: str = ""
-    # Vigencia del criterio propuesta en esta carga (queda pendiente de aprobación).
+    # Propuestas de esta carga: quedan pendientes hasta que las apruebe otra persona.
+    actos_ids: list[uuid.UUID] = field(default_factory=list)
     propuesta_id: uuid.UUID | None = None
 
 
@@ -276,7 +279,7 @@ async def cargar(session: AsyncSession, actor: User) -> Resumen:
         if existe is not None:
             resumen.ya_cargados.append(acto.codigo)
             continue
-        await vademecum.agregar(
+        item = await vademecum.proponer(
             session,
             CONSOLA,
             actor,
@@ -294,6 +297,7 @@ async def cargar(session: AsyncSession, actor: User) -> Resumen:
             ),
         )
         resumen.creados.append(acto.codigo)
+        resumen.actos_ids.append(item.id)
     propuesta = await cargar_criterio(session, actor)
     resumen.propuesta_id = propuesta.id if propuesta is not None else None
     resumen.criterio = (
@@ -348,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             await get_engine().dispose()
         _out(("SIMULACIÓN (no se guardó nada) · " if args.simular else "") + RESOLUCION)
-        _out(f"Actos creados: {len(resumen.creados)}")
+        _out(f"Actos propuestos (pendientes de aprobación): {len(resumen.creados)}")
         _out(f"Actos que ya estaban: {len(resumen.ya_cargados)}")
         _out(f"Criterio de pluralidad: {resumen.criterio}")
         return 0

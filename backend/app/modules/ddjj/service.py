@@ -689,10 +689,23 @@ async def agregar_acto(
             raise _conflict(control.mensaje)
     orden = await _orden_en_escritura(session, ddjj, data)
     hermanos = await _misma_escritura(session, ddjj, data) if orden > 1 else []
+    # Un acto suelto no tiene a quién agruparse: la respuesta se pide al cargar el segundo acto
+    # de la escritura (ActoIn la exige en un acto múltiple).
+    mismas_partes = True if data.mismas_partes is None else data.mismas_partes
     for hermano in hermanos:
-        # Las mismas partes valen para toda la escritura: la respuesta del último acto rige.
-        if hermano.mismas_partes != data.mismas_partes:
-            hermano.mismas_partes = data.mismas_partes
+        # Las mismas partes valen para toda la escritura: la respuesta del último acto rige, y
+        # cada acto que cambia queda en la auditoría con su valor anterior.
+        if hermano.mismas_partes != mismas_partes:
+            record_audit(
+                session,
+                ctx,
+                AuditEvent.DDJJ_ACTO_PARTES_ACTUALIZADAS,
+                actor_user_id=principal.user.id,
+                old_value={"mismas_partes": hermano.mismas_partes},
+                new_value={"mismas_partes": mismas_partes},
+                details={"ddjj_id": str(ddjj.id), "acto_id": str(hermano.id)},
+            )
+            hermano.mismas_partes = mismas_partes
     item = Acto(
         id=acto_id or uuid.uuid4(),
         ddjj_id=ddjj.id,
@@ -712,7 +725,7 @@ async def agregar_acto(
         fuera_de_vademecum=fuera_de_vademecum,
         precio=data.precio,
         avaluo=data.avaluo,
-        mismas_partes=data.mismas_partes,
+        mismas_partes=mismas_partes,
         created_by_user_id=principal.user.id,
     )
     session.add(item)
@@ -726,7 +739,7 @@ async def agregar_acto(
             "ddjj_id": str(ddjj.id),
             "acto_id": str(item.id),
             **(
-                {"mismas_partes_escritura": data.mismas_partes, "actos_de_la_escritura": orden}
+                {"mismas_partes_escritura": mismas_partes, "actos_de_la_escritura": orden}
                 if hermanos
                 else {}
             ),

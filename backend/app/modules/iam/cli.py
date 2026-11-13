@@ -200,7 +200,11 @@ async def _seed_vademecum(session: AsyncSession) -> None:
     aprobador = await session.scalar(select(User).where(User.email == DEV_USERS[2][0]))
     if admin is None or aprobador is None:
         return
+    from app.modules.ddjj import vademecum
+
     resumen = await vademecum_caja.cargar(session, admin)
+    if resumen.actos_ids:
+        await vademecum.aprobar(session, vademecum_caja.CONSOLA, aprobador, resumen.actos_ids)
     if resumen.propuesta_id is not None:
         await parametros.aprobar_vigencia(
             session, vademecum_caja.CONSOLA, aprobador, resumen.propuesta_id

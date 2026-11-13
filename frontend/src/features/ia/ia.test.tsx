@@ -181,7 +181,7 @@ describe('carga desde la minuta (Human in Command)', () => {
         precio: null,
         avaluo: null,
         acto_multiple: false,
-        mismas_partes: true,
+        mismas_partes: null,
         motivo_exencion: null,
         detalle_exencion: null,
       })

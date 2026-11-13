@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CalendarX2, Pencil, Plus, Save } from 'lucide-react'
+import { ArrowLeft, Check, Pencil, Plus, Save, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 
+import { StatusIndicator } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Dialog } from '../../components/ui/Dialog'
@@ -13,9 +14,11 @@ import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import {
-  agregarVademecum,
-  bajaVademecum,
+  aprobarVademecum,
   fetchVademecum,
+  fetchVademecumPendientes,
+  proponerVademecum,
+  rechazarVademecum,
   type CategoriaActo,
   type MotivoExencion,
   type VademecumActo,
@@ -89,7 +92,7 @@ function VersionDialog({
   const codigo = base?.codigo ?? codigoDe(form.nombre)
   const save = useMutation({
     mutationFn: () =>
-      agregarVademecum({
+      proponerVademecum({
         codigo,
         nombre: form.nombre.trim(),
         categoria: form.categoria,
@@ -132,11 +135,11 @@ function VersionDialog({
         save.reset()
         onClose()
       }}
-      title={base ? `Cambiar «${base.nombre}»` : 'Agregar un acto al vademécum'}
+      title={base ? `Cambiar «${base.nombre}»` : 'Proponer un acto nuevo'}
       description={
         base
-          ? 'Se crea una versión nueva desde la fecha indicada y la actual deja de regir el día anterior. Los actos ya declarados conservan cómo se valorizaron.'
-          : 'Rige desde la fecha indicada. El monto sale de los parámetros de su categoría.'
+          ? 'Queda pendiente hasta que la apruebe otra persona. Aprobada, rige desde la fecha indicada (mañana o después) y la versión actual deja de regir el día anterior. Los actos ya declarados conservan cómo se valorizaron.'
+          : 'Queda pendiente hasta que la apruebe otra persona. El monto sale de los parámetros de su categoría.'
       }
       footer={
         <>
@@ -151,7 +154,7 @@ function VersionDialog({
               save.mutate()
             }}
           >
-            {base ? 'Guardar versión nueva' : 'Agregar acto'}
+            {base ? 'Proponer versión nueva' : 'Proponer acto'}
           </Button>
         </>
       }
@@ -228,12 +231,11 @@ function VersionDialog({
   )
 }
 
-function BajaDialog({ acto, onClose }: { acto: VademecumActo | null; onClose: () => void }) {
+function RechazoDialog({ acto, onClose }: { acto: VademecumActo | null; onClose: () => void }) {
   const queryClient = useQueryClient()
-  const [desde, setDesde] = useState(primeroDelMesQueViene())
   const [motivo, setMotivo] = useState('')
   const save = useMutation({
-    mutationFn: () => bajaVademecum(acto?.id ?? '', { desde, motivo: motivo.trim() }),
+    mutationFn: () => rechazarVademecum(acto?.id ?? '', motivo.trim()),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['ddjj', 'vademecum'] })
       onClose()
@@ -246,36 +248,27 @@ function BajaDialog({ acto, onClose }: { acto: VademecumActo | null; onClose: ()
         save.reset()
         onClose()
       }}
-      title={acto ? `Quitar «${acto.nombre}» del vademécum` : 'Quitar del vademécum'}
-      description="Deja de figurar desde la fecha indicada. No se borra: los actos ya declarados lo conservan."
+      title={acto ? `Rechazar la propuesta «${acto.nombre}»` : 'Rechazar la propuesta'}
+      description="La propuesta no rige y queda en el historial con el motivo."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
           <Button
             variant="danger"
             busy={save.isPending}
-            busyLabel="Guardando…"
-            disabled={!desde || motivo.trim().length < 5}
+            busyLabel="Rechazando…"
+            disabled={motivo.trim().length < 5}
             onClick={() => {
               save.mutate()
             }}
           >
-            Quitar desde esa fecha
+            Rechazar
           </Button>
         </>
       }
     >
       <div className="grid gap-4">
         {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
-        <Field
-          label="Deja de regir desde"
-          type="date"
-          className="[&_input]:tabular-nums"
-          value={desde}
-          onChange={(e) => {
-            setDesde(e.target.value)
-          }}
-        />
         <TextArea
           label="Motivo"
           value={motivo}
@@ -289,6 +282,108 @@ function BajaDialog({ acto, onClose }: { acto: VademecumActo | null; onClose: ()
   )
 }
 
+/** Propuestas que esperan la aprobación de otra persona: quien propuso no puede aprobarlas. */
+function Pendientes({ onRechazar }: { onRechazar: (acto: VademecumActo) => void }) {
+  const { user, can } = useSession()
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: ['ddjj', 'vademecum', 'pendientes'],
+    queryFn: fetchVademecumPendientes,
+  })
+  const pendientes = query.data ?? []
+  const aprobables = pendientes.filter((p) => p.created_by_user_id !== user?.id)
+  const puedeAprobar = can('parameters:approve')
+  const aprobar = useMutation({
+    mutationFn: aprobarVademecum,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['ddjj', 'vademecum'] })
+    },
+  })
+  if (pendientes.length === 0) return null
+  return (
+    <Panel
+      className="mb-6"
+      title="Propuestas pendientes de aprobación"
+      description="No rigen hasta que las apruebe una persona distinta de quien las propuso."
+      actions={
+        puedeAprobar && aprobables.length > 1 ? (
+          <Button
+            icon={Check}
+            busy={aprobar.isPending}
+            busyLabel="Aprobando…"
+            onClick={() => {
+              aprobar.mutate(aprobables.map((p) => p.id))
+            }}
+          >
+            Aprobar las {aprobables.length}
+          </Button>
+        ) : undefined
+      }
+    >
+      {aprobar.isError && (
+        <div className="px-5 pt-4 sm:px-6">
+          <Alert tone="danger">{toProblem(aprobar.error).detail}</Alert>
+        </div>
+      )}
+      <ul className="divide-y divide-line">
+        {pendientes.map((p) => {
+          const propia = p.created_by_user_id === user?.id
+          return (
+            <li
+              key={p.id}
+              className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-5 py-3 sm:flex-nowrap sm:px-6"
+            >
+              <span className="min-w-0">
+                <span className="block font-medium text-ink">{p.nombre}</span>
+                <span className="block text-sm text-ink-muted">
+                  {CATEGORIA[p.categoria].label}
+                  {p.motivo_exencion && ` · ${MOTIVO_EXENCION[p.motivo_exencion]}`}
+                </span>
+                <span className="block text-xs text-ink-muted tabular-nums">
+                  {p.version > 1 ? `Versión ${String(p.version)}` : 'Acto nuevo'} · desde el{' '}
+                  {formatDate(p.fecha_desde)} · {p.resolucion}
+                </span>
+              </span>
+              <span className="flex shrink-0 flex-wrap items-center gap-2">
+                {propia || !puedeAprobar ? (
+                  <StatusIndicator
+                    tone="warning"
+                    label={propia ? 'La aprueba otra persona' : 'Pendiente'}
+                  />
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      icon={Check}
+                      aria-label={`Aprobar ${p.nombre}`}
+                      disabled={aprobar.isPending}
+                      onClick={() => {
+                        aprobar.mutate([p.id])
+                      }}
+                    >
+                      Aprobar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      icon={X}
+                      aria-label={`Rechazar ${p.nombre}`}
+                      onClick={() => {
+                        onRechazar(p)
+                      }}
+                    >
+                      Rechazar
+                    </Button>
+                  </>
+                )}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </Panel>
+  )
+}
+
 /** Vademécum de aportes vigente a una fecha, por categoría, con su administración. */
 export function VademecumPage() {
   const { can } = useSession()
@@ -298,7 +393,7 @@ export function VademecumPage() {
     abierto: false,
     base: null,
   })
-  const [quitando, setQuitando] = useState<VademecumActo | null>(null)
+  const [rechazando, setRechazando] = useState<VademecumActo | null>(null)
   const query = useQuery({
     queryKey: ['ddjj', 'vademecum', fecha],
     queryFn: () => fetchVademecum(fecha),
@@ -318,8 +413,9 @@ export function VademecumPage() {
       </Link>
       <PageHeader
         title="Vademécum de aportes"
-        description="Qué aporta cada acto. El escribano elige el acto al cargar la DDJJ y el sistema aplica su categoría; los montos salen de los parámetros vigentes. Cada cambio es una versión nueva y queda en la auditoría."
+        description="Qué aporta cada acto. El escribano elige el acto al cargar la DDJJ y el sistema aplica su categoría; los montos salen de los parámetros vigentes. Cada cambio es una versión nueva que aprueba otra persona y queda en la auditoría."
       />
+      {can('parameters:read') && <Pendientes onRechazar={setRechazando} />}
       <Panel
         title={resolucion ? `Vigente al ${formatDate(fecha)}` : 'Actos'}
         description={resolucion}
@@ -332,7 +428,7 @@ export function VademecumPage() {
                 setVersion({ abierto: true, base: null })
               }}
             >
-              Agregar acto
+              Proponer acto
             </Button>
           ) : undefined
         }
@@ -412,18 +508,6 @@ export function VademecumPage() {
                           >
                             Cambiar
                           </Button>
-                          {a.fecha_hasta === null && (
-                            <Button
-                              variant="ghost"
-                              icon={CalendarX2}
-                              aria-label={`Quitar ${a.nombre}`}
-                              onClick={() => {
-                                setQuitando(a)
-                              }}
-                            >
-                              Quitar
-                            </Button>
-                          )}
                         </span>
                       )}
                     </li>
@@ -442,11 +526,11 @@ export function VademecumPage() {
           setVersion({ abierto: false, base: null })
         }}
       />
-      <BajaDialog
-        key={quitando?.id ?? 'ninguno'}
-        acto={quitando}
+      <RechazoDialog
+        key={rechazando?.id ?? 'ninguno'}
+        acto={rechazando}
         onClose={() => {
-          setQuitando(null)
+          setRechazando(null)
         }}
       />
     </>

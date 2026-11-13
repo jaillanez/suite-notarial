@@ -28,8 +28,8 @@ export interface ActoForm {
   avaluo: string
   /** Otro acto de una escritura ya cargada en esta DDJJ. */
   acto_multiple: boolean
-  /** Escritura con varios actos: ¿intervienen solo las mismas partes? */
-  mismas_partes: boolean
+  /** Escritura con varios actos: ¿intervienen solo las mismas partes? null: sin responder. */
+  mismas_partes: boolean | null
   /** Solo para actos exentos. */
   motivo_exencion: MotivoExencion | ''
   detalle_exencion: string
@@ -63,7 +63,7 @@ export function actoVacio(ddjj: DeclaracionDetalle): ActoForm {
     precio: '',
     avaluo: '',
     acto_multiple: false,
-    mismas_partes: true,
+    mismas_partes: null,
     motivo_exencion: '',
     detalle_exencion: '',
   }
@@ -98,7 +98,7 @@ export function actoInput(form: ActoForm): ActoInput {
     precio: precioOAvaluo ? importeOpcional(form.precio) : null,
     avaluo: precioOAvaluo ? importeOpcional(form.avaluo) : null,
     acto_multiple: form.acto_multiple,
-    mismas_partes: form.mismas_partes,
+    mismas_partes: form.acto_multiple ? form.mismas_partes : null,
     motivo_exencion: exento ? form.motivo_exencion || null : null,
     detalle_exencion: exento && form.detalle_exencion.trim() ? form.detalle_exencion.trim() : null,
   }
@@ -113,6 +113,7 @@ export function actoCompleto(form: ActoForm, hayVademecum = false): boolean {
     form.categoria === 'SIN_EFECTO'
   return Boolean(
     elegido &&
+    (!form.acto_multiple || form.mismas_partes !== null) &&
     form.escribano_id &&
     /^\d+$/.test(form.numero_escritura) &&
     form.fecha_acto &&

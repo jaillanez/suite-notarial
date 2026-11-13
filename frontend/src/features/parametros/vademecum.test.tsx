@@ -28,6 +28,9 @@ const BASE = {
   fecha_desde: '2026-06-01',
   fecha_hasta: null,
   resolucion: 'Vademécum de aportes · Asamblea Extraordinaria del 19/05/2026',
+  estado: 'VIGENTE',
+  created_by_user_id: 'u-autor',
+  aprobado_por_user_id: 'u-revisor',
   created_at: '2026-06-01T12:00:00Z',
 } as const
 
@@ -86,6 +89,7 @@ describe('administración del vademécum', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(ddjjApi.fetchVademecum).mockResolvedValue(ACTOS)
+    vi.mocked(ddjjApi.fetchVademecumPendientes).mockResolvedValue([])
   })
 
   it('lista los actos por categoría, en el orden del documento', async () => {
@@ -98,11 +102,11 @@ describe('administración del vademécum', () => {
   })
 
   it('un cambio es una versión nueva con fecha, resolución y motivo', async () => {
-    vi.mocked(ddjjApi.agregarVademecum).mockResolvedValue({ ...TESTAMENTO, version: 2 })
+    vi.mocked(ddjjApi.proponerVademecum).mockResolvedValue({ ...TESTAMENTO, version: 2 })
     renderPagina()
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar Testamento' }))
     const dialogo = await screen.findByRole('dialog')
-    const guardar = within(dialogo).getByRole('button', { name: 'Guardar versión nueva' })
+    const guardar = within(dialogo).getByRole('button', { name: 'Proponer versión nueva' })
     expect(guardar).toBeDisabled()
 
     fireEvent.change(within(dialogo).getByLabelText('Cómo aporta'), {
@@ -119,7 +123,7 @@ describe('administración del vademécum', () => {
     })
     fireEvent.click(guardar)
     await waitFor(() => {
-      expect(ddjjApi.agregarVademecum).toHaveBeenCalledWith(
+      expect(ddjjApi.proponerVademecum).toHaveBeenCalledWith(
         expect.objectContaining({
           codigo: 'TESTAMENTO',
           categoria: 'ACTA_O_PODER',
@@ -132,10 +136,34 @@ describe('administración del vademécum', () => {
     })
   })
 
+  it('las propuestas las aprueba otra persona', async () => {
+    const ajena = { ...TESTAMENTO, id: 'p1', version: 2, estado: 'PENDIENTE_APROBACION' as const }
+    const propia = {
+      ...ajena,
+      id: 'p2',
+      codigo: 'VENTA',
+      nombre: 'Venta nueva',
+      created_by_user_id: ADMIN.id,
+    }
+    vi.mocked(ddjjApi.fetchVademecumPendientes).mockResolvedValue([ajena, propia])
+    vi.mocked(ddjjApi.aprobarVademecum).mockResolvedValue([])
+    renderPagina()
+
+    expect(await screen.findByText('Propuestas pendientes de aprobación')).toBeInTheDocument()
+    expect(screen.getByText('La aprueba otra persona')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Aprobar Venta nueva' })).not.toBeInTheDocument()
+    // Con una sola aprobable no se ofrece aprobar todas.
+    expect(screen.queryByRole('button', { name: /Aprobar las/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Aprobar Testamento' }))
+    await waitFor(() => {
+      expect(ddjjApi.aprobarVademecum).toHaveBeenCalledWith(['p1'], expect.anything())
+    })
+  })
+
   it('sin permiso de escritura solo consulta', async () => {
     renderPagina(LECTOR)
     expect(await screen.findByText('Testamento')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Agregar acto' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Proponer acto' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Cambiar/ })).not.toBeInTheDocument()
   })
 })

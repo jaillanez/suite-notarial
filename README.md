@@ -266,11 +266,14 @@ Ya aplicadas:
   (0,40 % del **mayor entre precio y avalúo**, con mínimo y máximo), fijo mayor, fijo menor o
   exento. Si no está, se elige «No está en el vademécum» con la categoría a mano y el acto queda
   marcado para revisión de la Caja. El vademécum se administra en Parámetros → Vademécum de
-  aportes: cada cambio es una versión nueva con fecha, resolución y motivo (auditada), y cada acto
-  declarado guarda la versión con que se valorizó. Carga en un servidor:
+  aportes: cada cambio es una versión nueva con fecha, resolución y motivo que **aprueba otra
+  persona** (como las vigencias); un cambio sobre un acto que ya rige empieza mañana o después.
+  Todo queda auditado y cada acto declarado guarda la versión con que se valorizó. Carga en un
+  servidor (queda pendiente de aprobación):
   `python -m app.modules.ddjj.vademecum_caja --operador EMAIL`.
 - **Pluralidad de actos**: en una escritura con varios actos, el escribano dice si intervienen
-  solo las mismas partes (vale para toda la escritura). Con partes distintas aporta cada acto;
+  solo las mismas partes (obligatorio, sin respuesta por defecto; vale para toda la escritura y
+  cada acto que cambia queda auditado). Con partes distintas aporta cada acto;
   con las mismas, rige el parámetro **CRITERIO_PLURALIDAD_ACTOS** (con vigencia y aprobación de
   otra persona, como cualquier parámetro): «solo el de mayor valor» (vademécum 2026), «aportan
   todos» o «los variables suman y el fijo una vez». Los actos que quedan incluidos aportan 0 y
