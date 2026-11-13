@@ -17,7 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.core.errors import ProblemError
 from app.modules.iam.models import User
-from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import (
+    CriterioPluralidad,
+    EstadoVigencia,
+    PeriodoTasa,
+    ReglaRedondeo,
+    TipoConcepto,
+)
 from app.modules.parametros.models import Concepto, Vigencia
 from app.modules.parametros.motor import VigenciaSnapshot
 from app.modules.parametros.schemas import ConceptoIn, ConceptoUpdate, VigenciaIn
@@ -26,19 +32,41 @@ from app.modules.parametros.schemas import ConceptoIn, ConceptoUpdate, VigenciaI
 _FIJO_SOLO = (
     frozenset({"monto_fijo"}),
     frozenset(
-        {"porcentaje", "monto_minimo", "monto_maximo", "tasa", "periodo_tasa", "dias_gracia"}
+        {
+            "porcentaje",
+            "monto_minimo",
+            "monto_maximo",
+            "tasa",
+            "periodo_tasa",
+            "dias_gracia",
+            "criterio",
+        }
     ),
 )
 CAMPOS_POR_TIPO: dict[TipoConcepto, tuple[frozenset[str], frozenset[str]]] = {
     TipoConcepto.PORCENTUAL_ACTO: (
         frozenset({"porcentaje"}),
-        frozenset({"monto_fijo", "tasa", "periodo_tasa", "dias_gracia"}),
+        frozenset({"monto_fijo", "tasa", "periodo_tasa", "dias_gracia", "criterio"}),
     ),
     TipoConcepto.FIJO_ACTO: _FIJO_SOLO,
     TipoConcepto.FIJO_MENSUAL: _FIJO_SOLO,
     TipoConcepto.TASA_MORA: (
         frozenset({"tasa", "periodo_tasa", "dias_gracia"}),
-        frozenset({"porcentaje", "monto_fijo", "monto_minimo", "monto_maximo"}),
+        frozenset({"porcentaje", "monto_fijo", "monto_minimo", "monto_maximo", "criterio"}),
+    ),
+    TipoConcepto.CRITERIO_PLURALIDAD: (
+        frozenset({"criterio"}),
+        frozenset(
+            {
+                "porcentaje",
+                "monto_fijo",
+                "monto_minimo",
+                "monto_maximo",
+                "tasa",
+                "periodo_tasa",
+                "dias_gracia",
+            }
+        ),
     ),
 }
 VALUE_FIELDS = (
@@ -51,6 +79,7 @@ VALUE_FIELDS = (
     "tasa",
     "periodo_tasa",
     "dias_gracia",
+    "criterio",
     "regla_redondeo",
     "es_ejemplo",
     "resolucion_respaldo",
@@ -84,6 +113,7 @@ def snapshot(v: Vigencia) -> VigenciaSnapshot:
         periodo_tasa=PeriodoTasa(v.periodo_tasa) if v.periodo_tasa else None,
         dias_gracia=v.dias_gracia,
         regla_redondeo=ReglaRedondeo(v.regla_redondeo),
+        criterio=CriterioPluralidad(v.criterio) if v.criterio else None,
     )
 
 
@@ -197,6 +227,21 @@ async def vigente_a_fecha(
         )
     )
     return result.unique().scalars().first()
+
+
+async def vigencia_opcional(
+    session: AsyncSession, codigo: str, fecha: date
+) -> VigenciaSnapshot | None:
+    """La vigencia aprobada a la fecha, o None si el concepto no existe o no rige ese día.
+
+    Para reglas que tienen un comportamiento por defecto (p. ej. el criterio de pluralidad):
+    los montos usan `get_vigencia`, que falla si falta la vigencia.
+    """
+    concepto = await session.scalar(select(Concepto).where(Concepto.codigo == codigo))
+    if concepto is None or not concepto.is_active:
+        return None
+    vigencia = await vigente_a_fecha(session, concepto.id, fecha)
+    return snapshot(vigencia) if vigencia is not None else None
 
 
 async def vigencias_entre(
@@ -355,9 +400,10 @@ async def proponer_vigencia(
         id=uuid.uuid4(),
         concepto_id=concepto.id,
         version=version,
-        **data.model_dump(exclude={"regla_redondeo", "periodo_tasa"}),
+        **data.model_dump(exclude={"regla_redondeo", "periodo_tasa", "criterio"}),
         regla_redondeo=data.regla_redondeo.value,
         periodo_tasa=data.periodo_tasa.value if data.periodo_tasa else None,
+        criterio=data.criterio.value if data.criterio else None,
         es_ejemplo=es_ejemplo,
         estado=EstadoVigencia.PENDIENTE_APROBACION.value,
         created_by_user_id=actor.id,

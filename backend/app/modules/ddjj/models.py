@@ -106,6 +106,57 @@ class DeclaracionJurada(UUIDMixin, TimestampMixin, Base):
     cantidad_actos: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class VademecumActo(UUIDMixin, Base):
+    """Acto del vademécum de aportes de la Caja: cómo aporta cada naturaleza de acto.
+
+    Versionado como los parámetros: una fila nunca cambia (trigger) salvo para cerrar su
+    vigencia; un cambio es una versión nueva del mismo código. Cada acto declarado guarda la fila
+    con que se valorizó (SNAP). Los montos no están acá: salen del motor paramétrico según la
+    categoría.
+    """
+
+    __tablename__ = "ddjj_vademecum"
+    __table_args__ = (
+        CheckConstraint("codigo ~ '^[A-Z][A-Z0-9_]{2,59}$'", name="codigo_formato"),
+        CheckConstraint(
+            "categoria IN ('ESCRITURA_CON_VALOR', 'ACTA_O_PODER', 'OTRO_ACTO', 'EXENTO')",
+            name="categoria_valida",
+        ),
+        CheckConstraint(
+            "(categoria = 'EXENTO') = (motivo_exencion IS NOT NULL)", name="exento_con_motivo"
+        ),
+        CheckConstraint(
+            "motivo_exencion IS NULL OR motivo_exencion IN ('CONVENIO_IPV', 'ACTA_SUBSANATORIA', "
+            "'REGULACION_DOMINIAL', 'ASOCIACION_INTERMEDIA_IPV')",
+            name="motivo_exencion",
+        ),
+        CheckConstraint("fecha_hasta IS NULL OR fecha_hasta >= fecha_desde", name="rango_valido"),
+        CheckConstraint("version > 0", name="version"),
+        Index("uq_ddjj_vademecum_codigo_version", "codigo", "version", unique=True),
+        # La exclusión sin solapamiento por código vive en la migración (SQLAlchemy no la modela).
+    )
+
+    codigo: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
+    categoria: Mapped[str] = mapped_column(String(30), nullable=False)
+    motivo_exencion: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Condición o alcance que el escribano tiene que leer antes de elegirlo.
+    aclaracion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Otras formas de nombrarlo, para el buscador (separadas por coma).
+    sinonimos: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    orden: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_hasta: Mapped[date | None] = mapped_column(Date, nullable=True)
+    resolucion: Mapped[str] = mapped_column(String(150), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Acto(UUIDMixin, TimestampMixin, Base):
     """Renglón de la DDJJ: un acto autorizado por un escribano del registro."""
 
@@ -121,8 +172,8 @@ class Acto(UUIDMixin, TimestampMixin, Base):
             "(categoria = 'EXENTO') = (motivo_exencion IS NOT NULL)", name="exento_con_motivo"
         ),
         CheckConstraint(
-            "motivo_exencion IS NULL "
-            "OR motivo_exencion IN ('CONVENIO_IPV', 'ACTA_SUBSANATORIA', 'OTRO')",
+            "motivo_exencion IS NULL OR motivo_exencion IN ('CONVENIO_IPV', 'ACTA_SUBSANATORIA', "
+            "'REGULACION_DOMINIAL', 'ASOCIACION_INTERMEDIA_IPV', 'OTRO')",
             name="motivo_exencion",
         ),
         CheckConstraint(
@@ -140,6 +191,21 @@ class Acto(UUIDMixin, TimestampMixin, Base):
         CheckConstraint(
             "(categoria = 'ESCRITURA_CON_VALOR') = (base_imponible > 0)",
             name="base_segun_categoria",
+        ),
+        # Precio y avalúo: la base es el mayor de los dos (vademécum: «el mayor valor de precio
+        # o avalúo»). Un acto cargado solo con la base no los tiene.
+        CheckConstraint(
+            "(precio IS NULL AND avaluo IS NULL) OR (categoria = 'ESCRITURA_CON_VALOR' "
+            "AND base_imponible = GREATEST(COALESCE(precio, 0), COALESCE(avaluo, 0)))",
+            name="base_es_el_mayor",
+        ),
+        CheckConstraint("precio IS NULL OR precio >= 0", name="precio"),
+        CheckConstraint("avaluo IS NULL OR avaluo >= 0", name="avaluo"),
+        CheckConstraint(
+            "NOT (fuera_de_vademecum AND vademecum_id IS NOT NULL)", name="fuera_de_vademecum"
+        ),
+        CheckConstraint(
+            "aporte_individual IS NULL OR aporte IS NOT NULL", name="aporte_individual"
         ),
         # Cada acto de una escritura es un renglón (aporte múltiple: varios actos en la misma
         # escritura, p. ej. venta de lotes a distintos compradores), numerado dentro de ella.
@@ -176,6 +242,20 @@ class Acto(UUIDMixin, TimestampMixin, Base):
     # Solo para la categoría EXENTO.
     motivo_exencion: Mapped[str | None] = mapped_column(String(30), nullable=True)
     detalle_exencion: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Acto del vademécum elegido (SNAP de cómo aporta). NULL: cargado sin vademécum (actos
+    # anteriores, «sin efecto») o declarado como no listado (`fuera_de_vademecum`).
+    vademecum_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ddjj_vademecum.id", ondelete="RESTRICT"), nullable=True
+    )
+    # El escribano no lo encontró en el vademécum y eligió la categoría: la Caja lo revisa.
+    fuera_de_vademecum: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    precio: Mapped[Decimal | None] = mapped_column(BASE, nullable=True)
+    avaluo: Mapped[Decimal | None] = mapped_column(BASE, nullable=True)
+    # Escritura con varios actos: ¿intervienen solo las mismas partes? Rige para toda la
+    # escritura (todos sus renglones lo tienen igual) y decide el criterio de pluralidad.
+    mismas_partes: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
@@ -188,8 +268,16 @@ class Acto(UUIDMixin, TimestampMixin, Base):
         ForeignKey("parametros_vigencias.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    # Lo que aportaría el acto solo; `aporte` es lo que aporta tras el criterio de pluralidad.
+    aporte_individual: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    vigencia_pluralidad_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("parametros_vigencias.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
 
     escribano = relationship("Escribano", lazy="joined", innerjoin=True)
+    vademecum = relationship(VademecumActo, lazy="joined")
 
 
 class Boleta(UUIDMixin, Base):

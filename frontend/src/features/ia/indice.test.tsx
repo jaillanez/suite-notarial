@@ -30,6 +30,13 @@ const ACTO: ddjjApi.Acto = {
   detalle_exencion: null,
   aporte: null,
   vigencia_id: null,
+  vademecum_id: null,
+  vademecum_nombre: null,
+  fuera_de_vademecum: false,
+  precio: null,
+  avaluo: null,
+  mismas_partes: true,
+  aporte_individual: null,
 }
 
 const DDJJ: ddjjApi.DeclaracionDetalle = {
@@ -124,6 +131,7 @@ describe('foto del índice', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(ddjjApi.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(ddjjApi.fetchVademecum).mockResolvedValue([])
     vi.mocked(ddjjApi.verificarActo).mockResolvedValue({ aporte: '400000.00', controles: [] })
     vi.mocked(iaApi.fetchEstadoIa).mockResolvedValue({
       ocr_disponible: true,

@@ -12,7 +12,13 @@ from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal, RequestContextDep, require_permissions
 from app.modules.parametros import motor, service
-from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import (
+    CriterioPluralidad,
+    EstadoVigencia,
+    PeriodoTasa,
+    ReglaRedondeo,
+    TipoConcepto,
+)
 from app.modules.parametros.models import Concepto, Vigencia
 from app.modules.parametros.schemas import (
     ConceptoIn,
@@ -47,6 +53,7 @@ def vigencia_out(v: Vigencia, emails: dict[uuid.UUID, str]) -> VigenciaOut:
         tasa=v.tasa,
         periodo_tasa=PeriodoTasa(v.periodo_tasa) if v.periodo_tasa else None,
         dias_gracia=v.dias_gracia,
+        criterio=CriterioPluralidad(v.criterio) if v.criterio else None,
         regla_redondeo=ReglaRedondeo(v.regla_redondeo),
         es_ejemplo=v.es_ejemplo,
         estado=EstadoVigencia(v.estado),
@@ -209,6 +216,8 @@ async def simular(body: SimulacionIn, _: CanRead, session: SessionDep) -> Simula
             return SimulacionOut(
                 vigencia=out, resultado=motor.aporte_fijo(snap), detalle=f"Monto fijo {por}."
             )
+        if snap.tipo == TipoConcepto.CRITERIO_PLURALIDAD:
+            raise motor.MotorError("Un criterio es una regla: no calcula un importe.")
         if body.monto is None or body.vencimiento is None or body.fecha_pago is None:
             raise motor.MotorError("Indicá monto, vencimiento y fecha de pago.")
         dias = motor.dias_de_mora(body.vencimiento, body.fecha_pago, snap)

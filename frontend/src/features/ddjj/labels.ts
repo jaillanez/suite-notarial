@@ -2,6 +2,7 @@ import type { Tone } from '../../components/StatusIndicator'
 import { CARGO } from '../padron/labels'
 import type {
   CategoriaActo,
+  CriterioPluralidad,
   EscribanoBoleta,
   EstadoBoleta,
   EstadoDDJJ,
@@ -37,13 +38,16 @@ export function quienPaga(e: EscribanoBoleta): string {
 
 export const CATEGORIA: Record<CategoriaActo, { label: string; ayuda: string }> = {
   ESCRITURA_CON_VALOR: {
-    label: 'Escritura con valor',
-    ayuda: 'Aporta un porcentaje de la base imponible, con mínimo y tope por escritura.',
+    label: 'Aporte variable',
+    ayuda: 'Aporta un porcentaje del mayor valor entre precio y avalúo, con mínimo y máximo.',
   },
-  ACTA_O_PODER: { label: 'Acta o poder', ayuda: 'Aporta un monto fijo por acto.' },
   OTRO_ACTO: {
-    label: 'Otro acto sin valor',
-    ayuda: 'Acto sin base imponible que no es acta ni poder: monto fijo por acto.',
+    label: 'Aporte fijo mayor',
+    ayuda: 'Aporta un monto fijo por acto (donaciones, cesiones, sociedades, convenios…).',
+  },
+  ACTA_O_PODER: {
+    label: 'Aporte fijo menor',
+    ayuda: 'Aporta un monto fijo por acto (actas, poderes, cancelaciones…).',
   },
   SIN_EFECTO: {
     label: 'Sin efecto',
@@ -57,12 +61,31 @@ export const CATEGORIA: Record<CategoriaActo, { label: string; ayuda: string }> 
 }
 
 export const MOTIVO_EXENCION: Record<MotivoExencion, string> = {
-  CONVENIO_IPV: 'Convenio con el IPV',
+  CONVENIO_IPV: 'Emanada del IPV',
   ACTA_SUBSANATORIA: 'Acta subsanatoria',
+  REGULACION_DOMINIAL: 'Acta de regulación dominial',
+  ASOCIACION_INTERMEDIA_IPV: 'Asociación intermedia con hipoteca a favor del IPV',
   OTRO: 'Otro motivo',
 }
 
-/** "Exento · Convenio con el IPV", o la categoría sola. */
+/** Cómo aportan varios actos de una escritura con las mismas partes. */
+export const CRITERIO_PLURALIDAD: Record<CriterioPluralidad, { label: string; ayuda: string }> = {
+  SOLO_EL_MAYOR: {
+    label: 'Aporta solo el de mayor valor',
+    ayuda: 'De los actos de una escritura con las mismas partes, aporta solo el que más aporta.',
+  },
+  SUMAN_TODOS: {
+    label: 'Aportan todos',
+    ayuda: 'Cada acto de la escritura aporta lo suyo.',
+  },
+  VARIABLES_SUMAN_FIJO_UNA_VEZ: {
+    label: 'Los variables suman; el fijo, una vez',
+    ayuda:
+      'Cada acto de aporte variable aporta lo suyo; de los de monto fijo, aporta solo el mayor.',
+  },
+}
+
+/** "Exento · Emanada del IPV", o la categoría sola. */
 export function categoriaDe(a: {
   categoria: CategoriaActo
   motivo_exencion: MotivoExencion | null

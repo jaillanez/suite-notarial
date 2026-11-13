@@ -108,6 +108,7 @@ describe('carga desde la minuta (Human in Command)', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(ddjjApi.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(ddjjApi.fetchVademecum).mockResolvedValue([])
     vi.mocked(ddjjApi.verificarActo).mockResolvedValue({ aporte: '972000.00', controles: [] })
     vi.mocked(iaApi.fetchEstadoIa).mockResolvedValue({
       ocr_disponible: true,
@@ -176,7 +177,11 @@ describe('carga desde la minuta (Human in Command)', () => {
         fecha_acto: '2026-09-14',
         naturaleza: 'Compraventa',
         base_imponible: '45000000.00',
+        vademecum_id: null,
+        precio: null,
+        avaluo: null,
         acto_multiple: false,
+        mismas_partes: true,
         motivo_exencion: null,
         detalle_exencion: null,
       })

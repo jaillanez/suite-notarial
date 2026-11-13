@@ -44,6 +44,7 @@ import {
   type Acto,
   type Boleta,
   type ControlProtocolo,
+  type CriterioPluralidad,
   type Hueco,
   type DeclaracionDetalle,
   type EscribanoBoleta,
@@ -55,7 +56,9 @@ import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } f
 import { ActoCampos } from './ActoCampos'
 import { useVerificacionActo } from './verificacion'
 import { ResultadoVerificacion } from './VerificacionActo'
+import { useVademecumDelPeriodo } from './vademecum'
 import {
+  CRITERIO_PLURALIDAD,
   ESTADO_BOLETA,
   ESTADO_DDJJ,
   PROTOCOLO,
@@ -402,6 +405,7 @@ function ActoDialog({
   const [form, setForm] = useState(() => actoSugerido(ddjj, todayIso()))
   const [agregado, setAgregado] = useState<string | null>(null)
   const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
+  const { actos: vademecum } = useVademecumDelPeriodo(ddjj.periodo)
   const save = useMutation({
     mutationFn: ({ datos }: { datos: ActoForm; otro: boolean }) =>
       agregarActo(ddjj.id, actoInput(datos)),
@@ -416,7 +420,7 @@ function ActoDialog({
     },
   })
   const problem = save.isError ? toProblem(save.error) : null
-  const listo = actoCompleto(form) && !bloqueado
+  const listo = actoCompleto(form, vademecum.length > 0) && !bloqueado
   const guardar = (otro: boolean) => {
     setAgregado(null)
     save.mutate({ datos: form, otro })
@@ -594,7 +598,7 @@ function Huecos({ ddjj }: { ddjj: DeclaracionDetalle }) {
           ))}
         </ul>
         <p className="mt-2">
-          Si alguna escritura no se otorgó, declarala con el tipo «Sin efecto» para que la
+          Si alguna escritura no se otorgó, declarala como «Escritura sin efecto» para que la
           numeración del protocolo quede completa.
         </p>
       </Alert>
@@ -602,12 +606,58 @@ function Huecos({ ddjj }: { ddjj: DeclaracionDetalle }) {
   )
 }
 
-function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<string, string> }) {
+/** Aporte de un acto: el congelado al presentar o el estimado de la vista previa. */
+interface AporteDeActo {
+  aporte: string
+  /** Lo que aportaría solo (mayor que `aporte` si quedó incluido en otro acto). */
+  individual: string
+  incluido: boolean
+}
+
+/** Aporte, y si el criterio de pluralidad lo dejó incluido en otro acto de su escritura. */
+function AporteCelda({ aporte }: { aporte: AporteDeActo | null }) {
+  return (
+    <>
+      <span className="block">{formatMoney(aporte?.aporte ?? null)}</span>
+      {aporte?.incluido && (
+        <span className="block text-xs font-normal text-ink-muted">
+          Incluido en el acto principal
+          <span className="block whitespace-nowrap">Solo: {formatMoney(aporte.individual)}</span>
+        </span>
+      )}
+    </>
+  )
+}
+
+/** Acto que no estaba en el vademécum: queda a revisión de la Caja. */
+function FueraDeVademecum() {
+  return (
+    <span className="mt-1 flex gap-1.5 text-sm font-medium text-warning-700">
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" strokeWidth={2.25} />
+      No está en el vademécum: lo revisa la Caja
+    </span>
+  )
+}
+
+function ActosPanel({
+  ddjj,
+  aportes,
+  criterio,
+}: {
+  ddjj: DeclaracionDetalle
+  aportes: Map<string, AporteDeActo>
+  criterio: CriterioPluralidad | null
+}) {
   const editable = ddjj.estado === 'BORRADOR' && ddjj.puede_operar
   const [adding, setAdding] = useState(false)
   const [quitando, setQuitando] = useState<Acto | null>(null)
-  const aporteDe = (a: Acto) => a.aporte ?? aportes.get(a.id) ?? null
+  const aporteDe = (a: Acto): AporteDeActo | null => {
+    if (a.aporte === null) return aportes.get(a.id) ?? null
+    const individual = a.aporte_individual ?? a.aporte
+    return { aporte: a.aporte, individual, incluido: individual !== a.aporte }
+  }
   const estimado = ddjj.estado === 'BORRADOR'
+  const hayIncluidos = ddjj.actos.some((a) => aporteDe(a)?.incluido)
 
   return (
     <Panel
@@ -652,6 +702,14 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
       }
     >
       <Huecos ddjj={ddjj} />
+      {hayIncluidos && criterio && (
+        <div className="border-b border-line px-5 py-4 sm:px-6">
+          <Alert tone="info" title="Escrituras con varios actos y las mismas partes">
+            {CRITERIO_PLURALIDAD[criterio].ayuda} Los demás actos se declaran igual y figuran como
+            incluidos en el acto principal.
+          </Alert>
+        </div>
+      )}
       {ddjj.actos.length === 0 ? (
         <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
           {editable
@@ -699,13 +757,14 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                     <span className="block text-ink-muted">
                       {a.escribano} ({CARGO[a.cargo]})
                     </span>
+                    {a.fuera_de_vademecum && <FueraDeVademecum />}
                     <ControlesActo controles={ddjj.controles[a.id]} />
                   </td>
                   <td className="px-3 py-3 text-right whitespace-nowrap text-ink tabular-nums">
                     {a.categoria === 'ESCRITURA_CON_VALOR' ? formatMoney(a.base_imponible) : '—'}
                   </td>
                   <td className="px-6 py-3 text-right font-semibold whitespace-nowrap text-ink tabular-nums">
-                    {formatMoney(aporteDe(a))}
+                    <AporteCelda aporte={aporteDe(a)} />
                   </td>
                   {editable && (
                     <td className="pr-4 py-1.5">
@@ -732,8 +791,8 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                   <span className="font-semibold text-ink tabular-nums">
                     {numeroDeActo(a)} · {PROTOCOLO[a.tipo_protocolo]}
                   </span>
-                  <span className="font-semibold text-ink tabular-nums">
-                    {formatMoney(aporteDe(a))}
+                  <span className="text-right font-semibold text-ink tabular-nums">
+                    <AporteCelda aporte={aporteDe(a)} />
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-ink">
@@ -742,6 +801,7 @@ function ActosPanel({ ddjj, aportes }: { ddjj: DeclaracionDetalle; aportes: Map<
                 <p className="text-sm text-ink-muted tabular-nums">
                   {a.escribano} · {formatDate(a.fecha_acto)}
                 </p>
+                {a.fuera_de_vademecum && <FueraDeVademecum />}
                 <ControlesActo controles={ddjj.controles[a.id]} />
                 {a.categoria === 'ESCRITURA_CON_VALOR' && (
                   <p className="text-sm text-ink-muted tabular-nums">
@@ -1294,7 +1354,12 @@ export function DeclaracionPage() {
   const vigentes = porEscribano(ddjj?.boletas ?? []).map(
     (g) => g.boletas.find((b) => b.estado !== 'ANULADA') ?? g.boletas[0],
   )
-  const aportes = new Map((preview.data?.aportes ?? []).map((a) => [a.acto_id, a.aporte]))
+  const aportes = new Map(
+    (preview.data?.aportes ?? []).map((a) => [
+      a.acto_id,
+      { aporte: a.aporte, individual: a.aporte_individual, incluido: a.incluido_en_otro },
+    ]),
+  )
 
   return (
     <>
@@ -1372,7 +1437,11 @@ export function DeclaracionPage() {
             )}
           </Panel>
 
-          <ActosPanel ddjj={ddjj} aportes={aportes} />
+          <ActosPanel
+            ddjj={ddjj}
+            aportes={aportes}
+            criterio={preview.data?.criterio_pluralidad ?? null}
+          />
 
           {ddjj.estado === 'BORRADOR' ? (
             <LiquidacionBorrador

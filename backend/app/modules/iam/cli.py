@@ -144,6 +144,8 @@ async def seed_dev() -> int:
     async with get_sessionmaker()() as session:
         await _seed_parametros_demo(session)
     async with get_sessionmaker()() as session:
+        await _seed_vademecum(session)
+    async with get_sessionmaker()() as session:
         await _seed_vencimientos(session)
     async with get_sessionmaker()() as session:
         await _seed_lineas_prestamo(session)
@@ -186,6 +188,27 @@ async def _seed_lineas_prestamo(session: AsyncSession) -> None:
         f"Líneas de préstamo (Resolución N° 273): {len(resumen.creadas)} creadas, "
         f"{len(resumen.actualizadas)} actualizadas, {len(resumen.sin_cambios)} sin cambios, "
         f"{len(resumen.deshabilitadas)} de ejemplo deshabilitadas."
+    )
+
+
+async def _seed_vademecum(session: AsyncSession) -> None:
+    """Vademécum 2026 de la Caja y su criterio de pluralidad, ya aprobado (en desarrollo)."""
+    from app.modules.ddjj import vademecum_caja
+    from app.modules.parametros import service as parametros
+
+    admin = await session.scalar(select(User).where(User.email == DEV_USERS[0][0]))
+    aprobador = await session.scalar(select(User).where(User.email == DEV_USERS[2][0]))
+    if admin is None or aprobador is None:
+        return
+    resumen = await vademecum_caja.cargar(session, admin)
+    if resumen.propuesta_id is not None:
+        await parametros.aprobar_vigencia(
+            session, vademecum_caja.CONSOLA, aprobador, resumen.propuesta_id
+        )
+    _out(
+        f"Vademécum 2026: {len(resumen.creados)} actos creados, "
+        f"{len(resumen.ya_cargados)} ya cargados"
+        + ("; criterio de pluralidad aprobado." if resumen.propuesta_id else ".")
     )
 
 

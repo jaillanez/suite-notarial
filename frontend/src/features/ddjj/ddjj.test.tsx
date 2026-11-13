@@ -40,6 +40,13 @@ const ACTO: apiModule.Acto = {
   base_imponible: '100000000.00',
   aporte: null,
   vigencia_id: null,
+  vademecum_id: null,
+  vademecum_nombre: null,
+  fuera_de_vademecum: false,
+  precio: null,
+  avaluo: null,
+  mismas_partes: true,
+  aporte_individual: null,
 }
 
 const IMPORTES = {
@@ -83,6 +90,7 @@ function liquidacion(
     total_a_pagar: boletas.reduce((t, b) => t + Number(b.total_a_pagar), 0).toFixed(2),
     avisos: [],
     usa_valores_de_ejemplo: false,
+    criterio_pluralidad: null,
     ...extra,
   }
 }
@@ -161,13 +169,21 @@ describe('ficha de la DDJJ', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: null, controles: [] })
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue([])
   })
 
   it('muestra la liquidación del borrador y avisa los valores a confirmar', async () => {
     vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
     vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
       liquidacion(undefined, {
-        aportes: [{ acto_id: 'a1', aporte: '400000.00' }],
+        aportes: [
+          {
+            acto_id: 'a1',
+            aporte: '400000.00',
+            aporte_individual: '400000.00',
+            incluido_en_otro: false,
+          },
+        ],
         usa_valores_de_ejemplo: true,
       }),
     )
@@ -204,7 +220,16 @@ describe('ficha de la DDJJ', () => {
       ],
     })
     vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
-      liquidacion(undefined, { aportes: [{ acto_id: 'a1', aporte: '400000.00' }] }),
+      liquidacion(undefined, {
+        aportes: [
+          {
+            acto_id: 'a1',
+            aporte: '400000.00',
+            aporte_individual: '400000.00',
+            incluido_en_otro: false,
+          },
+        ],
+      }),
     )
 
     renderFicha()
@@ -497,5 +522,173 @@ describe('verificación pública', () => {
     renderVerificar('ABCDEFGH23456723')
 
     expect(await screen.findByText('Los datos de la boleta no coinciden')).toBeInTheDocument()
+  })
+})
+
+const VADEMECUM_BASE = {
+  version: 1,
+  motivo_exencion: null,
+  aclaracion: null,
+  fecha_desde: '2026-06-01',
+  fecha_hasta: null,
+  resolucion: 'Vademécum de aportes · Asamblea Extraordinaria del 19/05/2026',
+  created_at: '2026-06-01T12:00:00Z',
+} as const
+
+const VADEMECUM: apiModule.VademecumActo[] = [
+  {
+    ...VADEMECUM_BASE,
+    id: 'v-venta',
+    codigo: 'VENTA',
+    nombre: 'Venta',
+    categoria: 'ESCRITURA_CON_VALOR',
+    sinonimos: 'compraventa',
+    orden: 101,
+  },
+  {
+    ...VADEMECUM_BASE,
+    id: 'v-cesion',
+    codigo: 'CESION',
+    nombre: 'Cesión',
+    categoria: 'OTRO_ACTO',
+    sinonimos: 'cesión de derechos',
+    aclaracion: 'Las cesiones onerosas sobre un inmueble determinado son aporte variable.',
+    orden: 202,
+  },
+  {
+    ...VADEMECUM_BASE,
+    id: 'v-ipv',
+    codigo: 'IPV',
+    nombre: 'Hipoteca, cancelación de hipoteca, poder o venta del IPV',
+    categoria: 'EXENTO',
+    motivo_exencion: 'CONVENIO_IPV',
+    sinonimos: 'instituto provincial de la vivienda',
+    orden: 402,
+  },
+]
+
+describe('vademécum de aportes', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: null, controles: [] })
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue(VADEMECUM)
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [] })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
+  })
+
+  it('busca sin tildes y por sinónimos, y el acto fija cómo aporta', async () => {
+    vi.mocked(apiModule.agregarActo).mockResolvedValue(ACTO)
+    renderFicha()
+    fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
+    const dialogo = await screen.findByRole('dialog')
+    const buscador = await within(dialogo).findByRole('combobox', {
+      name: 'Acto (vademécum de aportes)',
+    })
+    // Sin el selector de tipo: lo define el acto.
+    expect(within(dialogo).queryByLabelText('Tipo de acto')).not.toBeInTheDocument()
+
+    fireEvent.change(buscador, { target: { value: 'cesion' } })
+    expect(within(dialogo).getByRole('option', { name: 'Cesión' })).toBeInTheDocument()
+    expect(within(dialogo).queryByRole('option', { name: 'Venta' })).not.toBeInTheDocument()
+
+    fireEvent.change(buscador, { target: { value: 'compraventa' } })
+    fireEvent.keyDown(buscador, { key: 'Enter' })
+    expect(buscador).toHaveValue('Venta')
+    expect(within(dialogo).getByText(/Aporte variable\./)).toBeInTheDocument()
+    expect(within(dialogo).getByLabelText('Naturaleza del acto')).toHaveValue('Venta')
+
+    fireEvent.change(within(dialogo).getByLabelText('Precio ($)'), {
+      target: { value: '1.000.000,00' },
+    })
+    fireEvent.change(within(dialogo).getByLabelText('Avalúo ($)'), {
+      target: { value: '1.250.000' },
+    })
+    fireEvent.click(within(dialogo).getByRole('button', { name: 'Agregar' }))
+
+    await waitFor(() => {
+      expect(apiModule.agregarActo).toHaveBeenCalledWith(
+        'd1',
+        expect.objectContaining({
+          vademecum_id: 'v-venta',
+          categoria: 'ESCRITURA_CON_VALOR',
+          naturaleza: 'Venta',
+          precio: '1000000.00',
+          avaluo: '1250000',
+          base_imponible: '0',
+          mismas_partes: true,
+        }),
+      )
+    })
+  })
+
+  it('un acto que no está en el vademécum elige cómo aporta', async () => {
+    renderFicha()
+    fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
+    const dialogo = await screen.findByRole('dialog')
+    const buscador = await within(dialogo).findByRole('combobox', {
+      name: 'Acto (vademécum de aportes)',
+    })
+    const agregar = within(dialogo).getByRole('button', { name: 'Agregar' })
+    fireEvent.change(within(dialogo).getByLabelText('Naturaleza del acto'), {
+      target: { value: 'Acto raro' },
+    })
+    // Sin elegir en el buscador no se puede agregar.
+    expect(agregar).toBeDisabled()
+
+    fireEvent.change(buscador, { target: { value: 'zzz' } })
+    expect(within(dialogo).getByText(/Ningún acto coincide/)).toBeInTheDocument()
+    fireEvent.click(within(dialogo).getByRole('option', { name: 'No está en el vademécum' }))
+    expect(within(dialogo).getByLabelText('Cómo aporta')).toBeInTheDocument()
+    expect(within(dialogo).getByText(/la Caja lo revise/)).toBeInTheDocument()
+  })
+
+  it('pregunta por las partes en un acto de la misma escritura', async () => {
+    renderFicha()
+    fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
+    const dialogo = await screen.findByRole('dialog')
+    fireEvent.click(within(dialogo).getByLabelText(/Otro acto de la misma escritura/))
+    const grupo = within(dialogo).getByRole('group', {
+      name: /Intervienen solo las mismas partes/,
+    })
+    expect(within(grupo).getByLabelText(/Sí, las mismas partes/)).toBeChecked()
+    fireEvent.click(within(grupo).getByLabelText(/No, hay partes distintas/))
+    expect(within(grupo).getByLabelText(/No, hay partes distintas/)).toBeChecked()
+  })
+
+  it('muestra el acto incluido en el principal y la regla que se aplicó', async () => {
+    const donacion = {
+      ...ACTO,
+      id: 'a2',
+      orden_en_escritura: 2,
+      naturaleza: 'Donación',
+      categoria: 'OTRO_ACTO' as const,
+      base_imponible: '0.00',
+      fuera_de_vademecum: true,
+    }
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [ACTO, donacion] })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
+      liquidacion(undefined, {
+        aportes: [
+          {
+            acto_id: 'a1',
+            aporte: '400000.00',
+            aporte_individual: '400000.00',
+            incluido_en_otro: false,
+          },
+          { acto_id: 'a2', aporte: '0.00', aporte_individual: '37446.00', incluido_en_otro: true },
+        ],
+        criterio_pluralidad: 'SOLO_EL_MAYOR',
+      }),
+    )
+    renderFicha()
+
+    expect(
+      await screen.findByText('Escrituras con varios actos y las mismas partes'),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Incluido en el acto principal').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Solo: \$ 37\.446,00/).length).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText('No está en el vademécum: lo revisa la Caja').length,
+    ).toBeGreaterThan(0)
   })
 })

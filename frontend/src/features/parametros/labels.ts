@@ -1,5 +1,6 @@
 import type { Tone } from '../../components/StatusIndicator'
 import { formatMoney, formatPercent } from '../../lib/decimal'
+import { CRITERIO_PLURALIDAD } from '../ddjj/labels'
 import type { EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto, Vigencia } from './api'
 
 export const TIPO: Record<TipoConcepto, { label: string; ayuda: string }> = {
@@ -12,6 +13,11 @@ export const TIPO: Record<TipoConcepto, { label: string; ayuda: string }> = {
   TASA_MORA: {
     label: 'Tasa de mora',
     ayuda: 'Interés por pago fuera de término (tasa mensual o anual), con días de gracia.',
+  },
+  CRITERIO_PLURALIDAD: {
+    label: 'Regla de pluralidad de actos',
+    ayuda:
+      'Cómo aportan los actos de una escritura con varios actos y las mismas partes. No es un importe: es una política que se cambia con una vigencia nueva.',
   },
 }
 
@@ -35,6 +41,8 @@ export function resumenValor(tipo: TipoConcepto, v: Vigencia): string {
   if (tipo === 'PORCENTUAL_ACTO') return formatPercent(v.porcentaje)
   if (tipo === 'FIJO_ACTO') return `${formatMoney(v.monto_fijo)} por acto`
   if (tipo === 'FIJO_MENSUAL') return formatMoney(v.monto_fijo)
+  if (tipo === 'CRITERIO_PLURALIDAD')
+    return v.criterio ? CRITERIO_PLURALIDAD[v.criterio].label : '—'
   return `${formatPercent(v.tasa)} ${v.periodo_tasa ? PERIODO_TASA[v.periodo_tasa] : ''}`.trim()
 }
 
@@ -47,6 +55,9 @@ export function detalleValores(tipo: TipoConcepto, v: Vigencia): [string, string
       ['Tope', v.monto_maximo ? formatMoney(v.monto_maximo) : 'Sin tope'],
       ['Redondeo', REDONDEO[v.regla_redondeo]],
     ]
+  }
+  if (tipo === 'CRITERIO_PLURALIDAD') {
+    return [['Regla', v.criterio ? CRITERIO_PLURALIDAD[v.criterio].ayuda : '—']]
   }
   if (tipo === 'FIJO_ACTO' || tipo === 'FIJO_MENSUAL') {
     return [

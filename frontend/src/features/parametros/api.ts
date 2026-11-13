@@ -1,6 +1,8 @@
 import { api } from '../../lib/api'
+import type { CriterioPluralidad } from '../ddjj/api'
 
-export type TipoConcepto = 'PORCENTUAL_ACTO' | 'FIJO_ACTO' | 'FIJO_MENSUAL' | 'TASA_MORA'
+export type TipoConcepto =
+  'PORCENTUAL_ACTO' | 'FIJO_ACTO' | 'FIJO_MENSUAL' | 'TASA_MORA' | 'CRITERIO_PLURALIDAD'
 export type PeriodoTasa = 'MENSUAL' | 'ANUAL'
 export type EstadoVigencia = 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA' | 'RETIRADA'
 export type ReglaRedondeo = 'HALF_UP' | 'FLOOR' | 'CEILING'
@@ -20,6 +22,8 @@ export interface Vigencia {
   tasa: string | null
   periodo_tasa: PeriodoTasa | null
   dias_gracia: number | null
+  /** Solo CRITERIO_PLURALIDAD: la regla elegida. */
+  criterio: CriterioPluralidad | null
   regla_redondeo: ReglaRedondeo
   es_ejemplo: boolean
   estado: EstadoVigencia
@@ -53,6 +57,7 @@ export interface VigenciaInput {
   tasa?: string | null
   periodo_tasa?: PeriodoTasa | null
   dias_gracia?: number | null
+  criterio?: CriterioPluralidad | null
   regla_redondeo: ReglaRedondeo
   resolucion_respaldo: string
   motivo: string

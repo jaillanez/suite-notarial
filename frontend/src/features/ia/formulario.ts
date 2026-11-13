@@ -15,6 +15,7 @@ export function formularioDe(
   const escribano = v('escribano_id')
   const base = v('base_imponible')
   return {
+    ...vacio,
     escribano_id:
       escribano && ddjj.escribanos.some((e) => e.id === escribano)
         ? escribano
@@ -26,8 +27,5 @@ export function formularioDe(
     fecha_acto: v('fecha_acto') ?? '',
     naturaleza: v('naturaleza') ?? '',
     base_imponible: base && base !== '0.00' ? formatDecimal(base) : '',
-    acto_multiple: false,
-    motivo_exencion: '',
-    detalle_exencion: '',
   }
 }
