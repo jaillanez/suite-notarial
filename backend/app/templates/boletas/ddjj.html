@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Declaración Jurada de Aportes · Registro N° {{ d.registro_numero }} · {{ periodo }}</title>
+<style>
+  @page {
+    size: A4 landscape;
+    margin: 12mm 12mm 14mm;
+    @bottom-left { content: "Registro N° {{ d.registro_numero }} · Período {{ periodo }} · Generada el {{ generada }}"; font: 7pt "Public Sans", Arial, sans-serif; color: #63737d; }
+    @bottom-right { content: "Página " counter(page) " de " counter(pages); font: 7pt "Public Sans", Arial, sans-serif; color: #63737d; }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Public Sans", "Helvetica Neue", Arial, sans-serif; color: #16232b; font-size: 8.5pt; line-height: 1.35; margin: 0; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2pt solid #113347; padding-bottom: 6pt; }
+  header img { height: 32pt; }
+  .titulo { text-align: right; }
+  .titulo h1 { font-size: 13pt; margin: 0; color: #113347; letter-spacing: 0.02em; }
+  .titulo p { margin: 2pt 0 0; color: #4c5c66; }
+  .borrador { display: inline-block; margin-top: 4pt; padding: 1pt 6pt; border: 1pt solid #845300; color: #845300; font-weight: 600; letter-spacing: 0.06em; }
+  .cabecera { display: flex; gap: 10pt; margin-top: 8pt; }
+  .cabecera div { flex: 1; border: 0.75pt solid #d3dce2; padding: 5pt 8pt; }
+  .label { color: #63737d; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+  .value { font-size: 9.5pt; font-weight: 600; margin: 1pt 0 0; }
+  h2 { font-size: 10pt; color: #113347; margin: 12pt 0 4pt; letter-spacing: 0.04em; text-transform: uppercase; }
+  section { break-inside: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  th { text-align: left; font-size: 7pt; font-weight: 600; color: #4c5c66; background: #f2f5f7; padding: 3pt 4pt; border-bottom: 0.75pt solid #b4c2ca; vertical-align: bottom; }
+  td { padding: 3pt 4pt; border-bottom: 0.5pt solid #e1e7eb; vertical-align: top; }
+  tr { break-inside: avoid; }
+  .der { text-align: right; }
+  .detalle { color: #63737d; font-size: 7pt; }
+  tr.totales td { font-weight: 600; border-top: 1pt solid #113347; border-bottom: 1pt solid #113347; }
+  .vacio { color: #63737d; font-style: italic; padding: 6pt 4pt; }
+  .aviso { margin-top: 8pt; border: 0.75pt solid #e8c977; background: #fdf6e3; color: #845300; padding: 5pt 8pt; }
+  .juramento { margin-top: 10pt; border-top: 0.75pt solid #d3dce2; padding-top: 8pt; break-inside: avoid; }
+  .juramento p { margin: 0 0 3pt; }
+  .firmas { display: flex; gap: 28pt; margin-top: 22pt; }
+  .firmas div { flex: 1; border-top: 0.75pt solid #16232b; padding-top: 3pt; text-align: center; color: #4c5c66; font-size: 7.5pt; }
+</style>
+</head>
+<body>
+<header>
+  <img src="logo.png" alt="{{ caja.CAJA_NOMBRE }}">
+  <div class="titulo">
+    <h1>Declaración Jurada de Aportes</h1>
+    <p>Registro Notarial N° <strong class="num">{{ d.registro_numero }}</strong> · Período <strong class="num">{{ periodo }}</strong>{% if d.numero_rectificativa %} · Rectificativa {{ d.numero_rectificativa }}{% endif %}</p>
+    {% if d.estado == "BORRADOR" %}<span class="borrador">BORRADOR · NO PRESENTADA</span>{% endif %}
+  </div>
+</header>
+
+<div class="cabecera">
+  <div>
+    <p class="label">Titular</p>
+    <p class="value">{{ d.titulares|join(" · ") or "—" }}</p>
+  </div>
+  <div>
+    <p class="label">Adscripto</p>
+    <p class="value">{{ d.adscriptos|join(" · ") or "—" }}</p>
+  </div>
+  <div>
+    <p class="label">A cargo</p>
+    <p class="value">{{ d.a_cargo|join(" · ") or "—" }}</p>
+  </div>
+  <div style="flex: 0.7">
+    <p class="label">Mes · Año</p>
+    <p class="value num">{{ mes }} · {{ anio }}</p>
+    <p class="label" style="margin-top: 3pt">{{ "Presentada" if presentada else "Generada" }}</p>
+    <p class="value num">{{ presentada or generada }}</p>
+  </div>
+</div>
+
+{% if d.sin_aportes %}
+<p class="aviso">Los aportes no se pudieron calcular: {{ d.sin_aportes }}</p>
+{% elif d.estado == "BORRADOR" %}
+<p class="aviso">Borrador: los aportes son una estimación con los parámetros vigentes y quedan fijos al presentar la declaración.</p>
+{% endif %}
+
+{% for p in d.protocolos %}
+<section>
+  <h2>{{ protocolo[p.tipo] }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Escritura N°</th>
+        <th>Folio</th>
+        <th style="width: 26%">Naturaleza del acto</th>
+        <th class="der">Base imponible</th>
+        <th class="der">Aporte</th>
+        <th class="der">Aporte fijo</th>
+        <th>Notario autorizado</th>
+        <th class="der">Aporte Titular</th>
+        <th class="der">Aporte Adscripto</th>
+        <th class="der">Aporte A cargo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in p.renglones %}
+      <tr>
+        <td class="num">{{ r.numero_escritura }}{% if r.orden_en_escritura > 1 %} · acto {{ r.orden_en_escritura }}{% endif %}</td>
+        <td class="num">{{ r.folio if r.folio is not none else "" }}</td>
+        <td>{{ r.naturaleza }}{% if r.incluido_en_otro %}<br><span class="detalle">Incluido en el acto principal</span>{% endif %}</td>
+        <td class="der num">{{ r.base_imponible|pesos if r.base_imponible is not none else "" }}</td>
+        <td class="der num">{{ r.aporte_variable|pesos if r.aporte_variable is not none else "" }}</td>
+        <td class="der num">{{ r.aporte_fijo|pesos if r.aporte_fijo is not none else "" }}</td>
+        <td>{{ cargo[r.cargo] }}<br><span class="detalle">{{ r.escribano }}</span></td>
+        {% for c in ("TITULAR", "ADSCRIPTO", "SUPLENTE_INTERINO") %}
+        <td class="der num">{% if r.cargo == c and r.aporte is not none %}{{ r.aporte|pesos }}{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr><td colspan="10" class="vacio">Sin escrituras en este protocolo.</td></tr>
+      {% endfor %}
+      {% if p.renglones %}
+      <tr class="totales">
+        <td colspan="4">Totales</td>
+        <td class="der num">{{ p.totales.aporte_variable|pesos }}</td>
+        <td class="der num">{{ p.totales.aporte_fijo|pesos }}</td>
+        <td></td>
+        <td class="der num">{{ p.totales.titular|pesos }}</td>
+        <td class="der num">{{ p.totales.adscripto|pesos }}</td>
+        <td class="der num">{{ p.totales.a_cargo|pesos }}</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+<section style="break-inside: avoid">
+  <h2>Resumen de protocolos</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Detalle</th>
+        <th>Escrituras</th>
+        <th>Folios</th>
+        <th class="der">Aporte Titular</th>
+        <th class="der">Aporte Adscripto</th>
+        <th class="der">Aporte A cargo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in d.protocolos %}
+      <tr>
+        <td>{{ protocolo[p.tipo] }}</td>
+        <td class="num">{% if p.escrituras_desde is not none %}del N° {{ p.escrituras_desde }} al N° {{ p.escrituras_hasta }}{% else %}—{% endif %}</td>
+        <td class="num">{% if p.folios_desde is not none %}del {{ p.folios_desde }} al {{ p.folios_hasta }}{% else %}—{% endif %}</td>
+        <td class="der num">{{ p.totales.titular|pesos }}</td>
+        <td class="der num">{{ p.totales.adscripto|pesos }}</td>
+        <td class="der num">{{ p.totales.a_cargo|pesos }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="totales">
+        <td colspan="3">Totales · {{ d.totales.total|pesos }}</td>
+        <td class="der num">{{ d.totales.titular|pesos }}</td>
+        <td class="der num">{{ d.totales.adscripto|pesos }}</td>
+        <td class="der num">{{ d.totales.a_cargo|pesos }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="detalle" style="margin-top: 4pt">El aporte mínimo mensual y el aporte médico asistencial se liquidan en la boleta de cada escribano.</p>
+</section>
+
+<div class="juramento">
+  <p><strong>Declaro bajo juramento que los datos expresados son completos y correctos, responsabilizándome por cualquier error u omisión.</strong></p>
+  {% if presentada %}<p class="detalle">Presentada en la Suite Notarial de la {{ caja.CAJA_NOMBRE }} el {{ presentada }}.</p>{% endif %}
+  <div class="firmas">
+    <div>Firma y sello del Titular</div>
+    <div>Firma y sello del Adscripto</div>
+    <div>Firma y sello del Notario a cargo</div>
+  </div>
+</div>
+</body>
+</html>

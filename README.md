@@ -271,6 +271,12 @@ Ya aplicadas:
   Todo queda auditado y cada acto declarado guarda la versión con que se valorizó. Carga en un
   servidor (queda pendiente de aprobación):
   `python -m app.modules.ddjj.vademecum_caja --operador EMAIL`.
+- **Planilla de la DDJJ**: la ficha muestra los actos con el formato de la planilla de la Caja,
+  en pestañas Protocolo General · Protocolo Auxiliar · Resumen (base imponible, aporte, aporte
+  fijo y lo que paga cada cargo, con totales; el resumen calcula los rangos de escrituras y
+  folios). La misma planilla sale en PDF («Declaración Jurada de Aportes», A4 apaisado, con el
+  juramento): `GET /api/v1/ddjj/declaraciones/{id}/planilla` y `/pdf`. Pantalla y PDF usan la
+  misma información del servidor (regla REP).
 - **Pluralidad de actos**: en una escritura con varios actos, el escribano dice si intervienen
   solo las mismas partes (obligatorio, sin respuesta por defecto; vale para toda la escritura y
   cada acto que cambia queda auditado). Con partes distintas aporta cada acto;

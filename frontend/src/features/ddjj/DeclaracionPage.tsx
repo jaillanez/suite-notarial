@@ -8,8 +8,6 @@ import {
   Plus,
   ReceiptText,
   ScanText,
-  TriangleAlert,
-  CircleX,
   Send,
   Trash2,
   Wallet,
@@ -28,13 +26,15 @@ import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { formatMoney, formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
-import { CARGO, formatDate, todayIso } from '../padron/labels'
+import { formatDate, todayIso } from '../padron/labels'
 import { AdjuntarComprobanteDialog } from '../pagos/AdjuntarComprobanteDialog'
 import { fetchMercadoPagoHabilitado, pagarConMercadoPago } from '../pagos/api'
 import { PERIODO_TASA } from '../parametros/labels'
 import {
   agregarActo,
   bajaActo,
+  descargarDeclaracion,
+  fetchPlanilla,
   descargarBoleta,
   emitirBoleta,
   fetchDeclaracion,
@@ -43,7 +43,6 @@ import {
   rectificar,
   type Acto,
   type Boleta,
-  type ControlProtocolo,
   type CriterioPluralidad,
   type Hueco,
   type DeclaracionDetalle,
@@ -51,9 +50,11 @@ import {
   type Liquidacion,
   type LiquidacionBoleta,
   type ModalidadBoleta,
+  type TipoProtocolo,
 } from './api'
 import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
+import { PlanillaActos } from './PlanillaActos'
 import { useVerificacionActo } from './verificacion'
 import { ResultadoVerificacion } from './VerificacionActo'
 import { useVademecumDelPeriodo } from './vademecum'
@@ -62,7 +63,6 @@ import {
   ESTADO_BOLETA,
   ESTADO_DDJJ,
   PROTOCOLO,
-  categoriaDe,
   formatCodigo,
   formatPeriodo,
   quienPaga,
@@ -393,16 +393,28 @@ function LiquidacionBorrador({
 function ActoDialog({
   ddjj,
   open,
+  protocolo,
   onClose,
 }: {
   ddjj: DeclaracionDetalle
   open: boolean
+  /** Protocolo de la pestaña desde la que se agrega (con el número que sigue en él). */
+  protocolo?: TipoProtocolo
   onClose: () => void
 }) {
   const invalidate = useInvalidate(ddjj.id)
   // Completado con lo más probable: mismo escribano, protocolo y fecha que el último acto, y
   // el número de escritura que sigue.
-  const [form, setForm] = useState(() => actoSugerido(ddjj, todayIso()))
+  const [form, setForm] = useState(() => {
+    const sugerido = actoSugerido(ddjj, todayIso())
+    return protocolo && protocolo !== sugerido.tipo_protocolo
+      ? {
+          ...sugerido,
+          tipo_protocolo: protocolo,
+          numero_escritura: String(ddjj.proximos_numeros[protocolo]),
+        }
+      : sugerido
+  })
   const [agregado, setAgregado] = useState<string | null>(null)
   const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
   const { actos: vademecum } = useVademecumDelPeriodo(ddjj.periodo)
@@ -549,28 +561,6 @@ function BajaDialog({
   )
 }
 
-/** Avisos del libro de protocolo bajo un acto (ícono y texto en el tono del aviso). */
-function ControlesActo({ controles }: { controles: ControlProtocolo[] | undefined }) {
-  if (!controles?.length) return null
-  return (
-    <ul className="mt-1.5 grid gap-1">
-      {controles.map((c) => {
-        const bloqueante = c.nivel === 'BLOQUEANTE'
-        const Icono = bloqueante ? CircleX : TriangleAlert
-        return (
-          <li
-            key={c.codigo}
-            className={`flex gap-1.5 text-sm font-medium ${bloqueante ? 'text-danger-700' : 'text-warning-700'}`}
-          >
-            <Icono aria-hidden="true" className="mt-0.5 size-4 shrink-0" strokeWidth={2.25} />
-            <span>{c.mensaje}</span>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
 function listarTramos(tramos: Hueco['tramos']): string {
   const partes = tramos.map((t) =>
     t.desde === t.hasta
@@ -606,58 +596,27 @@ function Huecos({ ddjj }: { ddjj: DeclaracionDetalle }) {
   )
 }
 
-/** Aporte de un acto: el congelado al presentar o el estimado de la vista previa. */
-interface AporteDeActo {
-  aporte: string
-  /** Lo que aportaría solo (mayor que `aporte` si quedó incluido en otro acto). */
-  individual: string
-  incluido: boolean
-}
-
-/** Aporte, y si el criterio de pluralidad lo dejó incluido en otro acto de su escritura. */
-function AporteCelda({ aporte }: { aporte: AporteDeActo | null }) {
-  return (
-    <>
-      <span className="block">{formatMoney(aporte?.aporte ?? null)}</span>
-      {aporte?.incluido && (
-        <span className="block text-xs font-normal text-ink-muted">
-          Incluido en el acto principal
-          <span className="block whitespace-nowrap">Solo: {formatMoney(aporte.individual)}</span>
-        </span>
-      )}
-    </>
-  )
-}
-
-/** Acto que no estaba en el vademécum: queda a revisión de la Caja. */
-function FueraDeVademecum() {
-  return (
-    <span className="mt-1 flex gap-1.5 text-sm font-medium text-warning-700">
-      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" strokeWidth={2.25} />
-      No está en el vademécum: lo revisa la Caja
-    </span>
-  )
-}
-
 function ActosPanel({
   ddjj,
-  aportes,
   criterio,
 }: {
   ddjj: DeclaracionDetalle
-  aportes: Map<string, AporteDeActo>
   criterio: CriterioPluralidad | null
 }) {
   const editable = ddjj.estado === 'BORRADOR' && ddjj.puede_operar
-  const [adding, setAdding] = useState(false)
+  const [agregando, setAgregando] = useState<TipoProtocolo | null>(null)
   const [quitando, setQuitando] = useState<Acto | null>(null)
-  const aporteDe = (a: Acto): AporteDeActo | null => {
-    if (a.aporte === null) return aportes.get(a.id) ?? null
-    const individual = a.aporte_individual ?? a.aporte
-    return { aporte: a.aporte, individual, incluido: individual !== a.aporte }
-  }
+  // La misma planilla que imprime el PDF: los importes vienen del servidor.
+  const planilla = useQuery({
+    queryKey: ['ddjj', 'declaracion', ddjj.id, 'planilla', ddjj.estado, ddjj.actos.length],
+    queryFn: () => fetchPlanilla(ddjj.id),
+    placeholderData: keepPreviousData,
+    enabled: ddjj.actos.length > 0,
+  })
+  const pdf = useMutation({ mutationFn: () => descargarDeclaracion(ddjj) })
   const estimado = ddjj.estado === 'BORRADOR'
-  const hayIncluidos = ddjj.actos.some((a) => aporteDe(a)?.incluido)
+  const hayIncluidos =
+    planilla.data?.protocolos.some((p) => p.renglones.some((r) => r.incluido_en_otro)) ?? false
 
   return (
     <Panel
@@ -668,39 +627,54 @@ function ActosPanel({
           : `${String(ddjj.actos.length)} ${ddjj.actos.length === 1 ? 'acto' : 'actos'}${estimado ? ' · aportes estimados hasta presentar' : ''}`
       }
       actions={
-        editable ? (
-          <div className="flex flex-wrap gap-3">
-            {ddjj.escribanos.length > 0 && (
-              <Link
-                to={`/ddjj/${ddjj.id}/indice`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
-              >
-                <Camera aria-hidden="true" className="size-4" strokeWidth={2.25} />
-                Foto del índice
-              </Link>
-            )}
-            {ddjj.escribanos.length > 0 && (
-              <Link
-                to={`/ddjj/${ddjj.id}/minuta`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
-              >
-                <ScanText aria-hidden="true" className="size-4" strokeWidth={2.25} />
-                Cargar desde la minuta
-              </Link>
-            )}
+        <div className="flex flex-wrap gap-3">
+          {editable && ddjj.escribanos.length > 0 && (
+            <Link
+              to={`/ddjj/${ddjj.id}/indice`}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
+            >
+              <Camera aria-hidden="true" className="size-4" strokeWidth={2.25} />
+              Foto del índice
+            </Link>
+          )}
+          {editable && ddjj.escribanos.length > 0 && (
+            <Link
+              to={`/ddjj/${ddjj.id}/minuta`}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
+            >
+              <ScanText aria-hidden="true" className="size-4" strokeWidth={2.25} />
+              Cargar desde la minuta
+            </Link>
+          )}
+          <Button
+            icon={Download}
+            busy={pdf.isPending}
+            busyLabel="Generando…"
+            onClick={() => {
+              pdf.mutate()
+            }}
+          >
+            {estimado ? 'Borrador en PDF' : 'DDJJ en PDF'}
+          </Button>
+          {editable && (
             <Button
               icon={Plus}
               disabled={ddjj.escribanos.length === 0}
               onClick={() => {
-                setAdding(true)
+                setAgregando('GENERAL')
               }}
             >
               Agregar acto
             </Button>
-          </div>
-        ) : undefined
+          )}
+        </div>
       }
     >
+      {pdf.isError && (
+        <div className="border-b border-line px-5 py-4 sm:px-6">
+          <Alert tone="danger">{toProblem(pdf.error).detail}</Alert>
+        </div>
+      )}
       <Huecos ddjj={ddjj} />
       {hayIncluidos && criterio && (
         <div className="border-b border-line px-5 py-4 sm:px-6">
@@ -710,128 +684,53 @@ function ActosPanel({
           </Alert>
         </div>
       )}
+      {planilla.data?.sin_aportes && (
+        <div className="border-b border-line px-5 py-4 sm:px-6">
+          <Alert tone="warning" title="Los aportes no se pudieron calcular">
+            {planilla.data.sin_aportes}
+          </Alert>
+        </div>
+      )}
+      {planilla.isError && (
+        <div className="border-b border-line px-5 py-4 sm:px-6">
+          <Alert tone="danger">{toProblem(planilla.error).detail}</Alert>
+        </div>
+      )}
       {ddjj.actos.length === 0 ? (
         <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
           {editable
             ? 'Sin actos todavía. Si en el mes no hubo escrituras, la declaración se presenta igual y se paga el aporte mínimo.'
             : 'La declaración no tiene actos.'}
         </p>
+      ) : planilla.data ? (
+        <div
+          aria-busy={planilla.isFetching}
+          className={`transition-opacity duration-150 ${planilla.isPlaceholderData ? 'opacity-60' : ''}`}
+        >
+          <PlanillaActos
+            ddjj={ddjj}
+            planilla={planilla.data}
+            editable={editable}
+            onAgregar={setAgregando}
+            onQuitar={setQuitando}
+          />
+        </div>
       ) : (
-        <>
-          <table className="hidden w-full text-sm sm:table">
-            <thead className="bg-surface-sunken text-xs font-semibold text-ink-muted">
-              <tr>
-                <th scope="col" className="px-6 py-2.5 text-left">
-                  Escritura
-                </th>
-                <th scope="col" className="px-3 py-2.5 text-left">
-                  Acto
-                </th>
-                <th scope="col" className="px-3 py-2.5 text-right">
-                  Base imponible
-                </th>
-                <th scope="col" className="px-6 py-2.5 text-right">
-                  Aporte
-                </th>
-                {editable && (
-                  <th scope="col" className="w-0 pr-4">
-                    <span className="sr-only">Acciones</span>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {ddjj.actos.map((a) => (
-                <tr key={a.id} className="align-top">
-                  <td className="px-6 py-3 whitespace-nowrap tabular-nums">
-                    <span className="block font-semibold text-ink">{numeroDeActo(a)}</span>
-                    <span className="block text-ink-muted">
-                      {PROTOCOLO[a.tipo_protocolo]}
-                      {a.folio !== null && ` · F. ${String(a.folio)}`}
-                    </span>
-                    <span className="block text-ink-muted">{formatDate(a.fecha_acto)}</span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className="block text-ink">{a.naturaleza}</span>
-                    <span className="block text-ink-muted">{categoriaDe(a)}</span>
-                    <span className="block text-ink-muted">
-                      {a.escribano} ({CARGO[a.cargo]})
-                    </span>
-                    {a.fuera_de_vademecum && <FueraDeVademecum />}
-                    <ControlesActo controles={ddjj.controles[a.id]} />
-                  </td>
-                  <td className="px-3 py-3 text-right whitespace-nowrap text-ink tabular-nums">
-                    {a.categoria === 'ESCRITURA_CON_VALOR' ? formatMoney(a.base_imponible) : '—'}
-                  </td>
-                  <td className="px-6 py-3 text-right font-semibold whitespace-nowrap text-ink tabular-nums">
-                    <AporteCelda aporte={aporteDe(a)} />
-                  </td>
-                  {editable && (
-                    <td className="pr-4 py-1.5">
-                      <Button
-                        variant="ghost"
-                        aria-label={`Quitar el acto ${numeroDeActo(a)}`}
-                        onClick={() => {
-                          setQuitando(a)
-                        }}
-                        icon={Trash2}
-                      >
-                        Quitar
-                      </Button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <ul className="divide-y divide-line sm:hidden">
-            {ddjj.actos.map((a) => (
-              <li key={a.id} className="px-5 py-4">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="font-semibold text-ink tabular-nums">
-                    {numeroDeActo(a)} · {PROTOCOLO[a.tipo_protocolo]}
-                  </span>
-                  <span className="text-right font-semibold text-ink tabular-nums">
-                    <AporteCelda aporte={aporteDe(a)} />
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-ink">
-                  {a.naturaleza} · {categoriaDe(a)}
-                </p>
-                <p className="text-sm text-ink-muted tabular-nums">
-                  {a.escribano} · {formatDate(a.fecha_acto)}
-                </p>
-                {a.fuera_de_vademecum && <FueraDeVademecum />}
-                <ControlesActo controles={ddjj.controles[a.id]} />
-                {a.categoria === 'ESCRITURA_CON_VALOR' && (
-                  <p className="text-sm text-ink-muted tabular-nums">
-                    Base imponible{' '}
-                    <span className="whitespace-nowrap">{formatMoney(a.base_imponible)}</span>
-                  </p>
-                )}
-                {editable && (
-                  <Button
-                    variant="ghost"
-                    className="-ml-4 mt-1"
-                    icon={Trash2}
-                    onClick={() => {
-                      setQuitando(a)
-                    }}
-                  >
-                    Quitar
-                  </Button>
-                )}
-              </li>
+        planilla.isPending && (
+          <div className="grid gap-3 px-5 py-4 sm:px-6" aria-busy="true">
+            {Array.from({ length: 3 }, (_, i) => (
+              <span key={i} className="block h-10 animate-pulse rounded-control bg-brand-50" />
             ))}
-          </ul>
-        </>
+          </div>
+        )
       )}
       <ActoDialog
-        key={`acto-${String(adding)}`}
+        key={`acto-${agregando ?? 'cerrado'}`}
         ddjj={ddjj}
-        open={adding}
+        open={agregando !== null}
+        protocolo={agregando ?? undefined}
         onClose={() => {
-          setAdding(false)
+          setAgregando(null)
         }}
       />
       <BajaDialog
@@ -1354,12 +1253,6 @@ export function DeclaracionPage() {
   const vigentes = porEscribano(ddjj?.boletas ?? []).map(
     (g) => g.boletas.find((b) => b.estado !== 'ANULADA') ?? g.boletas[0],
   )
-  const aportes = new Map(
-    (preview.data?.aportes ?? []).map((a) => [
-      a.acto_id,
-      { aporte: a.aporte, individual: a.aporte_individual, incluido: a.incluido_en_otro },
-    ]),
-  )
 
   return (
     <>
@@ -1437,11 +1330,7 @@ export function DeclaracionPage() {
             )}
           </Panel>
 
-          <ActosPanel
-            ddjj={ddjj}
-            aportes={aportes}
-            criterio={preview.data?.criterio_pluralidad ?? null}
-          />
+          <ActosPanel ddjj={ddjj} criterio={preview.data?.criterio_pluralidad ?? null} />
 
           {ddjj.estado === 'BORRADOR' ? (
             <LiquidacionBorrador

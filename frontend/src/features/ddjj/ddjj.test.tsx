@@ -147,6 +147,70 @@ const DDJJ: apiModule.DeclaracionDetalle = {
   proximos_numeros: { GENERAL: 1, AUXILIAR: 1 },
 }
 
+/** Planilla del servidor para unos actos: `aportes` por id (aporte, individual). */
+function planillaDe(
+  actos: apiModule.Acto[],
+  aportes: Record<string, [string, string]> = {},
+): apiModule.Planilla {
+  const totales = (pagos: string[]): apiModule.TotalesPlanilla => {
+    const total = pagos.reduce((t, a) => t + Math.round(Number(a) * 100), 0)
+    const pesos = (total / 100).toFixed(2)
+    return {
+      aporte_variable: pesos,
+      aporte_fijo: '0.00',
+      titular: pesos,
+      adscripto: '0.00',
+      a_cargo: '0.00',
+      total: pesos,
+    }
+  }
+  const protocolos = (['GENERAL', 'AUXILIAR'] as const).map((tipo) => {
+    const propios = actos.filter((a) => a.tipo_protocolo === tipo)
+    const renglones = propios.map((a): apiModule.RenglonPlanilla => {
+      const [aporte, individual] = aportes[a.id] ?? ['400000.00', '400000.00']
+      const variable = a.categoria === 'ESCRITURA_CON_VALOR'
+      return {
+        acto_id: a.id,
+        numero_escritura: a.numero_escritura,
+        orden_en_escritura: a.orden_en_escritura,
+        folio: a.folio,
+        naturaleza: a.naturaleza,
+        categoria: a.categoria,
+        base_imponible: variable ? a.base_imponible : null,
+        aporte_variable: variable ? individual : null,
+        aporte_fijo: variable ? null : individual,
+        escribano: a.escribano,
+        cargo: a.cargo,
+        aporte,
+        incluido_en_otro: aporte !== individual,
+      }
+    })
+    return {
+      tipo,
+      renglones,
+      totales: totales(renglones.map((r) => r.aporte ?? '0')),
+      escrituras_desde: propios[0]?.numero_escritura ?? null,
+      escrituras_hasta: propios.at(-1)?.numero_escritura ?? null,
+      folios_desde: null,
+      folios_hasta: null,
+    }
+  })
+  return {
+    ddjj_id: 'd1',
+    registro_numero: 51,
+    periodo: '2026-09',
+    estado: 'BORRADOR',
+    numero_rectificativa: 0,
+    fecha_presentacion: null,
+    titulares: ['SINTÉTICO, Escribano'],
+    adscriptos: [],
+    a_cargo: [],
+    protocolos,
+    totales: totales(protocolos.map((p) => p.totales.total)),
+    sin_aportes: null,
+  }
+}
+
 function renderFicha() {
   return renderWithProviders(
     <Routes>
@@ -170,6 +234,7 @@ describe('ficha de la DDJJ', () => {
     vi.resetAllMocks()
     vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: null, controles: [] })
     vi.mocked(apiModule.fetchVademecum).mockResolvedValue([])
+    vi.mocked(apiModule.fetchPlanilla).mockResolvedValue(planillaDe([ACTO]))
   })
 
   it('muestra la liquidación del borrador y avisa los valores a confirmar', async () => {
@@ -240,8 +305,9 @@ describe('ficha de la DDJJ', () => {
     expect(
       screen.getByText(/Protocolo general: 21, 22 y 30 a 41 \(14 números\)/),
     ).toBeInTheDocument()
+    // Los avisos de cada acto van bajo su renglón de la planilla.
     expect(
-      screen.getAllByText('El folio 30 no sigue el orden de la numeración.').length,
+      (await screen.findAllByText('El folio 30 no sigue el orden de la numeración.')).length,
     ).toBeGreaterThan(0)
   })
 
@@ -671,6 +737,9 @@ describe('vademécum de aportes', () => {
       fuera_de_vademecum: true,
     }
     vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [ACTO, donacion] })
+    vi.mocked(apiModule.fetchPlanilla).mockResolvedValue(
+      planillaDe([ACTO, donacion], { a2: ['0.00', '37446.00'] }),
+    )
     vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(
       liquidacion(undefined, {
         aportes: [
@@ -690,10 +759,63 @@ describe('vademécum de aportes', () => {
     expect(
       await screen.findByText('Escrituras con varios actos y las mismas partes'),
     ).toBeInTheDocument()
-    expect(screen.getAllByText('Incluido en el acto principal').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Solo: \$ 37\.446,00/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Incluido en el principal').length).toBeGreaterThan(0)
+    // La columna «Aporte fijo» muestra lo que aporta el acto solo.
+    expect(screen.getAllByText('$ 37.446,00').length).toBeGreaterThan(0)
     expect(
       screen.getAllByText('No está en el vademécum: lo revisa la Caja').length,
     ).toBeGreaterThan(0)
+  })
+})
+
+describe('planilla de la DDJJ', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: null, controles: [] })
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue([])
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
+  })
+
+  it('muestra una pestaña por protocolo y el resumen, y descarga el PDF', async () => {
+    const auxiliar = { ...ACTO, id: 'a3', tipo_protocolo: 'AUXILIAR' as const, numero_escritura: 7 }
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [ACTO, auxiliar] })
+    vi.mocked(apiModule.fetchPlanilla).mockResolvedValue(planillaDe([ACTO, auxiliar]))
+    vi.mocked(apiModule.descargarDeclaracion).mockResolvedValue()
+    renderFicha()
+
+    const general = await screen.findByRole('tab', { name: /Protocolo General/ })
+    expect(general).toHaveAttribute('aria-selected', 'true')
+    const panel = screen.getByRole('tabpanel')
+    expect(within(panel).getAllByText('N° 101').length).toBeGreaterThan(0)
+    expect(within(panel).queryByText('N° 7')).not.toBeInTheDocument()
+
+    // Con el teclado se pasa a la pestaña siguiente.
+    fireEvent.keyDown(general, { key: 'ArrowRight' })
+    const aux = screen.getByRole('tab', { name: /Protocolo Auxiliar/ })
+    expect(aux).toHaveAttribute('aria-selected', 'true')
+    expect(within(screen.getByRole('tabpanel')).getAllByText('N° 7').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Resumen' }))
+    const resumen = screen.getByRole('tabpanel')
+    expect(within(resumen).getAllByText('$ 800.000,00').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Borrador en PDF' }))
+    await waitFor(() => {
+      expect(apiModule.descargarDeclaracion).toHaveBeenCalled()
+    })
+  })
+
+  it('agregar desde una pestaña propone ese protocolo y su número', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({
+      ...DDJJ,
+      proximos_numeros: { GENERAL: 102, AUXILIAR: 8 },
+    })
+    vi.mocked(apiModule.fetchPlanilla).mockResolvedValue(planillaDe([ACTO]))
+    renderFicha()
+    fireEvent.click(await screen.findByRole('tab', { name: /Protocolo Auxiliar/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar al auxiliar' }))
+    const dialogo = await screen.findByRole('dialog')
+    expect(within(dialogo).getByLabelText('Protocolo')).toHaveValue('AUXILIAR')
+    expect(within(dialogo).getByLabelText('N° de escritura')).toHaveValue('8')
   })
 })
