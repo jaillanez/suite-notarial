@@ -7,7 +7,13 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, PlainSerializer, StringConstraints, model_validator
 
-from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa, ReglaRedondeo, TipoConcepto
+from app.modules.parametros.catalog import (
+    CriterioPluralidad,
+    EstadoVigencia,
+    PeriodoTasa,
+    ReglaRedondeo,
+    TipoConcepto,
+)
 
 # Se serializan como string para que ningún cliente los convierta a punto flotante.
 Money = Annotated[
@@ -50,6 +56,7 @@ class VigenciaIn(BaseModel):
     tasa: Rate | None = None
     periodo_tasa: PeriodoTasa | None = None
     dias_gracia: int | None = Field(default=None, ge=0, le=90)
+    criterio: CriterioPluralidad | None = None
     regla_redondeo: ReglaRedondeo = ReglaRedondeo.HALF_UP
     resolucion_respaldo: Resolucion
     motivo: Motivo
@@ -85,6 +92,7 @@ class VigenciaOut(BaseModel):
     tasa: Rate | None
     periodo_tasa: PeriodoTasa | None
     dias_gracia: int | None
+    criterio: CriterioPluralidad | None
     regla_redondeo: ReglaRedondeo
     es_ejemplo: bool
     estado: EstadoVigencia

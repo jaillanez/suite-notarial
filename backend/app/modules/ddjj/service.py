@@ -36,11 +36,12 @@ from app.common.dates import today_local
 from app.common.money import to_money
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
-from app.modules.ddjj import protocolo
+from app.modules.ddjj import protocolo, vademecum
 from app.modules.ddjj.catalog import (
     CONCEPTO_MEDICO,
     CONCEPTO_MINIMO,
     CONCEPTO_MORA,
+    CONCEPTO_PLURALIDAD,
     CONCEPTO_POR_CATEGORIA,
     CategoriaActo,
     EstadoBoleta,
@@ -59,9 +60,22 @@ from app.modules.ddjj.liquidacion import (
     liquidar_por_escribano,
     totalizar,
 )
-from app.modules.ddjj.models import Acto, Boleta, BoletaTramoMora, DeclaracionJurada, Vencimiento
+from app.modules.ddjj.models import (
+    Acto,
+    Boleta,
+    BoletaTramoMora,
+    DeclaracionJurada,
+    VademecumActo,
+    Vencimiento,
+)
 from app.modules.ddjj.pdf import DatosBoleta, EscribanoBoleta
-from app.modules.ddjj.schemas import ActoIn, DeclaracionIn, PresentarIn, VerificacionActoIn
+from app.modules.ddjj.schemas import (
+    ActoIn,
+    DeclaracionIn,
+    PresentarIn,
+    VerificacionActoIn,
+    base_de,
+)
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
@@ -606,6 +620,11 @@ ACTO_FIELDS = (
     "base_imponible",
     "motivo_exencion",
     "detalle_exencion",
+    "vademecum_id",
+    "fuera_de_vademecum",
+    "precio",
+    "avaluo",
+    "mismas_partes",
 )
 
 
@@ -647,6 +666,7 @@ async def agregar_acto(
     )
     if cargo is None:
         raise _invalid("El escribano no tenía cargo en este registro a la fecha del acto.")
+    fuera_de_vademecum = await _segun_vademecum(session, data, desde)
     # La fecha ya está dentro del período: el año del protocolo es el del período.
     anio = int(ddjj.periodo[:4])
     await _bloquear_protocolo(session, ddjj.registro_id, anio)
@@ -668,6 +688,24 @@ async def agregar_acto(
         if control.nivel is protocolo.NivelControl.BLOQUEANTE:
             raise _conflict(control.mensaje)
     orden = await _orden_en_escritura(session, ddjj, data)
+    hermanos = await _misma_escritura(session, ddjj, data) if orden > 1 else []
+    # Un acto suelto no tiene a quién agruparse: la respuesta se pide al cargar el segundo acto
+    # de la escritura (ActoIn la exige en un acto múltiple).
+    mismas_partes = True if data.mismas_partes is None else data.mismas_partes
+    for hermano in hermanos:
+        # Las mismas partes valen para toda la escritura: la respuesta del último acto rige, y
+        # cada acto que cambia queda en la auditoría con su valor anterior.
+        if hermano.mismas_partes != mismas_partes:
+            record_audit(
+                session,
+                ctx,
+                AuditEvent.DDJJ_ACTO_PARTES_ACTUALIZADAS,
+                actor_user_id=principal.user.id,
+                old_value={"mismas_partes": hermano.mismas_partes},
+                new_value={"mismas_partes": mismas_partes},
+                details={"ddjj_id": str(ddjj.id), "acto_id": str(hermano.id)},
+            )
+            hermano.mismas_partes = mismas_partes
     item = Acto(
         id=acto_id or uuid.uuid4(),
         ddjj_id=ddjj.id,
@@ -683,6 +721,11 @@ async def agregar_acto(
         base_imponible=data.base_imponible,
         motivo_exencion=data.motivo_exencion.value if data.motivo_exencion else None,
         detalle_exencion=data.detalle_exencion,
+        vademecum_id=data.vademecum_id,
+        fuera_de_vademecum=fuera_de_vademecum,
+        precio=data.precio,
+        avaluo=data.avaluo,
+        mismas_partes=mismas_partes,
         created_by_user_id=principal.user.id,
     )
     session.add(item)
@@ -692,7 +735,15 @@ async def agregar_acto(
         AuditEvent.DDJJ_ACTO_AGREGADO,
         actor_user_id=principal.user.id,
         new_value=_acto_values(item),
-        details={"ddjj_id": str(ddjj.id), "acto_id": str(item.id)},
+        details={
+            "ddjj_id": str(ddjj.id),
+            "acto_id": str(item.id),
+            **(
+                {"mismas_partes_escritura": mismas_partes, "actos_de_la_escritura": orden}
+                if hermanos
+                else {}
+            ),
+        },
     )
     try:
         await session.commit()
@@ -757,17 +808,47 @@ async def actos_del_anio(
     return [protocolo.ActoDeclarado(*fila) for fila in filas.all()]
 
 
-async def _orden_en_escritura(session: AsyncSession, ddjj: DeclaracionJurada, data: ActoIn) -> int:
-    """1 para el primer acto de una escritura; para un acto múltiple, el siguiente de su
-    escritura, que tiene que estar cargada en esta DDJJ y con la misma fecha."""
-    hermanos = [
+async def _segun_vademecum(session: AsyncSession, data: ActoIn, inicio: date) -> bool:
+    """Valida el acto contra el vademécum que rige el período y dice si queda fuera de él.
+
+    Con `vademecum_id`, la categoría y la exención tienen que ser las del vademécum (la pantalla
+    las toma de ahí; el servidor no confía en lo que manda). Sin él, el acto queda marcado para
+    revisión de la Caja si el período tiene vademécum; una escritura sin efecto no es un acto.
+    """
+    if data.vademecum_id is None:
+        if data.categoria is CategoriaActo.SIN_EFECTO:
+            return False
+        return bool(await vademecum.vigentes(session, inicio))
+    item = await session.get(VademecumActo, data.vademecum_id)
+    if item is None or not vademecum.vigente_el(item, inicio):
+        raise _invalid("Ese acto del vademécum no rige para el período de la declaración.")
+    if data.categoria.value != item.categoria or (
+        (data.motivo_exencion.value if data.motivo_exencion else None) != item.motivo_exencion
+    ):
+        raise _invalid(
+            f"«{item.nombre}» aporta como {item.categoria}: la categoría del acto tiene que ser "
+            "la del vademécum."
+        )
+    return False
+
+
+async def _misma_escritura(
+    session: AsyncSession, ddjj: DeclaracionJurada, data: ActoIn
+) -> list[Acto]:
+    return [
         a
         for a in await list_actos(session, ddjj.id)
         if a.tipo_protocolo == data.tipo_protocolo.value
         and a.numero_escritura == data.numero_escritura
     ]
+
+
+async def _orden_en_escritura(session: AsyncSession, ddjj: DeclaracionJurada, data: ActoIn) -> int:
+    """1 para el primer acto de una escritura; para un acto múltiple, el siguiente de su
+    escritura, que tiene que estar cargada en esta DDJJ y con la misma fecha."""
     if not data.acto_multiple:
         return 1
+    hermanos = await _misma_escritura(session, ddjj, data)
     if not hermanos:
         raise _invalid(
             f"La escritura N° {data.numero_escritura} no está cargada en esta declaración: "
@@ -887,9 +968,8 @@ async def verificar_acto(
             except ProblemError:
                 vigencia = None
         try:
-            aporte = aporte_de_acto(
-                ActoALiquidar(data.categoria, data.base_imponible or Decimal("0")), vigencia
-            ).aporte
+            base = base_de(data.precio, data.avaluo) or data.base_imponible or Decimal("0")
+            aporte = aporte_de_acto(ActoALiquidar(data.categoria, base), vigencia).aporte
         except LiquidacionError:
             aporte = None
     return aporte, controles
@@ -941,6 +1021,7 @@ class Preliquidacion:
     medico: VigenciaSnapshot
     mora: list[VigenciaSnapshot]
     usa_valores_de_ejemplo: bool
+    pluralidad: VigenciaSnapshot | None = None
 
     @property
     def total_protocolos(self) -> Decimal:
@@ -985,10 +1066,20 @@ async def preliquidar(
                 por_concepto[codigo] = await parametros.get_vigencia(session, codigo, inicio)
             vigencia = por_concepto[codigo]
         a_liquidar.append(
-            (acto.escribano_id, ActoALiquidar(categoria, acto.base_imponible), vigencia)
+            (
+                acto.escribano_id,
+                ActoALiquidar(
+                    categoria,
+                    acto.base_imponible,
+                    escritura=(acto.tipo_protocolo, acto.numero_escritura),
+                    mismas_partes=acto.mismas_partes,
+                ),
+                vigencia,
+            )
         )
     minimo = await parametros.get_vigencia(session, CONCEPTO_MINIMO, inicio)
     medico = await parametros.get_vigencia(session, CONCEPTO_MEDICO, inicio)
+    pluralidad = await parametros.vigencia_opcional(session, CONCEPTO_PLURALIDAD, inicio)
     mora = await _tasas_de_mora(session, vencimiento, fecha_pago)
     cargos = await cargos_en_periodo(session, ddjj.registro_id, ddjj.periodo)
     equipo = obligados(cargos)
@@ -1001,6 +1092,7 @@ async def preliquidar(
             vencimiento=vencimiento,
             fecha_pago=fecha_pago,
             mora=mora,
+            pluralidad=pluralidad,
         )
     except LiquidacionError as exc:
         raise _invalid(str(exc)) from exc
@@ -1017,6 +1109,7 @@ async def preliquidar(
         medico=medico,
         mora=mora,
         usa_valores_de_ejemplo=await _hay_ejemplos(session, usadas),
+        pluralidad=pluralidad,
     )
 
 
@@ -1229,6 +1322,8 @@ async def presentar(
     for acto, aporte in zip(actos, pre.aportes, strict=True):
         acto.aporte = aporte.aporte
         acto.vigencia_id = aporte.vigencia.vigencia_id if aporte.vigencia else None
+        acto.aporte_individual = aporte.aporte_individual
+        acto.vigencia_pluralidad_id = aporte.pluralidad.vigencia_id if aporte.pluralidad else None
     await session.flush()
     ddjj.estado = EstadoDDJJ.PRESENTADA.value
     ddjj.fecha_presentacion = datetime.now(UTC)
@@ -1424,6 +1519,11 @@ async def rectificar(
                 base_imponible=acto.base_imponible,
                 motivo_exencion=acto.motivo_exencion,
                 detalle_exencion=acto.detalle_exencion,
+                vademecum_id=acto.vademecum_id,
+                fuera_de_vademecum=acto.fuera_de_vademecum,
+                precio=acto.precio,
+                avaluo=acto.avaluo,
+                mismas_partes=acto.mismas_partes,
                 created_by_user_id=principal.user.id,
             )
         )

@@ -275,7 +275,13 @@ async def test_aporte_multiple_en_la_misma_escritura(
     assert "acto múltiple" in sin_marcar.json()["detail"]
 
     hipoteca = escritura(
-        escenario.titular, 48, "500", folio=9, naturaleza="Hipoteca", acto_multiple=True
+        escenario.titular,
+        48,
+        "500",
+        folio=9,
+        naturaleza="Hipoteca",
+        acto_multiple=True,
+        mismas_partes=False,
     )
     segundo = await _agregar(notario, ddjj["id"], hipoteca)
     assert segundo.status_code == 201, segundo.text

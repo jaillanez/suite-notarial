@@ -33,6 +33,7 @@ const VIGENCIA: apiModule.Vigencia = {
   tasa: null,
   periodo_tasa: null,
   dias_gracia: null,
+  criterio: null,
   regla_redondeo: 'HALF_UP',
   es_ejemplo: true,
   estado: 'VIGENTE',

@@ -19,8 +19,17 @@ export interface ActoForm {
   fecha_acto: string
   naturaleza: string
   base_imponible: string
+  /** Acto del vademécum elegido ('' si no hay vademécum o no está en él). */
+  vademecum_id: string
+  /** Se eligió «No está en el vademécum»: la categoría la elige quien carga. */
+  fuera_de_vademecum: boolean
+  /** Aporte variable: el servidor toma el mayor de los dos como base imponible. */
+  precio: string
+  avaluo: string
   /** Otro acto de una escritura ya cargada en esta DDJJ. */
   acto_multiple: boolean
+  /** Escritura con varios actos: ¿intervienen solo las mismas partes? null: sin responder. */
+  mismas_partes: boolean | null
   /** Solo para actos exentos. */
   motivo_exencion: MotivoExencion | ''
   detalle_exencion: string
@@ -29,7 +38,14 @@ export interface ActoForm {
 /** Campos de texto del acto (los que puede sugerir la lectura de una minuta). */
 export type CampoActo = Exclude<
   keyof ActoForm,
-  'acto_multiple' | 'motivo_exencion' | 'detalle_exencion'
+  | 'acto_multiple'
+  | 'mismas_partes'
+  | 'motivo_exencion'
+  | 'detalle_exencion'
+  | 'vademecum_id'
+  | 'fuera_de_vademecum'
+  | 'precio'
+  | 'avaluo'
 >
 
 export function actoVacio(ddjj: DeclaracionDetalle): ActoForm {
@@ -42,15 +58,33 @@ export function actoVacio(ddjj: DeclaracionDetalle): ActoForm {
     fecha_acto: rangoPeriodo(ddjj.periodo).desde,
     naturaleza: '',
     base_imponible: '',
+    vademecum_id: '',
+    fuera_de_vademecum: false,
+    precio: '',
+    avaluo: '',
     acto_multiple: false,
+    mismas_partes: null,
     motivo_exencion: '',
     detalle_exencion: '',
   }
 }
 
+/** Precio o avalúo cargados: la base la calcula el servidor (el mayor de los dos). */
+export function conPrecioOAvaluo(form: ActoForm): boolean {
+  return (
+    form.categoria === 'ESCRITURA_CON_VALOR' &&
+    (form.precio.trim() !== '' || form.avaluo.trim() !== '')
+  )
+}
+
+function importeOpcional(valor: string): string | null {
+  return valor.trim() ? normalizeDecimalInput(valor) : null
+}
+
 export function actoInput(form: ActoForm): ActoInput {
   const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
   const exento = form.categoria === 'EXENTO' && form.motivo_exencion !== ''
+  const precioOAvaluo = conPrecioOAvaluo(form)
   return {
     escribano_id: form.escribano_id,
     categoria: form.categoria,
@@ -59,20 +93,34 @@ export function actoInput(form: ActoForm): ActoInput {
     folio: form.folio ? Number.parseInt(form.folio, 10) : null,
     fecha_acto: form.fecha_acto,
     naturaleza: form.naturaleza.trim(),
-    base_imponible: conValor ? normalizeDecimalInput(form.base_imponible) : '0',
+    base_imponible: conValor && !precioOAvaluo ? normalizeDecimalInput(form.base_imponible) : '0',
+    vademecum_id: form.vademecum_id || null,
+    precio: precioOAvaluo ? importeOpcional(form.precio) : null,
+    avaluo: precioOAvaluo ? importeOpcional(form.avaluo) : null,
     acto_multiple: form.acto_multiple,
+    mismas_partes: form.acto_multiple ? form.mismas_partes : null,
     motivo_exencion: exento ? form.motivo_exencion || null : null,
     detalle_exencion: exento && form.detalle_exencion.trim() ? form.detalle_exencion.trim() : null,
   }
 }
 
-export function actoCompleto(form: ActoForm): boolean {
+/** `hayVademecum`: el período tiene vademécum, así que hay que elegir el acto (o una salida). */
+export function actoCompleto(form: ActoForm, hayVademecum = false): boolean {
+  const elegido =
+    !hayVademecum ||
+    form.vademecum_id !== '' ||
+    form.fuera_de_vademecum ||
+    form.categoria === 'SIN_EFECTO'
   return Boolean(
+    elegido &&
+    (!form.acto_multiple || form.mismas_partes !== null) &&
     form.escribano_id &&
     /^\d+$/.test(form.numero_escritura) &&
     form.fecha_acto &&
     form.naturaleza.trim().length >= 3 &&
-    (form.categoria !== 'ESCRITURA_CON_VALOR' || form.base_imponible.trim() !== '') &&
+    (form.categoria !== 'ESCRITURA_CON_VALOR' ||
+      form.base_imponible.trim() !== '' ||
+      conPrecioOAvaluo(form)) &&
     (form.categoria !== 'EXENTO' ||
       (form.motivo_exencion !== '' &&
         (form.motivo_exencion !== 'OTRO' || form.detalle_exencion.trim().length >= 3))),
@@ -114,6 +162,14 @@ function categoriaQueSigue(categoria: CategoriaActo | undefined): CategoriaActo 
     : categoria
 }
 
+function vademecumQueSigue(
+  categoria: CategoriaActo | undefined,
+  vademecumId: string | null | undefined,
+): string {
+  // Si el anterior fue una excepción, el siguiente vuelve a elegirse.
+  return categoriaQueSigue(categoria) === categoria ? (vademecumId ?? '') : ''
+}
+
 function entre(fecha: string, desde: string, hasta: string): string {
   return fecha < desde ? desde : fecha > hasta ? hasta : fecha
 }
@@ -131,6 +187,7 @@ export function actoSugerido(ddjj: DeclaracionDetalle, hoy: string): ActoForm {
     escribano_id: ultimo && escribanoVigente ? ultimo.escribano_id : vacio.escribano_id,
     tipo_protocolo: tipo,
     categoria: categoriaQueSigue(ultimo?.categoria),
+    vademecum_id: vademecumQueSigue(ultimo?.categoria, ultimo?.vademecum_id),
     fecha_acto: ultimo?.fecha_acto ?? entre(hoy, desde, hasta),
     numero_escritura: String(ddjj.proximos_numeros[tipo]),
   }
@@ -146,6 +203,7 @@ export function actoSiguiente(guardado: ActoForm, ddjj: DeclaracionDetalle): Act
     escribano_id: guardado.escribano_id,
     tipo_protocolo: guardado.tipo_protocolo,
     categoria: categoriaQueSigue(guardado.categoria),
+    vademecum_id: vademecumQueSigue(guardado.categoria, guardado.vademecum_id),
     fecha_acto: guardado.fecha_acto,
     numero_escritura: String(proximo),
   }

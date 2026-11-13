@@ -19,7 +19,7 @@ from app.modules.ddjj.catalog import (
 from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
 from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
-from app.modules.parametros.catalog import PeriodoTasa
+from app.modules.parametros.catalog import CriterioPluralidad, EstadoVigencia, PeriodoTasa
 from app.modules.parametros.schemas import Money, Rate
 
 PERIODO_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -40,6 +40,21 @@ Naturaleza = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 DetalleExencion = Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]
 Motivo = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1000)]
 Texto = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
+CodigoVademecum = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Z][A-Z0-9_]{2,59}$")
+]
+NombreVademecum = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)
+]
+Sinonimos = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
+Resolucion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=150)]
+
+
+def base_de(precio: Decimal | None, avaluo: Decimal | None) -> Decimal | None:
+    """Base imponible del vademécum: «el mayor valor de precio o avalúo»."""
+    if precio is None and avaluo is None:
+        return None
+    return max(precio or Decimal("0.00"), avaluo or Decimal("0.00"))
 
 
 class RegistroResumen(BaseModel):
@@ -74,11 +89,35 @@ class ActoIn(BaseModel):
     naturaleza: Naturaleza
     categoria: CategoriaActo
     base_imponible: BaseImponible = Decimal("0.00")
+    # Acto del vademécum vigente elegido: fija la categoría (y la exención). Sin vademécum, el
+    # acto queda marcado para que la Caja lo revise (salvo una escritura sin efecto).
+    vademecum_id: uuid.UUID | None = None
+    # Con precio o avalúo, la base imponible es el mayor de los dos (la calcula el servidor).
+    precio: BaseImponible | None = None
+    avaluo: BaseImponible | None = None
     # Otro acto de una escritura ya cargada en esta DDJJ (aporte múltiple).
     acto_multiple: bool = False
+    # Escritura con varios actos: ¿intervienen solo las mismas partes? Se aplica a todos los
+    # actos de la escritura. Obligatorio en un acto múltiple: no hay respuesta por defecto.
+    mismas_partes: bool | None = None
     # Obligatorio para un acto exento; con «otro motivo», también el detalle.
     motivo_exencion: MotivoExencion | None = None
     detalle_exencion: DetalleExencion | None = None
+
+    @model_validator(mode="after")
+    def _partes_en_acto_multiple(self) -> "ActoIn":
+        if self.acto_multiple and self.mismas_partes is None:
+            raise ValueError("Indicá si intervienen solo las mismas partes en la escritura.")
+        return self
+
+    @model_validator(mode="after")
+    def _base_de_precio_o_avaluo(self) -> "ActoIn":
+        base = base_de(self.precio, self.avaluo)
+        if base is not None:
+            if self.categoria is not CategoriaActo.ESCRITURA_CON_VALOR:
+                raise ValueError("Solo un acto de aporte variable lleva precio o avalúo.")
+            self.base_imponible = base
+        return self
 
     @model_validator(mode="after")
     def _base_segun_categoria(self) -> "ActoIn":
@@ -123,14 +162,25 @@ class ActoOut(BaseModel):
     base_imponible: Money
     motivo_exencion: MotivoExencion | None
     detalle_exencion: str | None
+    vademecum_id: uuid.UUID | None
+    vademecum_nombre: str | None
+    fuera_de_vademecum: bool
+    precio: Money | None
+    avaluo: Money | None
+    mismas_partes: bool
     # En borrador es el aporte estimado con los parámetros vigentes; presentada, el congelado.
     aporte: Money | None
     vigencia_id: uuid.UUID | None
+    # Presentada: lo que aportaba solo, antes del criterio de pluralidad.
+    aporte_individual: Money | None
 
 
 class AporteActoOut(BaseModel):
     acto_id: uuid.UUID
     aporte: Money
+    # Lo que aportaría solo. Mayor que `aporte` si quedó incluido en otro acto de su escritura.
+    aporte_individual: Money
+    incluido_en_otro: bool
 
 
 class TramoMoraOut(BaseModel):
@@ -181,6 +231,8 @@ class LiquidacionOut(BaseModel):
     avisos: list[str]
     # Algún parámetro usado está marcado como ejemplo (no oficial).
     usa_valores_de_ejemplo: bool
+    # Cómo aportan varios actos de una escritura con las mismas partes (None: aporta cada uno).
+    criterio_pluralidad: CriterioPluralidad | None
 
 
 class ComprobanteResumen(BaseModel):
@@ -281,6 +333,8 @@ class VerificacionActoIn(BaseModel):
     fecha_acto: date | None = None
     categoria: CategoriaActo | None = None
     base_imponible: BaseImponible | None = None
+    precio: BaseImponible | None = None
+    avaluo: BaseImponible | None = None
     acto_multiple: bool = False
     # Al editar o revisar un acto ya cargado.
     excluir_acto_id: uuid.UUID | None = None
@@ -325,3 +379,46 @@ class VerificacionOut(BaseModel):
     fecha_pago: date
     total_a_pagar: Money
     integra: bool
+
+
+class VademecumIn(BaseModel):
+    """Versión nueva de un acto del vademécum (o su primera versión)."""
+
+    codigo: CodigoVademecum
+    nombre: NombreVademecum
+    categoria: CategoriaActo
+    motivo_exencion: MotivoExencion | None = None
+    aclaracion: Texto | None = None
+    sinonimos: Sinonimos | None = None
+    orden: int = Field(default=0, ge=0, le=10_000)
+    fecha_desde: date
+    resolucion: Resolucion
+    motivo: Motivo
+
+
+class VademecumAprobacionIn(BaseModel):
+    # Propuestas de otra persona a aprobar juntas (todas o ninguna).
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class VademecumRechazoIn(BaseModel):
+    motivo: Motivo
+
+
+class VademecumOut(BaseModel):
+    id: uuid.UUID
+    codigo: str
+    version: int
+    nombre: str
+    categoria: CategoriaActo
+    motivo_exencion: MotivoExencion | None
+    aclaracion: str | None
+    sinonimos: str | None
+    orden: int
+    fecha_desde: date
+    fecha_hasta: date | None
+    resolucion: str
+    estado: EstadoVigencia
+    created_by_user_id: uuid.UUID
+    aprobado_por_user_id: uuid.UUID | None
+    created_at: datetime

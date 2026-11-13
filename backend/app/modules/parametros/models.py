@@ -36,7 +36,8 @@ class Concepto(UUIDMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("codigo ~ '^[A-Z][A-Z0-9_]{2,49}$'", name="codigo_formato"),
         CheckConstraint(
-            "tipo IN ('PORCENTUAL_ACTO', 'FIJO_ACTO', 'FIJO_MENSUAL', 'TASA_MORA')",
+            "tipo IN ('PORCENTUAL_ACTO', 'FIJO_ACTO', 'FIJO_MENSUAL', 'TASA_MORA', "
+            "'CRITERIO_PLURALIDAD')",
             name="tipo_valido",
         ),
     )
@@ -77,6 +78,11 @@ class Vigencia(UUIDMixin, Base):
         ),
         CheckConstraint("(tasa IS NULL) = (periodo_tasa IS NULL)", name="tasa_con_periodo"),
         CheckConstraint(
+            "criterio IS NULL OR criterio IN "
+            "('SOLO_EL_MAYOR', 'SUMAN_TODOS', 'VARIABLES_SUMAN_FIJO_UNA_VEZ')",
+            name="criterio",
+        ),
+        CheckConstraint(
             "(estado = 'VIGENTE') = (aprobado_por_user_id IS NOT NULL)", name="aprobacion"
         ),
         CheckConstraint(
@@ -107,6 +113,8 @@ class Vigencia(UUIDMixin, Base):
     tasa: Mapped[Decimal | None] = mapped_column(RATE, nullable=True)
     periodo_tasa: Mapped[str | None] = mapped_column(String(10), nullable=True)
     dias_gracia: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Solo CRITERIO_PLURALIDAD: la regla elegida (catalog.CriterioPluralidad).
+    criterio: Mapped[str | None] = mapped_column(String(40), nullable=True)
     regla_redondeo: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="HALF_UP"
     )

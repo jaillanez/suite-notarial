@@ -20,6 +20,8 @@ import {
   normalizeTasaInput,
 } from '../../lib/decimal'
 import { useSession } from '../auth/session'
+import type { CriterioPluralidad } from '../ddjj/api'
+import { CRITERIO_PLURALIDAD } from '../ddjj/labels'
 import { formatDate, todayIso } from '../padron/labels'
 import {
   aprobarVigencia,
@@ -99,6 +101,7 @@ function ProponerDialog({
     periodo_tasa: base?.periodo_tasa ?? 'ANUAL',
     dias_gracia: base?.dias_gracia != null ? String(base.dias_gracia) : '',
     regla_redondeo: base?.regla_redondeo ?? 'HALF_UP',
+    criterio: base?.criterio ?? 'SOLO_EL_MAYOR',
     resolucion_respaldo: corrigiendo && base ? base.resolucion_respaldo : '',
     motivo: '',
   })
@@ -117,6 +120,7 @@ function ProponerDialog({
           monto_maximo: opt(form.monto_maximo),
         }),
         ...((t === 'FIJO_MENSUAL' || t === 'FIJO_ACTO') && { monto_fijo: opt(form.monto_fijo) }),
+        ...(t === 'CRITERIO_PLURALIDAD' && { criterio: form.criterio }),
         ...(t === 'TASA_MORA' && {
           tasa: optTasa(form.tasa),
           periodo_tasa: form.periodo_tasa,
@@ -133,7 +137,9 @@ function ProponerDialog({
     },
   })
   const problem = save.isError ? toProblem(save.error) : null
-  const bind = (key: Exclude<keyof typeof form, 'regla_redondeo' | 'periodo_tasa'>) => ({
+  const bind = (
+    key: Exclude<keyof typeof form, 'regla_redondeo' | 'periodo_tasa' | 'criterio'>,
+  ) => ({
     value: form[key],
     onChange: (e: { target: { value: string } }) => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
@@ -246,18 +252,38 @@ function ProponerDialog({
             />
           </>
         )}
-        <Select
-          label="Redondeo"
-          value={form.regla_redondeo}
-          onChange={(e) => {
-            setForm((f) => ({ ...f, regla_redondeo: e.target.value as ReglaRedondeo }))
-          }}
-          options={(Object.keys(REDONDEO) as ReglaRedondeo[]).map((r) => ({
-            value: r,
-            label: REDONDEO[r],
-          }))}
-          className="sm:col-span-2"
-        />
+        {t === 'CRITERIO_PLURALIDAD' && (
+          <div className="sm:col-span-2">
+            <Select
+              label="Regla"
+              value={form.criterio}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, criterio: e.target.value as CriterioPluralidad }))
+              }}
+              options={(Object.keys(CRITERIO_PLURALIDAD) as CriterioPluralidad[]).map((c) => ({
+                value: c,
+                label: CRITERIO_PLURALIDAD[c].label,
+              }))}
+            />
+            <p className="mt-1.5 text-sm text-ink-muted">
+              {CRITERIO_PLURALIDAD[form.criterio].ayuda} Con partes distintas, aporta cada acto.
+            </p>
+          </div>
+        )}
+        {t !== 'CRITERIO_PLURALIDAD' && (
+          <Select
+            label="Redondeo"
+            value={form.regla_redondeo}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, regla_redondeo: e.target.value as ReglaRedondeo }))
+            }}
+            options={(Object.keys(REDONDEO) as ReglaRedondeo[]).map((r) => ({
+              value: r,
+              label: REDONDEO[r],
+            }))}
+            className="sm:col-span-2"
+          />
+        )}
         <Field
           label="Resolución que la respalda"
           placeholder="Res. Directorio 12/2026"

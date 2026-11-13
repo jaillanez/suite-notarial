@@ -47,6 +47,7 @@ import { RegistroPage } from './features/padron/RegistroPage'
 import { RegistrosPage } from './features/padron/RegistrosPage'
 import { ConceptoPage } from './features/parametros/ConceptoPage'
 import { ParametrosPage } from './features/parametros/ParametrosPage'
+import { VademecumPage } from './features/parametros/VademecumPage'
 import { UsersPage } from './features/users/UsersPage'
 import { ACargoPage } from './features/acargo/ACargoPage'
 import { IndicePage } from './features/ia/IndicePage'
@@ -120,6 +121,7 @@ const router = createBrowserRouter([
             element: <RequirePermission permission="parameters:read" />,
             children: [
               { path: '/parametros', element: <ParametrosPage /> },
+              { path: '/parametros/vademecum', element: <VademecumPage /> },
               { path: '/parametros/:id', element: <ConceptoPage /> },
             ],
           },

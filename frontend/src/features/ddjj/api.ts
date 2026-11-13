@@ -7,7 +7,35 @@ export type EstadoDDJJ = 'BORRADOR' | 'PRESENTADA' | 'RECTIFICADA'
 export type EstadoBoleta = 'PENDIENTE' | 'PAGADA' | 'ANULADA'
 export type CategoriaActo =
   'ESCRITURA_CON_VALOR' | 'ACTA_O_PODER' | 'OTRO_ACTO' | 'SIN_EFECTO' | 'EXENTO'
-export type MotivoExencion = 'CONVENIO_IPV' | 'ACTA_SUBSANATORIA' | 'OTRO'
+export type MotivoExencion =
+  | 'CONVENIO_IPV'
+  | 'ACTA_SUBSANATORIA'
+  | 'REGULACION_DOMINIAL'
+  | 'ASOCIACION_INTERMEDIA_IPV'
+  | 'OTRO'
+export type CriterioPluralidad = 'SOLO_EL_MAYOR' | 'SUMAN_TODOS' | 'VARIABLES_SUMAN_FIJO_UNA_VEZ'
+
+/** Acto del vademécum de aportes: cómo aporta cada naturaleza de acto en una vigencia. */
+export interface VademecumActo {
+  id: string
+  codigo: string
+  version: number
+  nombre: string
+  categoria: CategoriaActo
+  motivo_exencion: MotivoExencion | null
+  aclaracion: string | null
+  /** Otras formas de nombrarlo, separadas por coma. */
+  sinonimos: string | null
+  orden: number
+  fecha_desde: string
+  fecha_hasta: string | null
+  resolucion: string
+  /** Rige solo aprobada por una persona distinta de quien la propuso. */
+  estado: 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA'
+  created_by_user_id: string
+  aprobado_por_user_id: string | null
+  created_at: string
+}
 export type TipoProtocolo = 'GENERAL' | 'AUXILIAR'
 
 export interface RegistroResumen {
@@ -47,8 +75,18 @@ export interface Acto {
   base_imponible: string
   motivo_exencion: MotivoExencion | null
   detalle_exencion: string | null
+  vademecum_id: string | null
+  vademecum_nombre: string | null
+  /** No estaba en el vademécum: la Caja lo revisa. */
+  fuera_de_vademecum: boolean
+  precio: string | null
+  avaluo: string | null
+  /** En una escritura con varios actos: ¿intervienen solo las mismas partes? */
+  mismas_partes: boolean
   aporte: string | null
   vigencia_id: string | null
+  /** Presentada: lo que aportaba solo, antes del criterio de pluralidad. */
+  aporte_individual: string | null
 }
 
 /** Días de atraso en que rigió una misma tasa (`desde` y `hasta` inclusive). */
@@ -167,6 +205,8 @@ export interface VerificacionActoInput {
   fecha_acto: string | null
   categoria: CategoriaActo | null
   base_imponible: string | null
+  precio: string | null
+  avaluo: string | null
   acto_multiple: boolean
   excluir_acto_id?: string | null
 }
@@ -193,7 +233,13 @@ export interface LiquidacionBoleta {
 }
 
 export interface Liquidacion {
-  aportes: { acto_id: string; aporte: string }[]
+  aportes: {
+    acto_id: string
+    aporte: string
+    /** Lo que aportaría solo; mayor que `aporte` si quedó incluido en otro acto. */
+    aporte_individual: string
+    incluido_en_otro: boolean
+  }[]
   vencimiento: string
   fecha_pago: string
   /** Una por escribano, titular primero. */
@@ -203,6 +249,8 @@ export interface Liquidacion {
   total_a_pagar: string
   avisos: string[]
   usa_valores_de_ejemplo: boolean
+  /** Cómo aportan varios actos de una escritura con las mismas partes (null: cada uno). */
+  criterio_pluralidad: CriterioPluralidad | null
 }
 
 export interface ActoInput {
@@ -214,7 +262,12 @@ export interface ActoInput {
   naturaleza: string
   categoria: CategoriaActo
   base_imponible: string
+  vademecum_id: string | null
+  precio: string | null
+  avaluo: string | null
   acto_multiple: boolean
+  /** Obligatorio en un acto múltiple (null en un acto suelto). */
+  mismas_partes: boolean | null
   motivo_exencion: MotivoExencion | null
   detalle_exencion: string | null
 }
@@ -291,6 +344,43 @@ export async function verificarActo(
 ): Promise<VerificacionActo> {
   return (await api.post<VerificacionActo>(`${P}/declaraciones/${id}/actos/verificacion`, data))
     .data
+}
+
+/** Actos del vademécum que rigen a la fecha (para una DDJJ, el primer día del período). */
+export async function fetchVademecum(fecha: string): Promise<VademecumActo[]> {
+  return (await api.get<VademecumActo[]>(`${P}/vademecum`, { params: { fecha } })).data
+}
+
+/** Propuestas del vademécum que esperan la aprobación de otra persona. */
+export async function fetchVademecumPendientes(): Promise<VademecumActo[]> {
+  return (await api.get<VademecumActo[]>(`${P}/vademecum/pendientes`)).data
+}
+
+export interface VademecumInput {
+  codigo: string
+  nombre: string
+  categoria: CategoriaActo
+  motivo_exencion: MotivoExencion | null
+  aclaracion: string | null
+  sinonimos: string | null
+  orden: number
+  fecha_desde: string
+  resolucion: string
+  motivo: string
+}
+
+/** Propone un acto o una versión nueva: queda pendiente hasta que la apruebe otra persona. */
+export async function proponerVademecum(data: VademecumInput): Promise<VademecumActo> {
+  return (await api.post<VademecumActo>(`${P}/vademecum`, data)).data
+}
+
+/** Aprueba propuestas de otra persona (todas o ninguna). */
+export async function aprobarVademecum(ids: string[]): Promise<VademecumActo[]> {
+  return (await api.post<VademecumActo[]>(`${P}/vademecum/aprobacion`, { ids })).data
+}
+
+export async function rechazarVademecum(id: string, motivo: string): Promise<VademecumActo> {
+  return (await api.post<VademecumActo>(`${P}/vademecum/${id}/rechazo`, { motivo })).data
 }
 
 export async function bajaActo(id: string, actoId: string, motivo: string): Promise<void> {

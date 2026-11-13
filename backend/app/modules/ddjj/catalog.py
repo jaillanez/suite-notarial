@@ -20,11 +20,14 @@ class CategoriaActo(StrEnum):
 
 
 class MotivoExencion(StrEnum):
-    """Por qué un acto no aporta. TODO(negocio): la Caja nombró estos dos casos; confirmar si
-    hay otros frecuentes que convenga listar y si la Caja revisa las exenciones declaradas."""
+    """Por qué un acto no aporta: los casos del vademécum de la Caja (punto IV) y «otro motivo».
+    TODO(negocio): confirmar si la Caja revisa las exenciones declaradas con «otro motivo»."""
 
-    CONVENIO_IPV = "CONVENIO_IPV"  # viviendas del Instituto Provincial de la Vivienda
-    ACTA_SUBSANATORIA = "ACTA_SUBSANATORIA"  # corrige una escritura anterior
+    CONVENIO_IPV = "CONVENIO_IPV"  # emanadas del Instituto Provincial de la Vivienda
+    ACTA_SUBSANATORIA = "ACTA_SUBSANATORIA"  # rectifica una escritura anterior
+    REGULACION_DOMINIAL = "REGULACION_DOMINIAL"  # actas de regulación dominial
+    # Asociaciones intermedias con hipoteca a favor del IPV.
+    ASOCIACION_INTERMEDIA_IPV = "ASOCIACION_INTERMEDIA_IPV"
     OTRO = "OTRO"  # con detalle obligatorio
 
 
@@ -70,3 +73,5 @@ CONCEPTO_POR_CATEGORIA: dict[CategoriaActo, str | None] = {
 CONCEPTO_MINIMO = "APORTE_MINIMO_MENSUAL"
 CONCEPTO_MEDICO = "APORTE_MEDICO_ASISTENCIAL"
 CONCEPTO_MORA = "TASA_INTERES_MORA"
+# Cómo aportan varios actos de una escritura con las mismas partes (parametros.CriterioPluralidad).
+CONCEPTO_PLURALIDAD = "CRITERIO_PLURALIDAD_ACTOS"

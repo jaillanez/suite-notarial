@@ -13,6 +13,7 @@ from decimal import Decimal
 from app.common.money import MONEY_QUANT, to_money
 from app.modules.parametros.catalog import (
     ROUNDING_MODES,
+    CriterioPluralidad,
     PeriodoTasa,
     ReglaRedondeo,
     TipoConcepto,
@@ -47,6 +48,7 @@ class VigenciaSnapshot:
     periodo_tasa: PeriodoTasa | None
     dias_gracia: int | None
     regla_redondeo: ReglaRedondeo
+    criterio: CriterioPluralidad | None = None
 
 
 def redondear(monto: Decimal, regla: ReglaRedondeo) -> Decimal:

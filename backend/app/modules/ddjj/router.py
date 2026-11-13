@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from app.common.dates import today_local
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
-from app.modules.ddjj import pdf, protocolo, service
+from app.modules.ddjj import pdf, protocolo, service, vademecum
 from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
@@ -19,7 +19,7 @@ from app.modules.ddjj.catalog import (
     MotivoExencion,
     TipoProtocolo,
 )
-from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, Vencimiento
+from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, VademecumActo, Vencimiento
 from app.modules.ddjj.schemas import (
     ActoIn,
     ActoOut,
@@ -43,6 +43,10 @@ from app.modules.ddjj.schemas import (
     RegistroResumen,
     TramoMoraOut,
     TramoOut,
+    VademecumAprobacionIn,
+    VademecumIn,
+    VademecumOut,
+    VademecumRechazoIn,
     VencimientoIn,
     VencimientoOut,
     VerificacionActoIn,
@@ -62,7 +66,7 @@ from app.modules.pagos import service as pagos_service
 from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
 from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
-from app.modules.parametros.catalog import PeriodoTasa
+from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa
 
 router = APIRouter(prefix="/ddjj", tags=["ddjj"])
 public_router = APIRouter(prefix="/boletas", tags=["boletas"])
@@ -78,6 +82,17 @@ CanReadBoletas = Annotated[
     Principal, Depends(require_any_permission(Perm.BOLETAS_READ_OWN, Perm.BOLETAS_READ_ALL))
 ]
 CanSetCalendar = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_WRITE))]
+CanReadVademecum = Annotated[
+    Principal,
+    Depends(
+        require_any_permission(
+            Perm.DDJJ_READ_OWN, Perm.DDJJ_READ_ALL, Perm.DDJJ_APPROVE, Perm.PARAMETERS_READ
+        )
+    ),
+]
+CanEditVademecum = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_WRITE))]
+CanApproveVademecum = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_APPROVE))]
+CanReadParametros = Annotated[Principal, Depends(require_permissions(Perm.PARAMETERS_READ))]
 
 
 # --------------------------------------------------------------------------- serialización
@@ -130,8 +145,15 @@ def acto_out(a: Acto) -> ActoOut:
         base_imponible=a.base_imponible,
         motivo_exencion=MotivoExencion(a.motivo_exencion) if a.motivo_exencion else None,
         detalle_exencion=a.detalle_exencion,
+        vademecum_id=a.vademecum_id,
+        vademecum_nombre=a.vademecum.nombre if a.vademecum else None,
+        fuera_de_vademecum=a.fuera_de_vademecum,
+        precio=a.precio,
+        avaluo=a.avaluo,
+        mismas_partes=a.mismas_partes,
         aporte=a.aporte,
         vigencia_id=a.vigencia_id,
+        aporte_individual=a.aporte_individual,
     )
 
 
@@ -302,6 +324,80 @@ async def registros_operables(principal: CanOperate, session: SessionDep) -> lis
     return out
 
 
+# --------------------------------------------------------------------------- vademécum
+
+
+def vademecum_out(v: VademecumActo) -> VademecumOut:
+    return VademecumOut(
+        id=v.id,
+        codigo=v.codigo,
+        version=v.version,
+        nombre=v.nombre,
+        categoria=CategoriaActo(v.categoria),
+        motivo_exencion=MotivoExencion(v.motivo_exencion) if v.motivo_exencion else None,
+        aclaracion=v.aclaracion,
+        sinonimos=v.sinonimos,
+        orden=v.orden,
+        fecha_desde=v.fecha_desde,
+        fecha_hasta=v.fecha_hasta,
+        resolucion=v.resolucion,
+        estado=EstadoVigencia(v.estado),
+        created_by_user_id=v.created_by_user_id,
+        aprobado_por_user_id=v.aprobado_por_user_id,
+        created_at=v.created_at,
+    )
+
+
+@router.get("/vademecum", response_model=list[VademecumOut])
+async def vademecum_vigente(
+    _: CanReadVademecum,
+    session: SessionDep,
+    fecha: Annotated[date | None, Query(description="Por defecto, hoy")] = None,
+) -> list[VademecumOut]:
+    """Actos del vademécum que rigen a la fecha (para una DDJJ, el primer día del período)."""
+    return [vademecum_out(v) for v in await vademecum.vigentes(session, fecha or today_local())]
+
+
+@router.get("/vademecum/pendientes", response_model=list[VademecumOut])
+async def vademecum_pendientes(_: CanReadParametros, session: SessionDep) -> list[VademecumOut]:
+    """Propuestas que esperan la aprobación de otra persona."""
+    return [vademecum_out(v) for v in await vademecum.pendientes(session)]
+
+
+@router.post("/vademecum", response_model=VademecumOut, status_code=201)
+async def vademecum_proponer(
+    body: VademecumIn, principal: CanEditVademecum, session: SessionDep, ctx: RequestContextDep
+) -> VademecumOut:
+    """Propone un acto o una versión nueva de uno existente. Rige cuando otra persona la aprueba."""
+    return vademecum_out(await vademecum.proponer(session, ctx, principal.user, body))
+
+
+@router.post("/vademecum/aprobacion", response_model=list[VademecumOut])
+async def vademecum_aprobar(
+    body: VademecumAprobacionIn,
+    principal: CanApproveVademecum,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> list[VademecumOut]:
+    """Aprueba propuestas de otra persona (todas o ninguna)."""
+    return [
+        vademecum_out(v) for v in await vademecum.aprobar(session, ctx, principal.user, body.ids)
+    ]
+
+
+@router.post("/vademecum/{vademecum_id}/rechazo", response_model=VademecumOut)
+async def vademecum_rechazar(
+    vademecum_id: uuid.UUID,
+    body: VademecumRechazoIn,
+    principal: CanApproveVademecum,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> VademecumOut:
+    return vademecum_out(
+        await vademecum.rechazar(session, ctx, principal.user, vademecum_id, body.motivo)
+    )
+
+
 # --------------------------------------------------------------------------- vencimientos
 
 
@@ -450,7 +546,12 @@ async def liquidacion(
     ]
     return LiquidacionOut(
         aportes=[
-            AporteActoOut(acto_id=a.id, aporte=aporte.aporte)
+            AporteActoOut(
+                acto_id=a.id,
+                aporte=aporte.aporte,
+                aporte_individual=aporte.aporte_individual,
+                incluido_en_otro=aporte.incluido_en_otro,
+            )
             for a, aporte in zip(actos, pre.aportes, strict=True)
         ],
         vencimiento=pre.vencimiento,
@@ -460,6 +561,7 @@ async def liquidacion(
         total_a_pagar=sum((b.total_a_pagar for b in boletas), Decimal("0.00")),
         avisos=pre.avisos,
         usa_valores_de_ejemplo=pre.usa_valores_de_ejemplo,
+        criterio_pluralidad=pre.pluralidad.criterio if pre.pluralidad else None,
     )
 
 

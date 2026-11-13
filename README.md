@@ -257,14 +257,33 @@ Ya aplicadas:
 
 - **Una DDJJ por registro y período** con los actos de todos sus escribanos (titular, adscriptos,
   a cargo). Cada acto lleva protocolo, número de escritura, fecha dentro del período, naturaleza y
-  categoría: escritura con valor (porcentaje de la base con mínimo y tope), acta o poder, otro
-  acto (montos fijos), sin efecto (no aporta) o **exento** (no aporta, con motivo obligatorio:
-  convenio con el IPV, acta subsanatoria u otro con detalle; cuenta como acto declarado y el
+  categoría: aporte variable (porcentaje de la base con mínimo y tope), fijo mayor, fijo menor,
+  sin efecto (no aporta) o **exento** (no aporta, con motivo obligatorio: emanada del IPV, acta
+  subsanatoria, regulación dominial, asociación intermedia con hipoteca del IPV u otro con detalle; cuenta como acto declarado y el
   aporte mínimo del mes se cobra igual). Los actos de un borrador se quitan con motivo.
+- **Vademécum de aportes** (Asamblea del 19/05/2026, desde junio 2026): el escribano busca el
+  acto (por nombre o sinónimo, sin importar tildes) y el acto fija la categoría: aporte variable
+  (0,40 % del **mayor entre precio y avalúo**, con mínimo y máximo), fijo mayor, fijo menor o
+  exento. Si no está, se elige «No está en el vademécum» con la categoría a mano y el acto queda
+  marcado para revisión de la Caja. El vademécum se administra en Parámetros → Vademécum de
+  aportes: cada cambio es una versión nueva con fecha, resolución y motivo que **aprueba otra
+  persona** (como las vigencias); un cambio sobre un acto que ya rige empieza mañana o después.
+  Todo queda auditado y cada acto declarado guarda la versión con que se valorizó. Carga en un
+  servidor (queda pendiente de aprobación):
+  `python -m app.modules.ddjj.vademecum_caja --operador EMAIL`.
+- **Pluralidad de actos**: en una escritura con varios actos, el escribano dice si intervienen
+  solo las mismas partes (obligatorio, sin respuesta por defecto; vale para toda la escritura y
+  cada acto que cambia queda auditado). Con partes distintas aporta cada acto;
+  con las mismas, rige el parámetro **CRITERIO_PLURALIDAD_ACTOS** (con vigencia y aprobación de
+  otra persona, como cualquier parámetro): «solo el de mayor valor» (vademécum 2026), «aportan
+  todos» o «los variables suman y el fijo una vez». Los actos que quedan incluidos aportan 0 y
+  muestran lo que aportarían solos; al presentar se congelan el aporte individual y la vigencia del
+  criterio. Sin vigencia del criterio, aporta cada acto. `TODO(negocio)`: confirmar que «el de
+  mayor valor» es el que más aporta.
 - **Controles del libro de protocolo** (numeración correlativa por registro, protocolo y año):
   un número de escritura repetido en cualquier DDJJ del año no se puede cargar, salvo como
   **acto múltiple** (otro acto de una escritura ya cargada en la misma DDJJ y con su misma fecha,
-  con su propio aporte: se muestra «N° 48 · acto 2»); folio repetido
+  que aporta según la pluralidad de actos: se muestra «N° 48 · acto 2»); folio repetido
   (salvo con la escritura contigua) y folio o fecha fuera de orden se avisan; los números
   salteados del año se listan en la ficha para declararlos «sin efecto». Mientras se carga un
   acto, el formulario muestra el aporte estimado y los avisos. `TODO(negocio)`: confirmar que la

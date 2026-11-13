@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
 import { normalizeDecimalInput } from '../../lib/decimal'
-import type { ActoForm } from './acto'
+import { conPrecioOAvaluo, type ActoForm } from './acto'
 import { verificarActo, type VerificacionActoInput } from './api'
 
 const PAUSA_MS = 400
@@ -14,6 +14,11 @@ function entero(valor: string): number | null {
 /** Lo que haya cargado del acto, en el formato de la API (sin pasar importes por float). */
 export function datosAVerificar(form: ActoForm, excluir?: string): VerificacionActoInput {
   const base = normalizeDecimalInput(form.base_imponible)
+  const importe = (valor: string) => {
+    const n = normalizeDecimalInput(valor)
+    return /^\d+(\.\d{1,2})?$/.test(n) ? n : null
+  }
+  const precioOAvaluo = conPrecioOAvaluo(form)
   return {
     tipo_protocolo: form.tipo_protocolo,
     numero_escritura: entero(form.numero_escritura),
@@ -21,7 +26,11 @@ export function datosAVerificar(form: ActoForm, excluir?: string): VerificacionA
     fecha_acto: /^\d{4}-\d{2}-\d{2}$/.test(form.fecha_acto) ? form.fecha_acto : null,
     categoria: form.categoria,
     base_imponible:
-      form.categoria === 'ESCRITURA_CON_VALOR' && /^\d+(\.\d{1,2})?$/.test(base) ? base : null,
+      form.categoria === 'ESCRITURA_CON_VALOR' && !precioOAvaluo && /^\d+(\.\d{1,2})?$/.test(base)
+        ? base
+        : null,
+    precio: precioOAvaluo ? importe(form.precio) : null,
+    avaluo: precioOAvaluo ? importe(form.avaluo) : null,
     acto_multiple: form.acto_multiple,
     excluir_acto_id: excluir ?? null,
   }

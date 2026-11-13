@@ -20,7 +20,12 @@ const BASE: ActoForm = {
   fecha_acto: '2026-09-15',
   naturaleza: 'Compraventa',
   base_imponible: '',
+  vademecum_id: '',
+  fuera_de_vademecum: false,
+  precio: '',
+  avaluo: '',
   acto_multiple: false,
+  mismas_partes: null,
   motivo_exencion: '',
   detalle_exencion: '',
 }
@@ -55,13 +60,13 @@ describe('acto exento', () => {
   it('muestra el motivo junto a la categoría', () => {
     expect(
       categoriaDe({ categoria: 'EXENTO', motivo_exencion: 'CONVENIO_IPV', detalle_exencion: null }),
-    ).toBe('Exento · Convenio con el IPV')
+    ).toBe('Exento · Emanada del IPV')
     expect(
       categoriaDe({ categoria: 'EXENTO', motivo_exencion: 'OTRO', detalle_exencion: 'Donación' }),
     ).toBe('Exento · Donación')
     expect(
       categoriaDe({ categoria: 'ACTA_O_PODER', motivo_exencion: null, detalle_exencion: null }),
-    ).toBe('Acta o poder')
+    ).toBe('Aporte fijo menor')
   })
 })
 
@@ -84,6 +89,13 @@ describe('carga rápida', () => {
     detalle_exencion: null,
     aporte: null,
     vigencia_id: null,
+    vademecum_id: null,
+    vademecum_nombre: null,
+    fuera_de_vademecum: false,
+    precio: null,
+    avaluo: null,
+    mismas_partes: true,
+    aporte_individual: null,
     ...cambios,
   })
   const ddjj = (actos: Acto[]): DeclaracionDetalle =>
