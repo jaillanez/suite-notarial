@@ -218,12 +218,16 @@ async def test_permisos(
         "RECAUDACION",
         "BOLETAS_HISTORICAS",
         "CREDITOS_HISTORICOS",
+        "ACTOS_HISTORICOS",
         "AUDITORIA",
         "SUGERENCIAS_IA",
         "PUNTOS_EJERCICIOS",
     }
-    # El escribano solo ve sus propios aportes.
-    assert [r["codigo"] for r in (await notario.get("/api/v1/reportes")).json()] == ["MIS_APORTES"]
+    # El escribano solo ve lo propio.
+    assert [r["codigo"] for r in (await notario.get("/api/v1/reportes")).json()] == [
+        "MIS_APORTES",
+        "MIS_ACTOS_HISTORICOS",
+    ]
     assert (await notario.get("/api/v1/reportes/BOLETAS/export")).status_code == 403
     assert (await staff.get("/api/v1/reportes/BOLETAS")).status_code == 403
     assert (await staff.get("/api/v1/reportes/AUDITORIA/export")).status_code == 403

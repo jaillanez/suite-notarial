@@ -14,6 +14,7 @@ retirado a uno nuevo. Es un dato informativo; identifica el CUIT.
 Las observaciones no llevan datos personales: identifican la fila y el código del origen.
 """
 
+import calendar
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -139,6 +140,30 @@ class CreditoN:
 
 
 @dataclass(frozen=True)
+class ActoN:
+    codigo: str
+    numero_registro: int
+    periodo: str
+    numero_escritura: int
+    naturaleza: str
+    importe: Decimal  # aporte total del acto
+    declaracion: str | None
+    tipo_protocolo: str | None
+    folio: int | None
+    fecha_acto: date | None
+    base_imponible: Decimal | None
+    aporte_variable: Decimal | None
+    aporte_fijo: Decimal | None
+    exento: bool
+    escribano: str | None  # codigo_legado de un escribano que se carga
+    escribano_origen: str | None
+    cargo: str | None
+    aporte_titular: Decimal | None
+    aporte_adscripto: Decimal | None
+    aporte_a_cargo: Decimal | None
+
+
+@dataclass(frozen=True)
 class Existentes:
     """Lo que ya está en la Suite: lo migrado no puede chocar con eso."""
 
@@ -155,6 +180,7 @@ class Staging:
     boletas: list[BoletaN] = field(default_factory=list)
     pagos: list[PagoN] = field(default_factory=list)
     creditos: list[CreditoN] = field(default_factory=list)
+    actos: list[ActoN] = field(default_factory=list)
     observaciones: list[Observacion] = field(default_factory=list)
     # Por entidad: filas leídas, rechazadas e importe legible de cada grupo (cuadratura).
     leidas: Counter[str] = field(default_factory=Counter)
@@ -735,6 +761,218 @@ def _creditos(lote: Lote, st: Staging) -> None:
             st.creditos.append(CreditoN(fila.codigo, numero, fecha, periodo, importe, concepto))
 
 
+# --------------------------------------------------------------------------- actos
+
+PROTOCOLOS = {
+    "GENERAL": "GENERAL",
+    "G": "GENERAL",
+    "1": "GENERAL",
+    "AUXILIAR": "AUXILIAR",
+    "A": "AUXILIAR",
+    "2": "AUXILIAR",
+}
+# La columna «A cargo» del origen es quien está interinamente a cargo del registro.
+CARGOS_ACTO = {
+    "titular": Cargo.TITULAR.value,
+    "adscripto": Cargo.ADSCRIPTO.value,
+    "a cargo": Cargo.SUPLENTE_INTERINO.value,
+    "a_cargo": Cargo.SUPLENTE_INTERINO.value,
+    "suplente_interino": Cargo.SUPLENTE_INTERINO.value,
+}
+_SI = {"si", "s", "1", "true", "verdadero", "x"}
+_NO = {"no", "n", "0", "false", "falso"}
+
+
+def _protocolo(valor: str) -> str:
+    traducido = PROTOCOLOS.get(_clave(valor).upper())
+    if traducido is None:
+        raise ValorInvalidoError("se espera GENERAL o AUXILIAR")
+    return traducido
+
+
+def _cargo_acto(valor: str) -> str:
+    traducido = CARGOS_ACTO.get(_clave(valor))
+    if traducido is None:
+        raise ValorInvalidoError("se espera TITULAR, ADSCRIPTO o A CARGO")
+    return traducido
+
+
+def _si_no(valor: str) -> bool:
+    clave = _clave(valor)
+    if clave in _SI:
+        return True
+    if clave in _NO:
+        return False
+    raise ValorInvalidoError("se espera SI o NO")
+
+
+def _monto(f: "_Fila", nombre: str) -> Decimal | None:
+    monto: Decimal | None = f.campo(nombre, valores.importe, obligatorio=False)
+    if monto is not None and monto < 0:
+        f.observar("IMPORTE_NEGATIVO", f"«{nombre}» es negativo.")
+    return monto
+
+
+def _actos(lote: Lote, st: Staging) -> None:
+    """Actos de las DDJJ presentadas en el sistema anterior (archivo opcional, de consulta).
+
+    El acto se carga con su registro; un escribano que el origen no permite identificar entre
+    los migrados no lo bloquea (queda `escribano_origen`, a completar). Tampoco se vincula un
+    escribano sin cargo en el registro durante el período: el escribano vinculado ve el acto en
+    «Mis actos», así que ante la duda queda a completar. Los repartos tienen que cerrar al
+    centavo con el aporte total: si no, el acto no se carga.
+    """
+    filas = lote.filas[Entidad.ACTOS]
+    codigos = _duplicados(filas, lambda f: f.codigo)
+    registros = {r.numero for r in st.registros}
+    escribanos = {e.codigo for e in st.escribanos}
+    cargos_de: dict[tuple[str, int], list[CargoN]] = defaultdict(list)
+    for c in st.cargos:
+        cargos_de[(c.escribano, c.numero_registro)].append(c)
+
+    def con_cargo(escribano: str, registro: int, periodo: str) -> bool:
+        anio, mes = int(periodo[:4]), int(periodo[5:7])
+        desde, hasta = date(anio, mes, 1), date(anio, mes, calendar.monthrange(anio, mes)[1])
+        return any(
+            (c.desde is None or c.desde <= hasta) and (c.hasta is None or c.hasta >= desde)
+            for c in cargos_de[(escribano, registro)]
+        )
+
+    # (registro, protocolo, año, escritura) → períodos: la numeración es anual por protocolo.
+    periodos_de: dict[tuple[int, str | None, str, int], set[str]] = defaultdict(set)
+    candidatos: list[tuple[_Fila, ActoN]] = []
+    for fila in filas:
+        f = _Fila(st, Entidad.ACTOS, fila)
+        if fila.numero in codigos:
+            f.observar("CODIGO_DUPLICADO", "El código del origen se repite en el archivo.")
+        numero = f.campo("numero_registro", valores.entero)
+        if numero is not None and numero not in registros:
+            f.observar(
+                "REGISTRO_NO_MIGRADO",
+                "El registro no corresponde a un registro del lote que se pueda cargar.",
+            )
+        periodo = f.campo("periodo", valores.periodo)
+        escritura = f.campo("numero_escritura", valores.entero)
+        naturaleza = f.campo("naturaleza", _texto(500))
+        importe = f.campo("importe", valores.importe)
+        if importe is None and fila.datos.get("importe", "").strip():
+            st.importe_ilegible[Entidad.ACTOS.value] += 1
+        if importe is not None and importe < 0:
+            f.observar("IMPORTE_NEGATIVO", "El aporte del acto es negativo.")
+        declaracion = f.campo("declaracion", _texto(100), obligatorio=False)
+        protocolo = f.campo("tipo_protocolo", _protocolo, obligatorio=False)
+        folio = f.campo("folio", valores.entero, obligatorio=False)
+        fecha_acto = f.campo("fecha_acto", valores.fecha, obligatorio=False)
+        if (
+            fecha_acto is not None
+            and periodo is not None
+            and (f"{fecha_acto.year:04d}-{fecha_acto.month:02d}" != periodo)
+        ):
+            f.observar(
+                "FECHA_FUERA_DEL_PERIODO",
+                "La fecha del acto no es del período declarado: verificar.",
+                Severidad.ADVERTENCIA,
+            )
+        _fecha_futura(f, fecha_acto, "acto")
+        base = _monto(f, "base_imponible")
+        variable = _monto(f, "aporte_variable")
+        fijo = _monto(f, "aporte_fijo")
+        exento = f.campo("exento", _si_no, obligatorio=False) or False
+        cargo = f.campo("cargo", _cargo_acto, obligatorio=False)
+        por_cargo = [_monto(f, c) for c in ("aporte_titular", "aporte_adscripto", "aporte_a_cargo")]
+        if importe is not None:
+            if (variable is not None or fijo is not None) and (variable or CERO) + (
+                fijo or CERO
+            ) != importe:
+                f.observar(
+                    "APORTE_NO_CUADRA",
+                    "Aporte variable más aporte fijo no da el aporte total del acto.",
+                )
+            if (
+                any(m is not None for m in por_cargo)
+                and sum((m or CERO for m in por_cargo), CERO) != importe
+            ):
+                f.observar(
+                    "REPARTO_NO_CUADRA",
+                    "Los aportes por cargo no suman el aporte total del acto.",
+                )
+            if exento and importe > 0:
+                f.observar(
+                    "EXENTO_CON_APORTE",
+                    "Acto exento con aporte: verificar.",
+                    Severidad.ADVERTENCIA,
+                )
+        escribano = f.campo("escribano", _texto(100), obligatorio=False)
+        escribano_origen = f.campo("escribano_origen", _texto(200), obligatorio=False)
+        if escribano is not None and escribano not in escribanos:
+            f.observar(
+                "ESCRIBANO_A_COMPLETAR",
+                "El escribano no corresponde a uno del lote que se cargue: el acto queda con el "
+                "dato del origen.",
+                Severidad.ADVERTENCIA,
+            )
+            escribano_origen = escribano_origen or escribano
+            escribano = None
+        elif escribano is None and escribano_origen:
+            f.observar(
+                "ESCRIBANO_A_COMPLETAR",
+                "El origen no identifica al escribano entre los migrados: queda el dato del "
+                "origen.",
+                Severidad.ADVERTENCIA,
+            )
+        elif (
+            escribano is not None
+            and numero is not None
+            and periodo is not None
+            and not con_cargo(escribano, numero, periodo)
+        ):
+            f.observar(
+                "ESCRIBANO_SIN_CARGO",
+                "El escribano no tenía cargo en el registro ese mes: el acto no se le vincula y "
+                "queda con el dato del origen.",
+                Severidad.ADVERTENCIA,
+            )
+            escribano_origen = escribano_origen or escribano
+            escribano = None
+        if f.bloqueada:
+            _cerrar(st, Entidad.ACTOS, f, importe)
+            continue
+        acto = ActoN(
+            fila.codigo,
+            numero,
+            periodo,
+            escritura,
+            naturaleza,
+            importe,
+            declaracion,
+            protocolo,
+            folio,
+            fecha_acto,
+            base,
+            variable,
+            fijo,
+            exento,
+            escribano,
+            escribano_origen,
+            cargo,
+            *por_cargo,
+        )
+        periodos_de[(numero, protocolo, periodo[:4], escritura)].add(periodo)
+        candidatos.append((f, acto))
+
+    for f, acto in candidatos:
+        clave = (acto.numero_registro, acto.tipo_protocolo, acto.periodo[:4], acto.numero_escritura)
+        if len(periodos_de[clave]) > 1:
+            f.observar(
+                "ESCRITURA_EN_OTRO_PERIODO",
+                "El mismo número de escritura del protocolo figura en otro período del año: "
+                "verificar.",
+                Severidad.ADVERTENCIA,
+            )
+        if _cerrar(st, Entidad.ACTOS, f, acto.importe):
+            st.actos.append(acto)
+
+
 def validar(
     lote: Lote, hom: Homologacion, existentes: Existentes, fecha_corrida: date | None = None
 ) -> Staging:
@@ -746,4 +984,5 @@ def validar(
     _boletas(lote, hom, st)
     _pagos(lote, st)
     _creditos(lote, st)
+    _actos(lote, st)
     return st

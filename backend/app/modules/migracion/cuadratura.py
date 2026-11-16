@@ -8,9 +8,11 @@ quedó efectivamente en la base (consultado, no tomado de memoria). Cuadra cuand
   con el detalle en `redondeos.csv`) y se exige control = leído - ajuste redondeado al centavo;
 - leído = cargado + rechazado (toda fila no cargada tiene su observación bloqueante);
 - el saldo de cada registro (boletas no anuladas menos pagos menos créditos) es el mismo en
-  origen y destino. Un saldo negativo es un saldo a favor del escribano.
+  origen y destino. Un saldo negativo es un saldo a favor del escribano. Los actos históricos
+  cuadran en filas y aporte total, pero no entran en el saldo (son el detalle declarado).
 
-Un archivo opcional que el lote no trae (`creditos.csv`, `licencias.csv`) no figura en el
+Un archivo opcional que el lote no trae (`creditos.csv`, `licencias.csv`,
+`actos.csv`) no figura en el
 informe; si viene, cuadra como los demás.
 
 Nunca se compensa una diferencia: si algo no cuadra, el informe lo muestra con su magnitud.
@@ -28,14 +30,19 @@ from app.modules.migracion import valores
 from app.modules.migracion.carga import Cargado
 from app.modules.migracion.catalog import Entidad, EstadoBoletaHistorica, Severidad
 from app.modules.migracion.formato import Lote
-from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
+from app.modules.migracion.models import (
+    HistoricoActo,
+    HistoricoBoleta,
+    HistoricoCredito,
+    HistoricoPago,
+)
 from app.modules.migracion.validacion import CERO, Staging
 from app.modules.padron.models import Adscripcion, Escribano, Licencia, RegistroNotarial
 
 CENTAVO = Decimal("0.01")
 MEDIO_CENTAVO = Decimal("0.005")
 
-CON_IMPORTE = (Entidad.BOLETAS, Entidad.PAGOS, Entidad.CREDITOS)
+CON_IMPORTE = (Entidad.BOLETAS, Entidad.PAGOS, Entidad.CREDITOS, Entidad.ACTOS)
 
 
 def _texto(valor: Decimal | None) -> str | None:
@@ -69,6 +76,7 @@ async def _cargadas(
         Entidad.BOLETAS: await historico(HistoricoBoleta),
         Entidad.PAGOS: await historico(HistoricoPago),
         Entidad.CREDITOS: await historico(HistoricoCredito),
+        Entidad.ACTOS: await historico(HistoricoActo),
     }
 
 

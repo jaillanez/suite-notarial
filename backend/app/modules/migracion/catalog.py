@@ -13,11 +13,14 @@ class Entidad(StrEnum):
     PAGOS = "pagos"
     # Opcional (agregado al formato v2): créditos a favor del escribano en el sistema anterior.
     CREDITOS = "creditos"
+    # Opcional (agregado al formato v2): cada acto de las DDJJ presentadas en el sistema
+    # anterior. Es consulta: no cambia saldos.
+    ACTOS = "actos"
 
 
 # Archivos que el lote puede no traer. Si viene el archivo, `control.csv` tiene que declarar sus
 # totales (y viceversa): sin origen no hay cuadratura.
-OPCIONALES = frozenset({Entidad.LICENCIAS, Entidad.CREDITOS})
+OPCIONALES = frozenset({Entidad.LICENCIAS, Entidad.CREDITOS, Entidad.ACTOS})
 
 
 class Severidad(StrEnum):

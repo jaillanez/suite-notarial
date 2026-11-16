@@ -1,7 +1,7 @@
 """Carga del staging validado en la Suite, dentro de la transacción del llamador.
 
 Inserta en orden de dependencias (circunscripciones, registros y su domicilio vigente,
-personas y escribanos, cargos, licencias, boletas, pagos y créditos históricos) con ids
+personas y escribanos, cargos, licencias, boletas, pagos, créditos y actos históricos) con ids
 generados acá, y deja el mapeo código del origen → id.
 No borra ni actualiza nada existente: lo que choca con datos de la Suite ya quedó observado.
 """
@@ -15,7 +15,13 @@ from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.migracion.catalog import Entidad
-from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago, Mapeo
+from app.modules.migracion.models import (
+    HistoricoActo,
+    HistoricoBoleta,
+    HistoricoCredito,
+    HistoricoPago,
+    Mapeo,
+)
 from app.modules.migracion.validacion import Staging
 from app.modules.padron.models import (
     Adscripcion,
@@ -242,6 +248,38 @@ async def cargar(
             }
         )
     await _insertar(session, HistoricoCredito, creditos)
+
+    actos = []
+    for a in st.actos:
+        acto_id = uuid.uuid4()
+        c.ids[Entidad.ACTOS][a.codigo] = acto_id
+        actos.append(
+            {
+                "id": acto_id,
+                "corrida_id": corrida_id,
+                "codigo_legado": a.codigo,
+                "declaracion_legado": a.declaracion,
+                "registro_id": c.registro_por_numero[a.numero_registro],
+                "escribano_id": c.ids[Entidad.ESCRIBANOS][a.escribano] if a.escribano else None,
+                "escribano_origen": a.escribano_origen,
+                "cargo": a.cargo,
+                "periodo": a.periodo,
+                "fecha_acto": a.fecha_acto,
+                "tipo_protocolo": a.tipo_protocolo,
+                "numero_escritura": a.numero_escritura,
+                "folio": a.folio,
+                "naturaleza": a.naturaleza,
+                "exento": a.exento,
+                "base_imponible": a.base_imponible,
+                "aporte_variable": a.aporte_variable,
+                "aporte_fijo": a.aporte_fijo,
+                "aporte_titular": a.aporte_titular,
+                "aporte_adscripto": a.aporte_adscripto,
+                "aporte_a_cargo": a.aporte_a_cargo,
+                "importe": a.importe,
+            }
+        )
+    await _insertar(session, HistoricoActo, actos)
 
     await _insertar(
         session,

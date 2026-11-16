@@ -20,6 +20,14 @@ El formato sigue siendo la **versión 2**: se agrega un archivo **opcional**, `c
 
 **TODO(negocio):** decidir si el saldo a favor del sistema anterior compensa deuda (préstamos, garantes, boletas nuevas). Por ahora solo resta del saldo histórico del registro (cuadratura y reportes); no habilita préstamos ni garantes.
 
+### Agregado: actos declarados (`actos.csv`)
+
+El sitio web anterior de la Caja guarda cada acto de las declaraciones juradas presentadas, uno por renglón: protocolo, escritura, folio, fecha, naturaleza, base, aporte variable o fijo, exento y el aporte repartido entre titular, adscripto y a cargo. Es la DDJJ «por acto» del Anexo I.
+
+Se agrega un archivo **opcional**, `actos.csv`, con las mismas reglas que los otros opcionales: si viene, `control.csv` trae la fila `actos` (filas y suma de `importe`), y si `control.csv` la trae, el archivo tiene que venir. Sin el archivo, la huella del lote no cambia. Los actos son **consulta**: cuadran en filas y aporte, pero no entran en los saldos (que salen de boletas, pagos y créditos).
+
+El extractor `python -m app.modules.migracion.extractor_web --volcado SQL --lote-base DIR --salida DIR` lee el volcado MySQL del sitio (sin ejecutar su SQL) y arma un lote nuevo: copia el lote base y le agrega `actos.csv` con su fila de control. Toma solo las DDJJ presentadas; deja afuera los actos borrados en el origen, los de borradores y los renglones vacíos (DDJJ sin movimiento). El extractor reconoce un `INSERT` solo al comienzo de una sentencia (respeta textos y comentarios: un valor que contenga SQL no agrega filas) y rechaza el volcado si una tabla repite un `id`. El escribano va por CUIT. Si el CUIT no está en el lote base, propone la coincidencia por el documento que contiene el CUIT o por apellido y nombre (solo si es única) y la lista para revisarla; se asigna únicamente con `--aceptar-coincidencias`. Si no, queda «a completar» con el dato del sitio.
+
 ### Ajustes de la Caja tras revisar el padrón (compatibles con la versión 2)
 
 Decisiones de la Caja, sin cambiar de versión (un lote anterior se sigue leyendo igual):
@@ -33,7 +41,7 @@ Decisiones de la Caja, sin cambiar de versión (un lote anterior se sigue leyend
 
 ## El lote
 
-Un directorio con seis archivos CSV (más los opcionales de créditos y licencias):
+Un directorio con seis archivos CSV (más los opcionales de créditos, licencias y actos):
 
 | Archivo | Contenido |
 |---------|-----------|
@@ -44,6 +52,7 @@ Un directorio con seis archivos CSV (más los opcionales de créditos y licencia
 | `boletas.csv` | Boletas emitidas por el sistema anterior |
 | `pagos.csv` | Pagos aplicados a esas boletas |
 | `creditos.csv` | **Opcional.** Créditos a favor del escribano (importes negativos del origen, en positivo) |
+| `actos.csv` | **Opcional.** Cada acto de las DDJJ presentadas en el sistema anterior |
 | `control.csv` | Totales que declara el sistema anterior (el «origen» de la cuadratura) |
 
 - **Codificación:** UTF-8 (con o sin BOM) o Windows-1252. Se detecta y queda en el informe.
@@ -110,8 +119,22 @@ codigo_legado;numero_registro;fecha;importe;periodo;concepto
 CRE-1043;701;15/05/2026;1037,01;05/2026;Diferencia de inspección
 ```
 
+### actos.csv (opcional)
+**codigo_legado**, **numero_registro**, **periodo** (el mes de la DDJJ), **numero_escritura**, **naturaleza** (texto, hasta 500 caracteres), **importe** (aporte total del acto), declaracion (código de la DDJJ en el origen), tipo_protocolo (`GENERAL` o `AUXILIAR`), folio, fecha_acto, base_imponible, aporte_variable, aporte_fijo, exento (`SI` o `NO`), escribano (su `codigo_legado`), escribano_origen (el dato del origen si no se identifica), cargo (`TITULAR`, `ADSCRIPTO` o `A CARGO`), aporte_titular, aporte_adscripto, aporte_a_cargo.
+
+- Aporte variable más aporte fijo, si vienen, tienen que dar `importe`; los aportes por cargo, si vienen, también. Si no cierran al centavo, el acto no se carga.
+- El registro tiene que poder cargarse (en cascada, como boletas y créditos).
+- Un escribano que no está en el lote (o no se carga) **no** bloquea el acto: se carga con el dato del origen, «a completar».
+- Un escribano sin cargo en el registro durante el período (según `cargos.csv`) **no** se vincula al acto: el escribano vinculado lo ve en «Mis actos», así que ante la duda queda con el dato del origen y una advertencia. Pasa con quien estuvo a cargo de un registro ajeno si el lote no trae esa designación.
+- Se advierten (y se cargan igual): la fecha del acto fuera del período declarado o posterior a la corrida, un acto exento con aporte y el mismo número de escritura del protocolo en otro mes del mismo año.
+
+```
+codigo_legado;numero_registro;periodo;numero_escritura;naturaleza;importe;tipo_protocolo;folio;fecha_acto;base_imponible;aporte_variable;escribano;cargo;aporte_titular
+ACT-WEB-1;701;2026-08;5;Compraventa;88500,00;GENERAL;196;07/08/2026;22125000,00;88500,00;ESC-20123456786;TITULAR;88500,00
+```
+
 ### control.csv
-Columnas `entidad;filas;importe`, una fila por archivo (`registros`, `escribanos`, `cargos`, `boletas`, `pagos` y, si el lote los trae, `licencias` y `creditos`). `importe` es obligatorio para boletas, pagos y créditos: la suma que informa el sistema anterior (los créditos, en positivo).
+Columnas `entidad;filas;importe`, una fila por archivo (`registros`, `escribanos`, `cargos`, `boletas`, `pagos` y, si el lote los trae, `licencias`, `creditos` y `actos`). `importe` es obligatorio para boletas, pagos, créditos y actos: la suma que informa el sistema anterior (los créditos, en positivo; los actos, su aporte total).
 
 ```
 entidad;filas;importe
@@ -148,8 +171,9 @@ Un JSON con cuatro tablas que traducen los códigos del origen a los valores de 
 | Un cargo vigente por escribano (por su `codigo_legado`) y un titular vigente por registro | Bloqueante |
 | Cargo o licencia vigente de un escribano cesante, jubilado o fallecido | Bloqueante |
 | Licencias superpuestas del mismo escribano | Bloqueante (todas las filas en conflicto) |
-| Referencias (cargo → escribano y registro, licencia → escribano, boleta → registro, pago → boleta, crédito → registro) | Bloqueante, en cascada: si una fila no se carga, tampoco las que dependen de ella |
+| Referencias (cargo → escribano y registro, licencia → escribano, boleta → registro, pago → boleta, crédito → registro, acto → registro) | Bloqueante, en cascada: si una fila no se carga, tampoco las que dependen de ella |
 | Importe de un crédito en cero o negativo | Bloqueante |
+| Aportes de un acto que no cierran con su total (variable + fijo, o por cargo), montos negativos | Bloqueante |
 | DNI distinto del incluido en el CUIT (solo si vienen los dos), correo inválido, registro activo sin titular, vencimiento anterior a la emisión, pagos de boletas anuladas, pagos que no coinciden con el estado de la boleta, pagos o créditos con fecha posterior al día de la corrida, licencia o primera escritura anterior a la fecha de juramento, primera escritura incompleta o ilegible (el escribano se carga sin ella) | Advertencia: la fila se carga y queda para revisar |
 
 Las observaciones identifican la fila (línea del archivo) y su `codigo_legado`; no repiten datos personales.
@@ -162,7 +186,7 @@ Para cada archivo, la corrida cuadra cuando:
 2. **leído = cargado + rechazado:** toda fila no cargada tiene su observación bloqueante;
 3. el saldo de cada registro (boletas no anuladas menos pagos menos créditos) es el mismo en origen y destino. Un saldo negativo es un **saldo a favor** del escribano; el informe muestra cuántos registros quedan a favor y cuánto suman.
 
-Si el lote no trae `creditos.csv` o `licencias.csv`, esa entidad no figura en el informe. Las licencias cuadran por filas (no tienen importe).
+Si el lote no trae `creditos.csv`, `licencias.csv` o `actos.csv`, esa entidad no figura en el informe. Las licencias cuadran por filas (no tienen importe). Los actos cuadran en filas y aporte total, pero no entran en el saldo de los registros.
 
 Lo cargado se consulta a la base, no se toma de memoria. Ninguna diferencia se compensa: si algo no cuadra, el informe muestra cuánto y por qué.
 
@@ -171,6 +195,7 @@ Lo cargado se consulta a la base, no se toma de memoria. Ninguna diferencia se c
 - **Padrón** (registros y su domicilio vigente, personas, escribanos con su primera escritura, cargos y licencias): a las tablas operativas de la Suite. Lo que vino vacío queda «a completar» en la ficha; sin CUIT no se le puede crear la cuenta de autogestión hasta completarlo.
 - **Boletas y pagos:** a `historico_boletas` e `historico_pagos`, de solo lectura. No se convierten en boletas de la Suite, porque no tienen vigencia paramétrica ni conciliación y serían asientos ficticios. Cuentan como deuda (p. ej. para garantes de préstamos) y se consultan en el reporte «Boletas del sistema anterior».
 - **Créditos:** a `historico_creditos`, de solo lectura, y se consultan en el reporte «Créditos del sistema anterior». No se imputan a ninguna boleta: restan del saldo del registro.
+- **Actos:** a `historico_actos`, de solo lectura, tal como se declararon (no se recalcula nada). La Caja los consulta en el reporte «Actos del sistema anterior» y cada escribano en «Mis actos del sistema anterior» (los suyos y los de los registros donde tenía el cargo en esos meses: la DDJJ era del registro).
 - **Deuda para préstamos (garantes), fail-closed:** se calcula boleta por boleta. Cada boleta no anulada y vencida a la fecha de la evaluación debe su importe menos sus propios pagos con fecha hasta ese día (nunca menos de cero); un registro debe si esa suma es positiva. Lo pagado de más en una boleta no compensa otra, un pago con fecha posterior no cuenta y **los créditos a favor no reducen esta deuda**: siguen en el saldo de la cuadratura y en los reportes, pero no habilitan a nadie.
 
 **TODO(negocio):** decidir si el saldo a favor del sistema anterior compensa deuda (préstamos, garantes, boletas nuevas).

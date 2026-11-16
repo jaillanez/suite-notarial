@@ -489,12 +489,13 @@ def test_fechas_posteriores_a_la_corrida_se_advierten(lote: Callable[..., Path])
     )
     futuras = [o for o in st.observaciones if o.codigo == "FECHA_POSTERIOR_A_LA_CORRIDA"]
     assert futuras
-    assert {o.entidad for o in futuras} == {Entidad.PAGOS, Entidad.CREDITOS}
+    assert {o.entidad for o in futuras} == {Entidad.PAGOS, Entidad.CREDITOS, Entidad.ACTOS}
     assert all(o.severidad is Severidad.ADVERTENCIA for o in futuras)
     # Es una advertencia: las filas se cargan igual.
     assert st.bloqueantes() == 0
     assert len(st.pagos) == st.leidas["pagos"]
     assert len(st.creditos) == st.leidas["creditos"]
+    assert len(st.actos) == st.leidas["actos"]
     # Con la fecha de hoy (posterior al lote sintético), no hay advertencias.
     assert _validar(directorio).observaciones == []
 

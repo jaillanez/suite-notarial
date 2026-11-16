@@ -7,7 +7,7 @@ export type EstadoCorrida = 'EN_CURSO' | 'SIMULADA' | 'CARGADA' | 'FALLIDA'
 export type Area = 'TESORERIA' | 'CAJA'
 export type Severidad = 'BLOQUEANTE' | 'ADVERTENCIA'
 export type Entidad =
-  'registros' | 'escribanos' | 'cargos' | 'licencias' | 'boletas' | 'pagos' | 'creditos'
+  'registros' | 'escribanos' | 'cargos' | 'licencias' | 'boletas' | 'pagos' | 'creditos' | 'actos'
 
 export interface Conformidad {
   area: Area
