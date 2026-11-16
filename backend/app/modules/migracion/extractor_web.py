@@ -12,8 +12,11 @@ extraído de las planillas de la Caja, con su fila en `control.csv`.
 - El registro va por su número (`registro_notarial.numero`).
 - El escribano va por su CUIT contra `escribanos.csv` del lote. Si el CUIT no está (falta o
   difiere en las planillas de la Caja, a veces solo en el prefijo), por el documento que contiene
-  el CUIT y, si tampoco, por apellido y nombre del sitio; en los dos casos, solo si coinciden con
-  un único escribano. Si no, el acto lleva `escribano_origen` («a completar»).
+  el CUIT y, si tampoco, por apellido y nombre del sitio, solo si coinciden con un único
+  escribano. Esas coincidencias se listan para revisarlas y se asignan solo con
+  `--aceptar-coincidencias`: el escribano asignado ve el acto en «Mis actos». Si no, el acto lleva
+  `escribano_origen` («a completar»). Al migrar, además, un escribano sin cargo en el registro en
+  ese mes no queda vinculado al acto (ver la validación).
 
 No se toma nada más del sitio: ni contraseñas, ni usuarios, ni parámetros.
 """
@@ -56,7 +59,8 @@ class ResumenWeb:
     escribano_por_documento: int = 0
     escribano_por_nombre: int = 0
     escribano_a_completar: int = 0
-    # CUIT del sitio → escribano del lote, cuando no fue por CUIT (para revisar con la Caja).
+    # CUIT del sitio → escribano del lote que coincide por documento o por nombre. Se asigna solo
+    # con `aceptar_coincidencias` (revisadas antes); si no, el acto queda «a completar».
     asignados_por_documento: dict[str, str] = field(default_factory=dict)
     asignados_por_nombre: dict[str, str] = field(default_factory=dict)
     sin_identificar: Counter[str] = field(default_factory=Counter)
@@ -121,18 +125,65 @@ def _valores(texto: str, inicio: int) -> Iterator[tuple[list[str | None], int]]:
             i += 1
 
 
+def _sentencias(texto: str) -> Iterator[tuple[int, int]]:
+    """(inicio, fin) de cada sentencia, sin los comentarios que la preceden.
+
+    Recorre el texto una vez respetando textos entre comillas y comentarios: un `;` o un
+    «INSERT INTO» dentro de un valor de texto nunca abre ni cierra una sentencia.
+    """
+    i, n = 0, len(texto)
+    inicio: int | None = None
+    while i < n:
+        ch = texto[i]
+        if ch in "'\"`":
+            inicio = i if inicio is None else inicio
+            i += 1
+            while i < n and texto[i] != ch:
+                i += 2 if texto[i] == "\\" and ch != "`" else 1
+            if i >= n:
+                raise VolcadoInvalidoError("El volcado termina dentro de un texto.")
+        elif texto.startswith("--", i) and texto[i + 2 : i + 3] in ("", " ", "\t", "\r", "\n"):
+            fin = texto.find("\n", i)
+            i = n if fin < 0 else fin
+        elif texto.startswith("/*", i):
+            fin = texto.find("*/", i + 2)
+            if fin < 0:
+                raise VolcadoInvalidoError("El volcado termina dentro de un comentario.")
+            i = fin + 1
+        elif ch == ";":
+            if inicio is not None:
+                yield inicio, i
+            inicio = None
+        elif inicio is None and not ch.isspace():
+            inicio = i
+        i += 1
+    if inicio is not None and texto[inicio:].strip():
+        yield inicio, n
+
+
 def leer_volcado(texto: str, tablas: tuple[str, ...] = TABLAS) -> dict[str, list[dict[str, str]]]:
-    """Filas de las tablas pedidas (columna → valor; NULL como texto vacío)."""
+    """Filas de las tablas pedidas (columna → valor; NULL como texto vacío).
+
+    Solo cuenta un `INSERT INTO` al comienzo de una sentencia, y un `id` repetido en una tabla
+    invalida el volcado (no se elige una de las dos filas).
+    """
     salida: dict[str, list[dict[str, str]]] = {t: [] for t in tablas}
-    for m in _INSERT.finditer(texto):
-        tabla = m.group(1)
-        if tabla not in salida:
+    for inicio, fin in _sentencias(texto):
+        sentencia = texto[inicio:fin]
+        m = _INSERT.match(sentencia)
+        if m is None or m.group(1) not in salida:
             continue
+        tabla = m.group(1)
         columnas = [c.strip().strip("`") for c in m.group(2).split(",")]
-        for fila, _ in _valores(texto, m.end()):
+        for fila, _ in _valores(sentencia, m.end()):
             if len(fila) != len(columnas):
                 raise VolcadoInvalidoError(f"{tabla}: una fila no tiene {len(columnas)} valores.")
             salida[tabla].append({c: (v or "") for c, v in zip(columnas, fila, strict=True)})
+    for tabla, filas in salida.items():
+        ids = Counter(f["id"] for f in filas if "id" in f)
+        repetidos = sorted(i for i, veces in ids.items() if veces > 1)
+        if repetidos:
+            raise VolcadoInvalidoError(f"{tabla}: ids repetidos ({', '.join(repetidos[:5])}).")
     return salida
 
 
@@ -180,7 +231,10 @@ def _escribanos_del_lote(directorio: Path) -> _Escribanos:
 
 
 def extraer_actos(
-    volcado: dict[str, list[dict[str, str]]], lote_base: Path
+    volcado: dict[str, list[dict[str, str]]],
+    lote_base: Path,
+    *,
+    aceptar_coincidencias: bool = False,
 ) -> tuple[list[dict[str, str]], ResumenWeb]:
     resumen = ResumenWeb()
     lote = _escribanos_del_lote(lote_base)
@@ -222,24 +276,26 @@ def extraer_actos(
         declaraciones.add(ddjj["id"])
 
         cuit = re.sub(r"\D", "", a["idnotario"])
-        escribano, origen = lote.por_cuit.get(cuit, ""), ""
+        escribano = lote.por_cuit.get(cuit, "")
         por_documento = lote.por_documento.get(_documento(cuit), [])
+        por_nombre = lote.por_nombre.get(nombre_web.get(cuit, ""), [])
         if escribano:
             resumen.escribano_por_cuit += 1
         elif len(por_documento) == 1:
-            escribano = por_documento[0]
-            resumen.escribano_por_documento += 1
-            resumen.asignados_por_documento[cuit] = escribano
-        else:
-            candidatos = lote.por_nombre.get(nombre_web.get(cuit, ""), [])
-            if len(candidatos) == 1:
-                escribano = candidatos[0]
+            resumen.asignados_por_documento[cuit] = por_documento[0]
+            if aceptar_coincidencias:
+                escribano = por_documento[0]
+                resumen.escribano_por_documento += 1
+        elif len(por_nombre) == 1:
+            resumen.asignados_por_nombre[cuit] = por_nombre[0]
+            if aceptar_coincidencias:
+                escribano = por_nombre[0]
                 resumen.escribano_por_nombre += 1
-                resumen.asignados_por_nombre[cuit] = escribano
-            else:
-                origen = f"{texto_web.get(cuit, 'Sin nombre en el sitio')} (CUIT {cuit})"
-                resumen.escribano_a_completar += 1
-                resumen.sin_identificar[origen] += 1
+        origen = ""
+        if not escribano:
+            origen = f"{texto_web.get(cuit, 'Sin nombre en el sitio')} (CUIT {cuit})"
+            resumen.escribano_a_completar += 1
+            resumen.sin_identificar[origen] += 1
 
         titular = _monto(a["aporte_titular"])
         adscripto = _monto(a["aporte_adscripto"])
@@ -281,14 +337,16 @@ def extraer_actos(
     return filas, resumen
 
 
-def armar_lote(volcado_sql: Path, lote_base: Path, salida: Path) -> ResumenWeb:
+def armar_lote(
+    volcado_sql: Path, lote_base: Path, salida: Path, *, aceptar_coincidencias: bool = False
+) -> ResumenWeb:
     """Copia el lote base a `salida` y le agrega `actos.csv` con su fila de control."""
     if salida.exists() and any(salida.iterdir()):
         raise VolcadoInvalidoError(f"{salida} ya tiene archivos: se arma en un directorio vacío.")
     if (lote_base / "actos.csv").exists():
         raise VolcadoInvalidoError("El lote base ya trae actos.csv.")
     volcado = leer_volcado(volcado_sql.read_text(encoding="utf-8"))
-    filas, resumen = extraer_actos(volcado, lote_base)
+    filas, resumen = extraer_actos(volcado, lote_base, aceptar_coincidencias=aceptar_coincidencias)
 
     salida.mkdir(parents=True, exist_ok=True)
     for archivo in lote_base.iterdir():
@@ -321,8 +379,15 @@ def main(argumentos: list[str] | None = None) -> int:
     lector.add_argument("--volcado", type=Path, required=True, help="Volcado .sql del sitio")
     lector.add_argument("--lote-base", type=Path, required=True, help="Lote de las planillas")
     lector.add_argument("--salida", type=Path, required=True)
+    lector.add_argument(
+        "--aceptar-coincidencias",
+        action="store_true",
+        help="Asigna el escribano por documento o nombre (revisar antes la lista que se imprime)",
+    )
     args = lector.parse_args(argumentos)
-    r = armar_lote(args.volcado, args.lote_base, args.salida)
+    r = armar_lote(
+        args.volcado, args.lote_base, args.salida, aceptar_coincidencias=args.aceptar_coincidencias
+    )
     sys.stdout.write(
         f"actos: {r.actos} en {r.declaraciones} DDJJ presentadas, aporte {r.importe:.2f}\n"
         f"  no migrados: {r.borrados} borrados en el origen, {r.de_borradores} de borradores, "
@@ -331,10 +396,11 @@ def main(argumentos: list[str] | None = None) -> int:
         f"{r.escribano_por_documento}, por nombre: {r.escribano_por_nombre}, "
         f"a completar: {r.escribano_a_completar}\n"
     )
+    estado = "asignado" if args.aceptar_coincidencias else "propuesto, sin asignar"
     for cuit, codigo in sorted(r.asignados_por_documento.items()):
-        sys.stdout.write(f"  por documento: CUIT {cuit} del sitio → {codigo}\n")
+        sys.stdout.write(f"  por documento ({estado}): CUIT {cuit} del sitio → {codigo}\n")
     for cuit, codigo in sorted(r.asignados_por_nombre.items()):
-        sys.stdout.write(f"  por nombre: CUIT {cuit} del sitio → {codigo}\n")
+        sys.stdout.write(f"  por nombre ({estado}): CUIT {cuit} del sitio → {codigo}\n")
     for origen, cantidad in r.sin_identificar.most_common():
         sys.stdout.write(f"  a completar: {origen}: {cantidad}\n")
     return 0

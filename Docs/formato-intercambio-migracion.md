@@ -26,7 +26,7 @@ El sitio web anterior de la Caja guarda cada acto de las declaraciones juradas p
 
 Se agrega un archivo **opcional**, `actos.csv`, con las mismas reglas que los otros opcionales: si viene, `control.csv` trae la fila `actos` (filas y suma de `importe`), y si `control.csv` la trae, el archivo tiene que venir. Sin el archivo, la huella del lote no cambia. Los actos son **consulta**: cuadran en filas y aporte, pero no entran en los saldos (que salen de boletas, pagos y créditos).
 
-El extractor `python -m app.modules.migracion.extractor_web --volcado SQL --lote-base DIR --salida DIR` lee el volcado MySQL del sitio (sin ejecutar su SQL) y arma un lote nuevo: copia el lote base y le agrega `actos.csv` con su fila de control. Toma solo las DDJJ presentadas; deja afuera los actos borrados en el origen, los de borradores y los renglones vacíos (DDJJ sin movimiento). El escribano va por CUIT; si el CUIT no está en el lote base, por el documento que contiene el CUIT y después por apellido y nombre, siempre que coincidan con un único escribano; si no, queda «a completar» con el dato del sitio.
+El extractor `python -m app.modules.migracion.extractor_web --volcado SQL --lote-base DIR --salida DIR` lee el volcado MySQL del sitio (sin ejecutar su SQL) y arma un lote nuevo: copia el lote base y le agrega `actos.csv` con su fila de control. Toma solo las DDJJ presentadas; deja afuera los actos borrados en el origen, los de borradores y los renglones vacíos (DDJJ sin movimiento). El extractor reconoce un `INSERT` solo al comienzo de una sentencia (respeta textos y comentarios: un valor que contenga SQL no agrega filas) y rechaza el volcado si una tabla repite un `id`. El escribano va por CUIT. Si el CUIT no está en el lote base, propone la coincidencia por el documento que contiene el CUIT o por apellido y nombre (solo si es única) y la lista para revisarla; se asigna únicamente con `--aceptar-coincidencias`. Si no, queda «a completar» con el dato del sitio.
 
 ### Ajustes de la Caja tras revisar el padrón (compatibles con la versión 2)
 
@@ -125,6 +125,7 @@ CRE-1043;701;15/05/2026;1037,01;05/2026;Diferencia de inspección
 - Aporte variable más aporte fijo, si vienen, tienen que dar `importe`; los aportes por cargo, si vienen, también. Si no cierran al centavo, el acto no se carga.
 - El registro tiene que poder cargarse (en cascada, como boletas y créditos).
 - Un escribano que no está en el lote (o no se carga) **no** bloquea el acto: se carga con el dato del origen, «a completar».
+- Un escribano sin cargo en el registro durante el período (según `cargos.csv`) **no** se vincula al acto: el escribano vinculado lo ve en «Mis actos», así que ante la duda queda con el dato del origen y una advertencia. Pasa con quien estuvo a cargo de un registro ajeno si el lote no trae esa designación.
 - Se advierten (y se cargan igual): la fecha del acto fuera del período declarado o posterior a la corrida, un acto exento con aporte y el mismo número de escritura del protocolo en otro mes del mismo año.
 
 ```

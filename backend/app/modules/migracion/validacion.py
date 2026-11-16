@@ -14,6 +14,7 @@ retirado a uno nuevo. Es un dato informativo; identifica el CUIT.
 Las observaciones no llevan datos personales: identifican la fila y el código del origen.
 """
 
+import calendar
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -816,13 +817,27 @@ def _actos(lote: Lote, st: Staging) -> None:
     """Actos de las DDJJ presentadas en el sistema anterior (archivo opcional, de consulta).
 
     El acto se carga con su registro; un escribano que el origen no permite identificar entre
-    los migrados no lo bloquea (queda `escribano_origen`, a completar). Los repartos tienen que
-    cerrar al centavo con el aporte total: si no, el acto no se carga.
+    los migrados no lo bloquea (queda `escribano_origen`, a completar). Tampoco se vincula un
+    escribano sin cargo en el registro durante el período: el escribano vinculado ve el acto en
+    «Mis actos», así que ante la duda queda a completar. Los repartos tienen que cerrar al
+    centavo con el aporte total: si no, el acto no se carga.
     """
     filas = lote.filas[Entidad.ACTOS]
     codigos = _duplicados(filas, lambda f: f.codigo)
     registros = {r.numero for r in st.registros}
     escribanos = {e.codigo for e in st.escribanos}
+    cargos_de: dict[tuple[str, int], list[CargoN]] = defaultdict(list)
+    for c in st.cargos:
+        cargos_de[(c.escribano, c.numero_registro)].append(c)
+
+    def con_cargo(escribano: str, registro: int, periodo: str) -> bool:
+        anio, mes = int(periodo[:4]), int(periodo[5:7])
+        desde, hasta = date(anio, mes, 1), date(anio, mes, calendar.monthrange(anio, mes)[1])
+        return any(
+            (c.desde is None or c.desde <= hasta) and (c.hasta is None or c.hasta >= desde)
+            for c in cargos_de[(escribano, registro)]
+        )
+
     # (registro, protocolo, año, escritura) → períodos: la numeración es anual por protocolo.
     periodos_de: dict[tuple[int, str | None, str, int], set[str]] = defaultdict(set)
     candidatos: list[tuple[_Fila, ActoN]] = []
@@ -905,6 +920,20 @@ def _actos(lote: Lote, st: Staging) -> None:
                 "origen.",
                 Severidad.ADVERTENCIA,
             )
+        elif (
+            escribano is not None
+            and numero is not None
+            and periodo is not None
+            and not con_cargo(escribano, numero, periodo)
+        ):
+            f.observar(
+                "ESCRIBANO_SIN_CARGO",
+                "El escribano no tenía cargo en el registro ese mes: el acto no se le vincula y "
+                "queda con el dato del origen.",
+                Severidad.ADVERTENCIA,
+            )
+            escribano_origen = escribano_origen or escribano
+            escribano = None
         if f.bloqueada:
             _cerrar(st, Entidad.ACTOS, f, importe)
             continue

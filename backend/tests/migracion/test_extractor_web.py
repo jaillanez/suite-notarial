@@ -61,6 +61,7 @@ def base(lote: Callable[..., Path]) -> Path:
 def _volcado(base: Path, tmp_path: Path) -> Path:
     escribanos = _leer(base, "escribanos.csv")
     con_cuit = [e for e in escribanos if e["cuit"]]
+    # Los tres primeros son titular, adscripto y a cargo del registro 700 (con cargo en él).
     primero, segundo, tercero = con_cuit[0], con_cuit[1], con_cuit[2]
     # Nombre único en el lote (los sintéticos se repiten): el de la coincidencia por nombre.
     tercero["apellido"], tercero["nombre"] = "Únicoapellido", "Nombre Único"
@@ -92,8 +93,8 @@ def _volcado(base: Path, tmp_path: Path) -> Path:
             ["id", "idregistronotarial", "cuit_notario", "anio", "mes", "boleta_generada"],
             [
                 ["10", "1", primero["cuit"], "2026", "8", "1"],
-                ["11", "2", segundo["cuit"], "2026", "09", "1"],
-                ["12", "2", segundo["cuit"], "2026", "10", "0"],  # borrador
+                ["11", "1", segundo["cuit"], "2026", "09", "1"],
+                ["12", "1", segundo["cuit"], "2026", "10", "0"],  # borrador
             ],
         ),
         _insert(
@@ -261,9 +262,38 @@ def test_lee_los_insert_sin_ejecutarlos() -> None:
         extractor_web.leer_volcado("INSERT INTO `t` (`a`) VALUES ('sin cerrar", ("t",))
 
 
-def test_arma_el_lote_con_los_actos(base: Path, tmp_path: Path) -> None:
+def test_no_toma_insert_dentro_de_un_texto_ni_ids_repetidos() -> None:
+    falso = "x'); INSERT INTO `t` (`a`, `b`) VALUES ('99', 'inyectado'); -- "
+    texto = (
+        "-- Volcado de la tabla `t` (comentario con ' suelto)\n"  # noqa: S608
+        "/*!40101 SET NAMES utf8mb4 */;\n"
+        + _insert("t", ["a", "b"], [["1", falso], ["2", "a;b"]])
+        + "INSERT INTO `otra` (`a`) VALUES ('INSERT INTO `t` (`a`, `b`) VALUES (3, 4)');\n"
+    )
+    filas = extractor_web.leer_volcado(texto, ("t",))["t"]
+    assert filas == [{"a": "1", "b": falso}, {"a": "2", "b": "a;b"}]
+    repetido = _insert("t", ["id", "b"], [["1", "x"], ["1", "y"]])
+    with pytest.raises(extractor_web.VolcadoInvalidoError, match="ids repetidos"):
+        extractor_web.leer_volcado(repetido, ("t",))
+
+
+def test_sin_aceptar_coincidencias_quedan_a_completar(base: Path, tmp_path: Path) -> None:
     salida = tmp_path / "v5"
     resumen = extractor_web.armar_lote(_volcado(base, tmp_path), base, salida)
+    # Se proponen (para revisar) pero no se asignan: el escribano asignado vería el acto.
+    assert len(resumen.asignados_por_documento) == len(resumen.asignados_por_nombre) == 1
+    assert (resumen.escribano_por_documento, resumen.escribano_por_nombre) == (0, 0)
+    assert resumen.escribano_a_completar == 3
+    actos = {a["codigo_legado"]: a for a in _leer(salida, "actos.csv")}
+    assert actos["ACT-WEB-2"]["escribano"] == ""
+    assert actos["ACT-WEB-2"]["escribano_origen"].endswith(")")
+
+
+def test_arma_el_lote_con_los_actos(base: Path, tmp_path: Path) -> None:
+    salida = tmp_path / "v5"
+    resumen = extractor_web.armar_lote(
+        _volcado(base, tmp_path), base, salida, aceptar_coincidencias=True
+    )
     assert (resumen.actos, resumen.declaraciones) == (4, 2)
     assert (resumen.borrados, resumen.de_borradores, resumen.vacios) == (1, 1, 1)
     assert resumen.escribano_por_cuit == 1
@@ -317,8 +347,9 @@ def test_no_pisa_un_lote(base: Path, lote: Callable[..., Path], tmp_path: Path) 
 
 def test_consola(base: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     volcado = _volcado(base, tmp_path)
-    argumentos = ["--volcado", str(volcado), "--lote-base", str(base)]
+    argumentos = ["--volcado", str(volcado), "--lote-base", str(base), "--aceptar-coincidencias"]
     assert extractor_web.main([*argumentos, "--salida", str(tmp_path / "v5")]) == 0
     salida = capsys.readouterr().out
     assert "actos: 4 en 2 DDJJ presentadas" in salida
     assert "a completar: Desconocido, Nadie (CUIT 20888888885): 1" in salida
+    assert "por nombre (asignado): CUIT 20999999993" in salida

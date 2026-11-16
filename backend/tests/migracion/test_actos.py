@@ -123,6 +123,8 @@ def test_reglas_de_cada_acto(lote: Callable[..., Path]) -> None:
         "ACT-FUERA": {"fecha_acto": "2026-01-05"},
         "ACT-EXENTO-CON-APORTE": {"exento": "SI"},
         "ACT-A-CARGO": {"cargo": "A Cargo", "escribano": "", "escribano_origen": "20123456786"},
+        # El escribano no tenía cargo en ese registro: no se le vincula el acto.
+        "ACT-SIN-CARGO": {"numero_registro": "701", "numero_escritura": "999"},
     }
     filas = [{**base, "codigo_legado": codigo, **cambios} for codigo, cambios in casos.items()]
     # La misma escritura del protocolo en otro mes del mismo año.
@@ -142,7 +144,10 @@ def test_reglas_de_cada_acto(lote: Callable[..., Path]) -> None:
     assert ("ACT-EXENTO-CON-APORTE", "EXENTO_CON_APORTE") in advertencias
     assert ("ACT-A-CARGO", "ESCRIBANO_A_COMPLETAR") in advertencias
     assert ("ACT-OTRO-MES", "ESCRITURA_EN_OTRO_PERIODO") in advertencias
+    assert ("ACT-SIN-CARGO", "ESCRIBANO_SIN_CARGO") in advertencias
     cargados = {a.codigo: a for a in st.actos}
+    assert cargados["ACT-SIN-CARGO"].escribano is None
+    assert cargados["ACT-SIN-CARGO"].escribano_origen == base["escribano"]
     assert cargados["ACT-A-CARGO"].cargo == "SUPLENTE_INTERINO"
     assert cargados["ACT-EXENTO-CON-APORTE"].exento is True
     assert {"ACT-NO-CUADRA", "ACT-PROTOCOLO", "ACT-NEGATIVO", "ACT-EXENTO"}.isdisjoint(cargados)
