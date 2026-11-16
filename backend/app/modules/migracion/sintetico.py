@@ -14,11 +14,16 @@ Algunos registros traen créditos a favor del escribano (`creditos.csv`, como la
 inspección del origen) y uno queda con saldo a favor; con `creditos=False` el lote no trae ese
 archivo opcional, como un lote anterior a su incorporación.
 
+Cada registro trae los actos declarados de sus últimos tres meses (`actos.csv`, opcional: uno con
+base imponible y aporte variable y otro de aporte fijo, del titular); con `actos=False` el lote no
+trae ese archivo. Los importes son de prueba, no los de la Caja.
+
 Con `defectos=True` se inyectan problemas conocidos (un CUIT inválido, un CUIT repetido, un
 importe con decimales de punto flotante, un estado sin homologar, dos titulares vigentes, un
 pago de una boleta inexistente, un crédito en cero, uno de un registro rechazado, una licencia
-de un escribano rechazado y dos licencias superpuestas) para ver la validación y la cuadratura
-con rechazos. Una matrícula repetida NO es un defecto: el Colegio reasigna matrículas.
+de un escribano rechazado, dos licencias superpuestas, un acto cuyo reparto no cuadra, uno de un
+registro rechazado y uno de un escribano que no está en el lote) para ver la validación y la
+cuadratura con rechazos. Una matrícula repetida NO es un defecto: el Colegio reasigna matrículas.
 """
 
 import csv
@@ -50,6 +55,7 @@ class Resumen:
     pagos: int
     creditos: int = 0
     licencias: int = 0
+    actos: int = 0
 
 
 def _cuit(dni: int, rng: random.Random) -> str:
@@ -96,10 +102,13 @@ def generar(
     defectos: bool = False,
     creditos: bool = True,
     licencias: bool = True,
+    actos: bool = True,
     hasta: date = date(2026, 9, 30),
 ) -> Resumen:
     """Escribe un lote completo en `directorio` y devuelve cuántas filas tiene cada archivo."""
     rng = random.Random(semilla)  # noqa: S311 - datos de prueba, no criptografía
+    # Aparte: los actos no cambian el resto del lote respecto de uno sin actos.
+    rng_actos = random.Random(semilla + 1)  # noqa: S311 - datos de prueba, no criptografía
     directorio.mkdir(parents=True, exist_ok=True)
 
     filas_reg: list[dict[str, str]] = []
@@ -109,6 +118,7 @@ def generar(
     filas_pag: list[dict[str, str]] = []
     filas_cre: list[dict[str, str]] = []
     filas_lic: list[dict[str, str]] = []
+    filas_act: list[dict[str, str]] = []
     matricula = MATRICULA_BASE
     for i in range(registros):
         numero = REGISTRO_BASE + i
@@ -128,6 +138,8 @@ def generar(
         for cargo in ("T", *(("A",) if i % 3 == 0 else ()), *(("AC",) if i % 7 == 0 else ())):
             matricula += 1
             dni = DNI_BASE + matricula
+            if cargo == "T":
+                titular = f"ESC-{matricula}"
             n = len(filas_esc)
             # Datos que el origen no tiene (quedan «a completar»); nunca en los primeros tres,
             # que usan los defectos.
@@ -228,6 +240,42 @@ def generar(
                             "medio": "Transferencia",
                         }
                     )
+        # Actos de los últimos tres meses: uno con base imponible y otro de aporte fijo.
+        for k in range(min(3, periodos) if actos else 0):
+            mes = (hasta.replace(day=1) - timedelta(days=31 * k)).replace(day=1)
+            base = Decimal(rng_actos.randint(5_000_000, 40_000_000))
+            variable = Decimal(rng_actos.randint(20_000, 160_000))
+            fijo = Decimal(rng_actos.randint(5_000, 40_000))
+            for orden, (naturaleza, base_acto, var, fij, aporte) in enumerate(
+                (
+                    ("Compraventa", base, variable, None, variable),
+                    ("Poder general", None, None, fijo, fijo),
+                )
+            ):
+                filas_act.append(
+                    {
+                        "codigo_legado": f"ACT-{numero}-{mes:%Y%m}-{orden}",
+                        "numero_registro": str(numero),
+                        "periodo": f"{mes:%m/%Y}",
+                        "numero_escritura": str(10 * (12 - k) + orden),
+                        "naturaleza": naturaleza,
+                        "importe": _importe(aporte),
+                        "declaracion": f"DJ-{numero}-{mes:%Y%m}",
+                        "tipo_protocolo": "GENERAL" if orden == 0 else "AUXILIAR",
+                        "folio": str(100 + 10 * k + orden),
+                        "fecha_acto": _fecha(mes.replace(day=10 + orden)),
+                        "base_imponible": _importe(base_acto) if base_acto is not None else "",
+                        "aporte_variable": _importe(var) if var is not None else "",
+                        "aporte_fijo": _importe(fij) if fij is not None else "",
+                        "exento": "NO",
+                        "escribano": titular,
+                        "escribano_origen": "",
+                        "cargo": "TITULAR",
+                        "aporte_titular": _importe(aporte),
+                        "aporte_adscripto": "",
+                        "aporte_a_cargo": "",
+                    }
+                )
         # Diferencias de inspección a favor del escribano, en uno de cada cuatro registros
         # (rng aparte: no cambia el resto del lote respecto de uno sin créditos).
         if creditos and i % 4 == 1:
@@ -309,6 +357,25 @@ def generar(
                         "motivo": "",
                     }
                 )
+        if actos:
+            # Reparto que no cuadra con el total, acto de un registro rechazado (cae en
+            # cascada) y uno de un escribano que no está en el lote (se carga, a completar).
+            filas_act[0]["aporte_titular"] = "1,00"
+            registro_rechazado = filas_reg[4]["numero_registro"]
+            filas_act.append(
+                {
+                    **filas_act[1],
+                    "codigo_legado": "ACT-REGISTRO-RECHAZADO",
+                    "numero_registro": registro_rechazado,
+                }
+            )
+            filas_act.append(
+                {
+                    **filas_act[1],
+                    "codigo_legado": "ACT-ESCRIBANO-DESCONOCIDO",
+                    "escribano": "ESC-NO-MIGRADO",
+                }
+            )
         filas_bol[3]["importe"] = "123456.789"
         filas_reg[4]["estado"] = "ZZ"
         filas_car.append(
@@ -340,6 +407,8 @@ def generar(
     _escribir(directorio, Entidad.PAGOS, filas_pag)
     if creditos:
         _escribir(directorio, Entidad.CREDITOS, filas_cre)
+    if actos:
+        _escribir(directorio, Entidad.ACTOS, filas_act)
 
     def total(filas: list[dict[str, str]]) -> str:
         # El sistema anterior suma lo que tiene, incluso un importe con decimales de más: la
@@ -358,6 +427,8 @@ def generar(
         writer.writerow([Entidad.PAGOS.value, len(filas_pag), total(filas_pag)])
         if creditos:
             writer.writerow([Entidad.CREDITOS.value, len(filas_cre), total(filas_cre)])
+        if actos:
+            writer.writerow([Entidad.ACTOS.value, len(filas_act), total(filas_act)])
     return Resumen(
         len(filas_reg),
         len(filas_esc),
@@ -366,4 +437,5 @@ def generar(
         len(filas_pag),
         len(filas_cre),
         len(filas_lic),
+        len(filas_act),
     )

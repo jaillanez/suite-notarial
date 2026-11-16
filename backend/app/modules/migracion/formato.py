@@ -23,6 +23,10 @@ la primera escritura (`primera_escritura_fecha`, `_numero`, `_registro`, `_folio
 detalle va en `redondeos.csv`). Con ella, la cuadratura exige control = leído - ajuste
 redondeado al centavo: la diferencia de centavos queda explicada fila por fila, no compensada.
 
+`actos.csv` es opcional (agregado a la versión 2): cada acto de las declaraciones juradas que el
+sistema anterior tiene presentadas, uno por renglón, con su aporte total en `importe`. Si viene,
+`control.csv` declara sus filas y la suma de `importe`.
+
 `boletas.csv` admite `escribano_origen` (nombre de quien pagó, tal como figura en el origen):
 con él, `numero_registro` puede faltar y la boleta se carga «registro a completar».
 """
@@ -94,6 +98,35 @@ COLUMNAS: dict[Entidad, tuple[tuple[str, ...], tuple[str, ...]]] = {
     Entidad.CREDITOS: (
         ("codigo_legado", "numero_registro", "fecha", "importe"),
         ("periodo", "concepto"),
+    ),
+    # Un acto declarado: `importe` es su aporte total (variable + fijo = titular + adscripto +
+    # a cargo, si vienen). El escribano por su `codigo_legado`; si el origen no lo identifica,
+    # `escribano_origen` con el dato tal como figura.
+    Entidad.ACTOS: (
+        (
+            "codigo_legado",
+            "numero_registro",
+            "periodo",
+            "numero_escritura",
+            "naturaleza",
+            "importe",
+        ),
+        (
+            "declaracion",
+            "tipo_protocolo",
+            "folio",
+            "fecha_acto",
+            "base_imponible",
+            "aporte_variable",
+            "aporte_fijo",
+            "exento",
+            "escribano",
+            "escribano_origen",
+            "cargo",
+            "aporte_titular",
+            "aporte_adscripto",
+            "aporte_a_cargo",
+        ),
     ),
 }
 COLUMNAS_CONTROL = ("entidad", "filas", "importe")

@@ -39,6 +39,7 @@ from app.modules.migracion.homologacion import EJEMPLO
 from app.modules.migracion.models import (
     Conformidad,
     Corrida,
+    HistoricoActo,
     HistoricoBoleta,
     HistoricoCredito,
     HistoricoPago,
@@ -55,6 +56,7 @@ TABLAS_CONTADAS = (
     HistoricoBoleta,
     HistoricoPago,
     HistoricoCredito,
+    HistoricoActo,
 )
 
 

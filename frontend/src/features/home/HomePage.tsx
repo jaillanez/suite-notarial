@@ -57,6 +57,12 @@ const SECTIONS: Section[] = [
     permission: 'boletas:read_own',
   },
   {
+    to: '/reportes/MIS_ACTOS_HISTORICOS',
+    title: 'Actos del sistema anterior',
+    description: 'Lo que se declaró acto por acto en el sitio anterior de la Caja.',
+    permission: 'ddjj:read_own',
+  },
+  {
     to: '/prestamos',
     title: 'Préstamos',
     description: 'Simulación, solicitudes, otorgamiento y cobro de cuotas.',

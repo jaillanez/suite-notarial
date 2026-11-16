@@ -17,6 +17,7 @@ def test_genera_un_lote_sintetico(tmp_path: Path, capsys: pytest.CaptureFixture[
         "boletas.csv",
         "pagos.csv",
         "creditos.csv",
+        "actos.csv",
         "control.csv",
     }
     assert "Lote sintético" in capsys.readouterr().out

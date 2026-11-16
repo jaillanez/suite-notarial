@@ -21,6 +21,7 @@ from app.modules.iam.models import (
 from app.modules.migracion.models import (
     Conformidad,
     Corrida,
+    HistoricoActo,
     HistoricoBoleta,
     HistoricoCredito,
     HistoricoPago,
@@ -65,6 +66,7 @@ __all__ = [
     "Ejercicio",
     "Escribano",
     "HistorialEstado",
+    "HistoricoActo",
     "HistoricoBoleta",
     "HistoricoCredito",
     "HistoricoPago",

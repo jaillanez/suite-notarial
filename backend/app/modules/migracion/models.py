@@ -11,6 +11,8 @@
   negativos de su libro de pagos, casi todos diferencias de inspección). Restan del saldo del
   registro (cuadratura y reportes), que puede quedar a favor; no reducen la deuda que se
   evalúa para préstamos y garantes.
+- `historico_actos`: cada acto de las declaraciones juradas presentadas en el sistema anterior
+  (la DDJJ «por acto» del Anexo I). Es consulta: los saldos salen de boletas, pagos y créditos.
 
 Todo es inmutable por trigger; el histórico solo admite INSERT dentro de una carga de migración
 (`SET LOCAL suite.migracion = 'on'`).
@@ -233,6 +235,70 @@ class HistoricoCredito(UUIDMixin, Base):
     periodo: Mapped[str | None] = mapped_column(String(7))
     importe: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     concepto: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class HistoricoActo(UUIDMixin, Base):
+    """Acto de una DDJJ presentada en el sistema anterior, tal como se declaró.
+
+    `importe` es el aporte total del acto; las columnas de aporte por cargo, si el origen las
+    trae, suman lo mismo (validado al migrar). No se recalcula nada: es lo que se declaró.
+    """
+
+    __tablename__ = "historico_actos"
+    __table_args__ = (
+        CheckConstraint("importe >= 0", name="importe"),
+        CheckConstraint(
+            "coalesce(base_imponible, 0) >= 0 AND coalesce(aporte_variable, 0) >= 0 "
+            "AND coalesce(aporte_fijo, 0) >= 0 AND coalesce(aporte_titular, 0) >= 0 "
+            "AND coalesce(aporte_adscripto, 0) >= 0 AND coalesce(aporte_a_cargo, 0) >= 0",
+            name="montos_no_negativos",
+        ),
+        CheckConstraint(
+            "tipo_protocolo IS NULL OR tipo_protocolo IN ('GENERAL', 'AUXILIAR')",
+            name="tipo_protocolo_valido",
+        ),
+        CheckConstraint(
+            "cargo IS NULL OR cargo IN ('TITULAR', 'ADSCRIPTO', 'SUPLENTE_INTERINO')",
+            name="cargo_valido",
+        ),
+        Index("ix_historico_actos_registro_periodo", "registro_id", "periodo"),
+        Index("ix_historico_actos_escribano_periodo", "escribano_id", "periodo"),
+    )
+
+    corrida_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("migracion_corridas.id", ondelete="RESTRICT"), nullable=False
+    )
+    codigo_legado: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    # La declaración del origen que lo contiene (agrupa los actos de una misma DDJJ).
+    declaracion_legado: Mapped[str | None] = mapped_column(String(100))
+    registro_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("padron_registros_notariales.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    # None: el origen no identifica a un escribano migrado; queda `escribano_origen`.
+    escribano_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("padron_escribanos.id", ondelete="RESTRICT")
+    )
+    escribano_origen: Mapped[str | None] = mapped_column(String(200))
+    cargo: Mapped[str | None] = mapped_column(String(20))
+    periodo: Mapped[str] = mapped_column(String(7), nullable=False)
+    fecha_acto: Mapped[date | None] = mapped_column(Date)
+    tipo_protocolo: Mapped[str | None] = mapped_column(String(20))
+    numero_escritura: Mapped[int] = mapped_column(Integer, nullable=False)
+    folio: Mapped[int | None] = mapped_column(Integer)
+    naturaleza: Mapped[str] = mapped_column(String(500), nullable=False)
+    exento: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    base_imponible: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    aporte_variable: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    aporte_fijo: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    aporte_titular: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    aporte_adscripto: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    aporte_a_cargo: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    importe: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

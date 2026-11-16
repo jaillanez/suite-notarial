@@ -158,7 +158,7 @@ async def test_mis_aportes_solo_las_propias(
     notario: AsyncClient, auditor: AsyncClient, datos: dict[str, Any], escenario: Escenario
 ) -> None:
     disponibles = [r["codigo"] for r in (await notario.get("/api/v1/reportes")).json()]
-    assert disponibles == ["MIS_APORTES"]
+    assert disponibles == ["MIS_APORTES", "MIS_ACTOS_HISTORICOS"]
     mias = await _pantalla(notario, "MIS_APORTES")
     assert [f["boleta"] for f in mias["filas"]] == [
         str(datos["pendiente"]["numero"]),

@@ -34,7 +34,12 @@ from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
-from app.modules.migracion.models import HistoricoBoleta, HistoricoCredito, HistoricoPago
+from app.modules.migracion.models import (
+    HistoricoActo,
+    HistoricoBoleta,
+    HistoricoCredito,
+    HistoricoPago,
+)
 from app.modules.padron.catalog import DEPARTAMENTOS_SAN_JUAN, Cargo, EstadoMatricula
 from app.modules.padron.models import (
     Adscripcion,
@@ -1325,6 +1330,133 @@ CREDITOS_HISTORICOS = Reporte(
 )
 
 
+# --------------------------------------------------------------- actos del sistema anterior
+
+PROTOCOLO_TEXTO = {"GENERAL": "General", "AUXILIAR": "Auxiliar"}
+
+
+def _actos_historicos_base(f: Filtros) -> Consulta:
+    persona = aliased(Persona)
+    escribano = aliased(Escribano)
+    stmt = (
+        select(
+            HistoricoActo.periodo.label("periodo"),
+            RegistroNotarial.numero_registro.label("registro"),
+            func.coalesce(_nombre(persona), HistoricoActo.escribano_origen).label("escribano"),
+            case(CARGO_TEXTO, value=HistoricoActo.cargo, else_=HistoricoActo.cargo).label("cargo"),
+            case(
+                PROTOCOLO_TEXTO,
+                value=HistoricoActo.tipo_protocolo,
+                else_=HistoricoActo.tipo_protocolo,
+            ).label("protocolo"),
+            HistoricoActo.numero_escritura.label("escritura"),
+            HistoricoActo.folio.label("folio"),
+            HistoricoActo.fecha_acto.label("fecha_acto"),
+            HistoricoActo.naturaleza.label("naturaleza"),
+            case((HistoricoActo.exento, "Sí"), else_="No").label("exento"),
+            HistoricoActo.base_imponible.label("base_imponible"),
+            HistoricoActo.aporte_variable.label("aporte_variable"),
+            HistoricoActo.aporte_fijo.label("aporte_fijo"),
+            HistoricoActo.importe.label("aporte"),
+            HistoricoActo.declaracion_legado.label("declaracion"),
+            HistoricoActo.codigo_legado.label("codigo_legado"),
+        )
+        .join(RegistroNotarial, RegistroNotarial.id == HistoricoActo.registro_id)
+        .outerjoin(escribano, escribano.id == HistoricoActo.escribano_id)
+        .outerjoin(persona, persona.id == escribano.persona_id)
+    )
+    if "naturaleza" in f:
+        stmt = stmt.where(func.lower(HistoricoActo.naturaleza).like(f"%{f['naturaleza'].lower()}%"))
+    if "protocolo" in f:
+        stmt = stmt.where(HistoricoActo.tipo_protocolo == f["protocolo"])
+    if "escritura" in f:
+        stmt = stmt.where(HistoricoActo.numero_escritura == f["escritura"])
+    stmt = _rango_periodos(stmt, HistoricoActo.periodo, f)
+    return stmt.order_by(
+        HistoricoActo.periodo.desc(),
+        RegistroNotarial.numero_registro,
+        HistoricoActo.tipo_protocolo,
+        HistoricoActo.numero_escritura,
+        HistoricoActo.id,
+    )
+
+
+def _actos_historicos(f: Filtros) -> Consulta:
+    stmt = _actos_historicos_base(f)
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    if "escribano" in f:
+        texto = f"%{f['escribano'].lower()}%"
+        stmt = stmt.where(func.lower(stmt.selected_columns.escribano).like(texto))
+    return stmt
+
+
+def _mis_actos_historicos(f: Filtros) -> Consulta:
+    # Sin escribano (p. ej. al armar la consulta sin sesión) no hay filas.
+    propio = f.get(ESCRIBANO_PROPIO, SIN_ESCRIBANO)
+    return _actos_historicos_base(f).where(
+        or_(
+            HistoricoActo.escribano_id == propio,
+            # En el sistema anterior la DDJJ era del registro: los meses en que tenía el cargo.
+            _con_cargo(HistoricoActo.registro_id, HistoricoActo.periodo, Escribano.id == propio),
+        )
+    )
+
+
+_COLUMNAS_ACTOS_HISTORICOS = (
+    Columna("periodo", "Período", Tipo.PERIODO),
+    Columna("registro", "Registro", Tipo.ENTERO),
+    Columna("escribano", "Escribano", vacio="A completar"),
+    Columna("cargo", "Cargo", visible=False, vacio="—"),
+    Columna("protocolo", "Protocolo", visible=False, vacio="—"),
+    Columna("escritura", "Escritura", Tipo.ENTERO),
+    Columna("folio", "Folio", Tipo.ENTERO, visible=False, vacio="—"),
+    Columna("fecha_acto", "Fecha", Tipo.FECHA, vacio="—"),
+    Columna("naturaleza", "Naturaleza"),
+    Columna("exento", "Exento", visible=False),
+    Columna("base_imponible", "Base imponible", Tipo.MONEDA, total=True),
+    Columna("aporte_variable", "Aporte", Tipo.MONEDA, total=True, visible=False),
+    Columna("aporte_fijo", "Aporte fijo", Tipo.MONEDA, total=True, visible=False),
+    Columna("aporte", "Aporte total", Tipo.MONEDA, total=True),
+    Columna("declaracion", "DDJJ en el sistema anterior", visible=False, vacio="—"),
+    Columna("codigo_legado", "Código en el sistema anterior", visible=False),
+)
+_FILTROS_ACTOS_HISTORICOS = (
+    *PERIODOS,
+    Filtro("naturaleza", "Naturaleza", TipoFiltro.TEXTO, ayuda="Compraventa, poder, …"),
+    Filtro("protocolo", "Protocolo", TipoFiltro.OPCIONES, tuple(PROTOCOLO_TEXTO.items())),
+    Filtro("escritura", "N° de escritura", TipoFiltro.ENTERO),
+)
+
+ACTOS_HISTORICOS = Reporte(
+    codigo="ACTOS_HISTORICOS",
+    construir=_actos_historicos,
+    titulo="Actos del sistema anterior",
+    descripcion="Histórico migrado, de solo lectura: cada acto de las declaraciones juradas "
+    "presentadas en el sistema anterior, tal como se declaró, con su base y su aporte. Los "
+    "saldos salen de las boletas, no de esta lista.",
+    permiso=Perm.REPORTS_FINANCIAL,
+    columnas=_COLUMNAS_ACTOS_HISTORICOS,
+    filtros=(
+        *_FILTROS_ACTOS_HISTORICOS,
+        Filtro("registro", "N° de registro", TipoFiltro.ENTERO),
+        Filtro("escribano", "Escribano", TipoFiltro.TEXTO, ayuda="Apellido o nombre"),
+    ),
+)
+
+MIS_ACTOS_HISTORICOS = Reporte(
+    codigo="MIS_ACTOS_HISTORICOS",
+    construir=_mis_actos_historicos,
+    titulo="Mis actos del sistema anterior",
+    descripcion="Los actos que declaraste en el sistema anterior y los de los registros donde "
+    "tenías el cargo de titular o adscripto, en esos meses (la declaración era del registro).",
+    permiso=Perm.DDJJ_READ_OWN,
+    propio=True,
+    columnas=_COLUMNAS_ACTOS_HISTORICOS,
+    filtros=_FILTROS_ACTOS_HISTORICOS,
+)
+
+
 REPORTES: dict[str, Reporte] = {
     r.codigo: r
     for r in (
@@ -1337,9 +1469,11 @@ REPORTES: dict[str, Reporte] = {
         RECAUDACION,
         BOLETAS_HISTORICAS,
         CREDITOS_HISTORICOS,
+        ACTOS_HISTORICOS,
         AUDITORIA,
         SUGERENCIAS_IA,
         PUNTOS_EJERCICIOS,
         MIS_APORTES,
+        MIS_ACTOS_HISTORICOS,
     )
 }
