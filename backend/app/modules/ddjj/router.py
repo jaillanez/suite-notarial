@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from app.common.dates import today_local
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
-from app.modules.ddjj import pdf, protocolo, service, vademecum
+from app.modules.ddjj import pdf, planilla, protocolo, service, vademecum
 from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
@@ -38,9 +38,13 @@ from app.modules.ddjj.schemas import (
     LiquidacionBoletaOut,
     LiquidacionOut,
     Periodo,
+    PlanillaOut,
     PresentarIn,
+    ProtocoloPlanillaOut,
     RegistroOperable,
     RegistroResumen,
+    RenglonPlanillaOut,
+    TotalesPlanillaOut,
     TramoMoraOut,
     TramoOut,
     VademecumAprobacionIn,
@@ -562,6 +566,93 @@ async def liquidacion(
         avisos=pre.avisos,
         usa_valores_de_ejemplo=pre.usa_valores_de_ejemplo,
         criterio_pluralidad=pre.pluralidad.criterio if pre.pluralidad else None,
+    )
+
+
+def totales_out(t: planilla.Totales) -> TotalesPlanillaOut:
+    return TotalesPlanillaOut(
+        aporte_variable=t.aporte_variable,
+        aporte_fijo=t.aporte_fijo,
+        titular=t.por_cargo[Cargo.TITULAR],
+        adscripto=t.por_cargo[Cargo.ADSCRIPTO],
+        a_cargo=t.por_cargo[Cargo.SUPLENTE_INTERINO],
+        total=t.total,
+    )
+
+
+def planilla_out(datos: service.DatosPlanilla) -> PlanillaOut:
+    d = datos.ddjj
+    return PlanillaOut(
+        ddjj_id=d.id,
+        registro_numero=datos.registro.numero_registro,
+        periodo=d.periodo,
+        estado=EstadoDDJJ(d.estado),
+        numero_rectificativa=d.numero_rectificativa,
+        fecha_presentacion=d.fecha_presentacion,
+        titulares=datos.equipo[Cargo.TITULAR],
+        adscriptos=datos.equipo[Cargo.ADSCRIPTO],
+        a_cargo=datos.equipo[Cargo.SUPLENTE_INTERINO],
+        protocolos=[
+            ProtocoloPlanillaOut(
+                tipo=p.tipo,
+                renglones=[
+                    RenglonPlanillaOut(
+                        acto_id=r.acto_id,
+                        numero_escritura=r.numero_escritura,
+                        orden_en_escritura=r.orden_en_escritura,
+                        folio=r.folio,
+                        naturaleza=r.naturaleza,
+                        categoria=r.categoria,
+                        motivo_exencion=r.motivo_exencion,
+                        detalle_exencion=r.detalle_exencion,
+                        base_imponible=r.base_imponible,
+                        aporte_variable=r.aporte_variable,
+                        aporte_fijo=r.aporte_fijo,
+                        escribano=r.escribano,
+                        cargo=r.cargo,
+                        aporte=r.aporte,
+                        incluido_en_otro=r.incluido_en_otro,
+                    )
+                    for r in p.renglones
+                ],
+                totales=totales_out(p.totales),
+                escrituras_desde=p.escrituras_desde,
+                escrituras_hasta=p.escrituras_hasta,
+                folios_desde=p.folios_desde,
+                folios_hasta=p.folios_hasta,
+            )
+            for p in datos.planilla.protocolos
+        ],
+        totales=totales_out(datos.planilla.totales),
+        sin_aportes=datos.sin_aportes,
+        reemplazada_por=datos.reemplazada_por,
+    )
+
+
+@router.get("/declaraciones/{ddjj_id}/planilla", response_model=PlanillaOut)
+async def ver_planilla(ddjj_id: uuid.UUID, principal: CanRead, session: SessionDep) -> PlanillaOut:
+    """La DDJJ con el formato de la planilla de la Caja: protocolos general y auxiliar y resumen.
+    Es la misma información que imprime el PDF."""
+    return planilla_out(await service.datos_planilla(session, principal, ddjj_id))
+
+
+@router.get("/declaraciones/{ddjj_id}/pdf")
+async def planilla_pdf(
+    ddjj_id: uuid.UUID, principal: CanRead, session: SessionDep, settings: SettingsDep
+) -> Response:
+    """La Declaración Jurada de Aportes en PDF, con el formato de la planilla y el juramento."""
+    datos = await service.datos_planilla(session, principal, ddjj_id)
+    contenido = await pdf.render_planilla_pdf_async(settings, planilla_out(datos))
+    nombre = f"ddjj-registro-{datos.registro.numero_registro}-{datos.ddjj.periodo}"
+    if datos.ddjj.numero_rectificativa:
+        nombre += f"-rect{datos.ddjj.numero_rectificativa}"
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{nombre}.pdf"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

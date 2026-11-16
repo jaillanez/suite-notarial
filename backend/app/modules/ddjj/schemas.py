@@ -422,3 +422,60 @@ class VademecumOut(BaseModel):
     created_by_user_id: uuid.UUID
     aprobado_por_user_id: uuid.UUID | None
     created_at: datetime
+
+
+class RenglonPlanillaOut(BaseModel):
+    acto_id: uuid.UUID | None
+    numero_escritura: int
+    orden_en_escritura: int
+    folio: int | None
+    naturaleza: str
+    categoria: CategoriaActo
+    motivo_exencion: MotivoExencion | None
+    detalle_exencion: str | None
+    base_imponible: Money | None
+    aporte_variable: Money | None
+    aporte_fijo: Money | None
+    escribano: str
+    cargo: Cargo
+    aporte: Money | None
+    incluido_en_otro: bool
+
+
+class TotalesPlanillaOut(BaseModel):
+    aporte_variable: Money
+    aporte_fijo: Money
+    titular: Money
+    adscripto: Money
+    a_cargo: Money
+    total: Money
+
+
+class ProtocoloPlanillaOut(BaseModel):
+    tipo: TipoProtocolo
+    renglones: list[RenglonPlanillaOut]
+    totales: TotalesPlanillaOut
+    escrituras_desde: int | None
+    escrituras_hasta: int | None
+    folios_desde: int | None
+    folios_hasta: int | None
+
+
+class PlanillaOut(BaseModel):
+    """La DDJJ con el formato de la planilla de la Caja (la misma que imprime el PDF)."""
+
+    ddjj_id: uuid.UUID
+    registro_numero: int
+    periodo: str
+    estado: EstadoDDJJ
+    numero_rectificativa: int
+    fecha_presentacion: datetime | None
+    titulares: list[str]
+    adscriptos: list[str]
+    a_cargo: list[str]
+    protocolos: list[ProtocoloPlanillaOut]
+    totales: TotalesPlanillaOut
+    # Si los aportes del borrador no se pudieron calcular, por qué (los renglones van igual).
+    sin_aportes: str | None
+    # Rectificada: número de la rectificativa que la reemplazó (esta ya no vale).
+    reemplazada_por: int | None

@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+import pyotp
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -364,7 +365,7 @@ async def test_un_cambio_lo_aprueba_otra_persona_y_cierra_la_version_anterior(
     from tests.ddjj.conftest import _client
     from tests.iam.test_rbac import login
 
-    secreto = "JBSWY3DPEHPK3PXP"
+    secreto = pyotp.random_base32()
     autor = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret=secreto)
     revisor = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret=secreto)
     cambio = {

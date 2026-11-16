@@ -1,9 +1,10 @@
-"""Boleta oficial en PDF (weasyprint) con QR de verificación y código de barras Code128."""
+"""PDF oficiales (weasyprint): la boleta, con QR de verificación y código de barras Code128, y la
+Declaración Jurada de Aportes con el formato de la planilla de la Caja."""
 
 import base64
 import io
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -14,9 +15,11 @@ from barcode.writer import SVGWriter
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from qrcode.image.svg import SvgPathImage
 
+from app.common.dates import LOCAL_TZ
 from app.common.money import format_pesos
 from app.core.config import Settings
 from app.modules.ddjj.models import Boleta
+from app.modules.ddjj.schemas import PlanillaOut
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates" / "boletas"
 
@@ -120,3 +123,46 @@ def render_pdf(settings: Settings, datos: DatosBoleta) -> bytes:
 async def render_pdf_async(settings: Settings, datos: DatosBoleta) -> bytes:
     """weasyprint es sincrónico y pesado: corre en un hilo para no frenar el event loop."""
     return await anyio.to_thread.run_sync(render_pdf, settings, datos)
+
+
+# --------------------------------------------------------------------------- DDJJ (planilla)
+
+CARGO_PLANILLA = {"TITULAR": "Titular", "ADSCRIPTO": "Adscripto", "SUPLENTE_INTERINO": "A cargo"}
+PROTOCOLO_PLANILLA = {"GENERAL": "Protocolo General", "AUXILIAR": "Protocolo Auxiliar"}
+MOTIVO_EXENCION_PLANILLA = {
+    "CONVENIO_IPV": "Emanada del IPV",
+    "ACTA_SUBSANATORIA": "Acta subsanatoria",
+    "REGULACION_DOMINIAL": "Acta de regulación dominial",
+    "ASOCIACION_INTERMEDIA_IPV": "Asociación intermedia con hipoteca a favor del IPV",
+    "OTRO": "Otro motivo",
+}
+
+
+def render_planilla_html(settings: Settings, datos: PlanillaOut) -> str:
+    generada = datetime.now(LOCAL_TZ)
+    presentada = datos.fecha_presentacion.astimezone(LOCAL_TZ) if datos.fecha_presentacion else None
+    return _env.get_template("ddjj.html").render(
+        d=datos,
+        caja=settings,
+        periodo=f"{datos.periodo[5:7]}/{datos.periodo[:4]}",
+        mes=datos.periodo[5:7],
+        anio=datos.periodo[:4],
+        generada=generada.strftime("%d-%m-%Y %H:%M"),
+        presentada=presentada.strftime("%d-%m-%Y %H:%M") if presentada else None,
+        cargo=CARGO_PLANILLA,
+        protocolo=PROTOCOLO_PLANILLA,
+        motivo_exencion=MOTIVO_EXENCION_PLANILLA,
+    )
+
+
+def render_planilla_pdf(settings: Settings, datos: PlanillaOut) -> bytes:
+    from weasyprint import HTML
+
+    html = render_planilla_html(settings, datos)
+    contenido: bytes | None = HTML(string=html, base_url=str(TEMPLATES_DIR)).write_pdf()
+    assert contenido is not None  # noqa: S101 - sin destino, write_pdf devuelve los bytes
+    return contenido
+
+
+async def render_planilla_pdf_async(settings: Settings, datos: PlanillaOut) -> bytes:
+    return await anyio.to_thread.run_sync(render_planilla_pdf, settings, datos)

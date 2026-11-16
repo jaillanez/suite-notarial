@@ -36,6 +36,7 @@ from app.common.dates import today_local
 from app.common.money import to_money
 from app.common.pagination import PageParams
 from app.core.errors import ProblemError
+from app.modules.ddjj import planilla as planilla_mod
 from app.modules.ddjj import protocolo, vademecum
 from app.modules.ddjj.catalog import (
     CONCEPTO_MEDICO,
@@ -47,6 +48,7 @@ from app.modules.ddjj.catalog import (
     EstadoBoleta,
     EstadoDDJJ,
     ModalidadBoleta,
+    MotivoExencion,
     TipoProtocolo,
 )
 from app.modules.ddjj.liquidacion import (
@@ -1619,4 +1621,85 @@ async def datos_pdf(session: AsyncSession, boleta: Boleta) -> DatosBoleta:
         registro_numero=registro.numero_registro,
         numero_rectificativa=ddjj.numero_rectificativa,
         escribanos=list(escribanos.values()),
+    )
+
+
+# --------------------------------------------------------------------------- planilla
+
+
+@dataclass(frozen=True)
+class DatosPlanilla:
+    """La DDJJ con el formato de la planilla de la Caja: cabecera y protocolos."""
+
+    ddjj: DeclaracionJurada
+    registro: RegistroNotarial
+    # Escribanos del equipo en el período, por cargo (como la cabecera de la planilla).
+    equipo: dict[Cargo, list[str]]
+    planilla: planilla_mod.Planilla
+    # Si los aportes no se pudieron calcular, por qué (borrador sin parámetros, p. ej.).
+    sin_aportes: str | None
+    # Rectificada: número de la rectificativa que la reemplazó.
+    reemplazada_por: int | None = None
+
+
+async def datos_planilla(
+    session: AsyncSession, principal: Principal, ddjj_id: uuid.UUID
+) -> DatosPlanilla:
+    """Presentada: con los aportes congelados. Borrador: con la vista previa de hoy (puede
+    cambiar hasta presentar)."""
+    ddjj = await get_declaracion(session, principal, ddjj_id)
+    registro = await session.get(RegistroNotarial, ddjj.registro_id)
+    assert registro is not None  # noqa: S101 - FK RESTRICT
+    actos = await list_actos(session, ddjj.id)
+    aportes: list[AporteActo] | None
+    sin_aportes = None
+    if ddjj.estado == EstadoDDJJ.BORRADOR.value:
+        try:
+            aportes = list((await preliquidar(session, ddjj, actos, today_local())).aportes)
+        except ProblemError as exc:
+            aportes, sin_aportes = None, exc.detail
+    else:
+        aportes = [
+            AporteActo(
+                a.aporte if a.aporte is not None else Decimal("0.00"),
+                None,
+                individual=a.aporte_individual,
+            )
+            for a in actos
+        ]
+    equipo: dict[Cargo, list[str]] = {c: [] for c in planilla_mod.COLUMNAS}
+    for c in await cargos_en_periodo(session, ddjj.registro_id, ddjj.periodo):
+        nombre = nombre_escribano(c.escribano)
+        if nombre not in equipo[Cargo(c.cargo)]:
+            equipo[Cargo(c.cargo)].append(nombre)
+    renglones = [
+        planilla_mod.ActoPlanilla(
+            tipo_protocolo=TipoProtocolo(a.tipo_protocolo),
+            numero_escritura=a.numero_escritura,
+            orden_en_escritura=a.orden_en_escritura,
+            folio=a.folio,
+            naturaleza=a.naturaleza,
+            categoria=CategoriaActo(a.categoria),
+            base_imponible=a.base_imponible,
+            escribano=nombre_escribano(a.escribano),
+            cargo=Cargo(a.cargo),
+            acto_id=a.id,
+            motivo_exencion=MotivoExencion(a.motivo_exencion) if a.motivo_exencion else None,
+            detalle_exencion=a.detalle_exencion,
+        )
+        for a in actos
+    ]
+    # Una DDJJ rectificada no vale: el PDF dice qué rectificativa la reemplazó.
+    reemplazo = await session.scalar(
+        select(DeclaracionJurada.numero_rectificativa).where(
+            DeclaracionJurada.rectifica_a_id == ddjj.id
+        )
+    )
+    return DatosPlanilla(
+        ddjj=ddjj,
+        registro=registro,
+        equipo=equipo,
+        planilla=planilla_mod.armar(renglones, aportes),
+        sin_aportes=sin_aportes,
+        reemplazada_por=reemplazo,
     )

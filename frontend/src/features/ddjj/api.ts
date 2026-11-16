@@ -413,6 +413,88 @@ export async function rectificar(id: string): Promise<DeclaracionDetalle> {
 }
 
 /** Descarga el PDF por el cliente HTTP (renueva la sesión si venció) y lo guarda. */
+export interface RenglonPlanilla {
+  acto_id: string | null
+  numero_escritura: number
+  orden_en_escritura: number
+  folio: number | null
+  naturaleza: string
+  categoria: CategoriaActo
+  motivo_exencion: MotivoExencion | null
+  detalle_exencion: string | null
+  base_imponible: string | null
+  /** Lo que aporta el acto solo, en su columna (variable o fijo). */
+  aporte_variable: string | null
+  aporte_fijo: string | null
+  escribano: string
+  cargo: Cargo
+  /** Lo que se paga, en la columna del cargo (después de la pluralidad de actos). */
+  aporte: string | null
+  incluido_en_otro: boolean
+}
+
+export interface TotalesPlanilla {
+  aporte_variable: string
+  aporte_fijo: string
+  titular: string
+  adscripto: string
+  a_cargo: string
+  total: string
+}
+
+export interface ProtocoloPlanilla {
+  tipo: TipoProtocolo
+  renglones: RenglonPlanilla[]
+  totales: TotalesPlanilla
+  escrituras_desde: number | null
+  escrituras_hasta: number | null
+  folios_desde: number | null
+  folios_hasta: number | null
+}
+
+/** La DDJJ con el formato de la planilla de la Caja (lo mismo que imprime el PDF). */
+export interface Planilla {
+  ddjj_id: string
+  registro_numero: number
+  periodo: string
+  estado: EstadoDDJJ
+  numero_rectificativa: number
+  fecha_presentacion: string | null
+  titulares: string[]
+  adscriptos: string[]
+  a_cargo: string[]
+  protocolos: ProtocoloPlanilla[]
+  totales: TotalesPlanilla
+  /** Si los aportes del borrador no se pudieron calcular, por qué. */
+  sin_aportes: string | null
+  /** Rectificada: número de la rectificativa que la reemplazó. */
+  reemplazada_por: number | null
+}
+
+export async function fetchPlanilla(id: string): Promise<Planilla> {
+  return (await api.get<Planilla>(`${P}/declaraciones/${id}/planilla`)).data
+}
+
+/** Descarga la Declaración Jurada de Aportes en PDF (formato de la planilla, con el juramento). */
+export async function descargarDeclaracion(ddjj: {
+  id: string
+  periodo: string
+  registro: { numero_registro: number }
+}): Promise<void> {
+  const response = await api.get<Blob>(`${P}/declaraciones/${ddjj.id}/pdf`, {
+    responseType: 'blob',
+    timeout: 60_000,
+  })
+  const url = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `ddjj-registro-${String(ddjj.registro.numero_registro)}-${ddjj.periodo}.pdf`
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 export async function descargarBoleta(boleta: Boleta): Promise<void> {
   const response = await api.get<Blob>(`${P}/boletas/${boleta.id}/pdf`, {
     responseType: 'blob',
