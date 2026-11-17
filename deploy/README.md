@@ -27,6 +27,27 @@ docker compose --env-file deploy/.env.server -f deploy/compose.server.yml \
   run --rm api python -m app.modules.iam.cli seed-dev
 ```
 
+Registro de prueba para que una cuenta de escribano practique la carga de DDJJ (solo
+`development`/`staging`). Crea el Registro 9999 «REGISTRO DE PRUEBA (no oficial)» con un
+escribano ficticio titular desde el 1 de enero y le vincula la cuenta; `--operador` es quien
+figura en la auditoría. La baja es lógica (cierra el registro y desvincula la cuenta, que sigue
+activa); las DDJJ de prueba quedan en el registro cerrado.
+
+```bash
+docker compose --env-file deploy/.env.server -f deploy/compose.server.yml \
+  run --rm api python -m app.modules.padron.cli registro-prueba --email ... --operador ...
+docker compose --env-file deploy/.env.server -f deploy/compose.server.yml \
+  run --rm api python -m app.modules.padron.cli baja-registro-prueba --operador ...
+```
+
+Vincular una cuenta ya creada con su escribano del padrón (el CUIT de la cuenta tiene que ser el
+del escribano):
+
+```bash
+docker compose --env-file deploy/.env.server -f deploy/compose.server.yml \
+  run --rm api python -m app.modules.padron.cli vincular-cuenta --email ... --cuit ... --operador ...
+```
+
 Primer administrador (pide la contraseña por teclado; nunca va en un comando):
 
 ```bash

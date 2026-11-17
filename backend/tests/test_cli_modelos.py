@@ -12,6 +12,7 @@ import pytest
 COMANDOS = [
     "app.modules.iam.cli",
     "app.modules.migracion.cli",
+    "app.modules.padron.cli",
     "app.modules.parametros.historico_caja",
     "app.modules.prestamos.lineas_caja",
     "app.modules.previsional.cargar_puntos",
