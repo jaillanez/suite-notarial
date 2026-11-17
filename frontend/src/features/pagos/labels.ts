@@ -1,5 +1,5 @@
 import type { Tone } from '../../components/StatusIndicator'
-import type { EstadoComprobante, EstadoPagoMP } from './api'
+import type { EstadoComprobante, EstadoPagoMP, EstadoPagoSPV } from './api'
 
 export const ESTADO_COMPROBANTE: Record<
   EstadoComprobante,
@@ -52,4 +52,14 @@ export const ESTADO_PAGO_MP: Record<EstadoPagoMP, string> = {
   cancelled: 'Cancelado',
   refunded: 'Devuelto',
   charged_back: 'Desconocido por el titular (contracargo)',
+}
+
+/** Estado del pago tal como lo informa el botón Supervielle, en palabras. */
+export const ESTADO_PAGO_SPV: Record<EstadoPagoSPV, string> = {
+  CREADO: 'Link de pago generado, sin pago',
+  APROBADO: 'Aprobado',
+  ACREDITADO: 'Acreditado',
+  PENDIENTE: 'En proceso',
+  REVERSADO: 'Reversado',
+  ANULADO: 'Anulado',
 }

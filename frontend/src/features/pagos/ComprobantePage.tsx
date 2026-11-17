@@ -22,7 +22,13 @@ import {
   rechazarComprobante,
   type Comprobante,
 } from './api'
-import { ESTADO_COMPROBANTE, ESTADO_PAGO_MP, MOTIVOS_FRECUENTES, formatTamano } from './labels'
+import {
+  ESTADO_COMPROBANTE,
+  ESTADO_PAGO_MP,
+  ESTADO_PAGO_SPV,
+  MOTIVOS_FRECUENTES,
+  formatTamano,
+} from './labels'
 
 function Par({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -136,6 +142,47 @@ function PagoMercadoPagoPanel({ c }: { c: Comprobante }) {
   )
 }
 
+/** Pago informado por el botón Supervielle: lo que la Suite consultó a la API del banco. */
+function PagoSuperviellePanel({ c }: { c: Comprobante }) {
+  const spv = c.supervielle
+  return (
+    <Panel
+      title="Pago con el botón Supervielle"
+      description="Datos consultados al banco. Confirmá el pago contra la rendición de Supervielle antes de aprobarlo."
+    >
+      {spv ? (
+        <dl className="divide-y divide-line">
+          <Par label="Estado en el banco">{ESTADO_PAGO_SPV[spv.estado]}</Par>
+          <Par label="N° de pago">{c.numero_operacion}</Par>
+          <Par label="N° de publicación">{spv.id_publicacion}</Par>
+          <Par label="Medio de pago">{spv.medio_pago ?? '—'}</Par>
+          <Par label="Pagado">
+            {spv.pagado_en ? formatLocalDateTime(new Date(spv.pagado_en)) : '—'}
+          </Par>
+          <Par label="Importe pagado">{formatMoney(spv.importe_pagado)}</Par>
+          <Par label="Comisión estimada (la absorbe la Caja)">
+            {spv.comision_estimada === null
+              ? 'Sin estimar: faltan los parámetros de comisión'
+              : formatMoney(spv.comision_estimada)}
+          </Par>
+          <Par label="Neto estimado">{formatMoney(spv.importe_neto_estimado)}</Par>
+        </dl>
+      ) : (
+        <div className="px-5 py-5 sm:px-6">
+          <Alert tone="warning">No se encontró el registro del pago en el banco.</Alert>
+        </div>
+      )}
+      {spv && (spv.estado === 'REVERSADO' || spv.estado === 'ANULADO') && (
+        <div className="px-5 pb-5 sm:px-6">
+          <Alert tone="danger" title="El banco revirtió este pago">
+            El pago figura como {ESTADO_PAGO_SPV[spv.estado].toLowerCase()}: no lo apruebes.
+          </Alert>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
 function Cotejo({ c }: { c: Comprobante }) {
   const coincide = c.diferencia === '0.00'
   return (
@@ -168,7 +215,7 @@ function Cotejo({ c }: { c: Comprobante }) {
             {coincide ? formatMoney('0.00') : formatMoney(c.diferencia)}
           </dd>
         </div>
-        <Par label={c.origen === 'MERCADO_PAGO' ? 'Pago aprobado' : 'Transferencia'}>
+        <Par label={c.origen === 'ARCHIVO' ? 'Transferencia' : 'Pago aprobado'}>
           {formatDate(c.fecha_transferencia)}
         </Par>
         <Par label="N° de operación">{c.numero_operacion}</Par>
@@ -464,6 +511,8 @@ export function ComprobantePage() {
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             {c.origen === 'MERCADO_PAGO' ? (
               <PagoMercadoPagoPanel c={c} />
+            ) : c.origen === 'SUPERVIELLE' ? (
+              <PagoSuperviellePanel c={c} />
             ) : (
               <Visor comprobante={c} />
             )}

@@ -28,7 +28,12 @@ import { formatMoney, formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { formatDate, todayIso } from '../padron/labels'
 import { AdjuntarComprobanteDialog } from '../pagos/AdjuntarComprobanteDialog'
-import { fetchMercadoPagoHabilitado, pagarConMercadoPago } from '../pagos/api'
+import {
+  fetchMercadoPagoHabilitado,
+  fetchSupervielleHabilitado,
+  pagarConMercadoPago,
+} from '../pagos/api'
+import { BotonSupervielle, SeguimientoSupervielle } from '../pagos/PagoSupervielle'
 import { PERIODO_TASA } from '../parametros/labels'
 import {
   agregarActo,
@@ -784,16 +789,25 @@ function EstadoComprobanteBoleta({ boleta }: { boleta: Boleta }) {
     )
   }
   if (c.estado === 'PENDIENTE_REVISION') {
-    const mp = c.origen === 'MERCADO_PAGO'
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <StatusIndicator
           tone="warning"
-          label={mp ? 'Pago con Mercado Pago en revisión' : 'Comprobante en revisión'}
+          label={
+            c.origen === 'MERCADO_PAGO'
+              ? 'Pago con Mercado Pago en revisión'
+              : c.origen === 'SUPERVIELLE'
+                ? 'Pago con Supervielle en revisión'
+                : 'Comprobante en revisión'
+          }
         />
         <span className="text-sm text-ink-muted tabular-nums">
-          {mp ? 'Mercado Pago aprobó el pago' : 'Enviado'} el{' '}
-          {formatLocalDateTime(new Date(c.created_at)).slice(0, 10)} por{' '}
+          {c.origen === 'MERCADO_PAGO'
+            ? 'Mercado Pago aprobó el pago'
+            : c.origen === 'SUPERVIELLE'
+              ? 'Supervielle informó el pago'
+              : 'Enviado'}{' '}
+          el {formatLocalDateTime(new Date(c.created_at)).slice(0, 10)} por{' '}
           {formatMoney(c.importe_declarado)}. Tesorería lo confirma y la boleta pasa a pagada.
         </span>
       </div>
@@ -806,10 +820,14 @@ function BoletaItem({
   boleta,
   puedeAdjuntar,
   mercadoPago,
+  supervielle,
+  ddjjId,
 }: {
   boleta: Boleta
   puedeAdjuntar: boolean
   mercadoPago: boolean
+  supervielle: boolean
+  ddjjId: string
 }) {
   const [adjuntando, setAdjuntando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -884,6 +902,10 @@ function BoletaItem({
           >
             Descargar PDF
           </Button>
+          {/* El banco exige que la deuda venza después del día en que se publica. */}
+          {puedeAdjuntar && supervielle && pagable && boleta.fecha_pago > todayIso() && (
+            <BotonSupervielle boletaId={boleta.id} onError={setError} />
+          )}
           {puedeAdjuntar && mercadoPago && pagable && (
             <Button
               variant="primary"
@@ -911,6 +933,9 @@ function BoletaItem({
               </Button>
             )}
         </div>
+      )}
+      {puedeAdjuntar && supervielle && boleta.estado === 'PENDIENTE' && (
+        <SeguimientoSupervielle boletaId={boleta.id} ddjjId={ddjjId} />
       )}
       <AdjuntarComprobanteDialog
         key={`adjuntar-${String(adjuntando)}`}
@@ -940,6 +965,12 @@ function BoletasPanel({
   const mercadoPago = useQuery({
     queryKey: ['pagos', 'mercadopago', 'habilitado'],
     queryFn: fetchMercadoPagoHabilitado,
+    enabled: can('comprobantes:upload'),
+    staleTime: 5 * 60_000,
+  })
+  const supervielle = useQuery({
+    queryKey: ['pagos', 'supervielle', 'habilitado'],
+    queryFn: fetchSupervielleHabilitado,
     enabled: can('comprobantes:upload'),
     staleTime: 5 * 60_000,
   })
@@ -998,6 +1029,8 @@ function BoletasPanel({
                     boleta={b}
                     puedeAdjuntar={can('comprobantes:upload')}
                     mercadoPago={mercadoPago.data ?? false}
+                    supervielle={supervielle.data ?? false}
+                    ddjjId={ddjj.id}
                   />
                 ))}
               </ul>

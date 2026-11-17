@@ -42,9 +42,32 @@ export interface Comprobante {
   } | null
   /** Solo en un comprobante de Mercado Pago. */
   mercado_pago: PagoMercadoPago | null
+  /** Solo en un comprobante del botón Supervielle. */
+  supervielle: PagoSupervielle | null
 }
 
-export type OrigenComprobante = 'ARCHIVO' | 'MERCADO_PAGO'
+export type OrigenComprobante = 'ARCHIVO' | 'MERCADO_PAGO' | 'SUPERVIELLE'
+
+export type EstadoPagoSPV =
+  'CREADO' | 'APROBADO' | 'ACREDITADO' | 'PENDIENTE' | 'REVERSADO' | 'ANULADO'
+
+/** Deuda publicada en el botón Supervielle y lo que informó el banco del pago. */
+export interface PagoSupervielle {
+  id: string
+  boleta_id: string
+  id_publicacion: number
+  estado: EstadoPagoSPV
+  medio_pago: string | null
+  importe_boleta: string
+  importe_pagado: string | null
+  /** Solo para Tesorería: estimados con los parámetros de comisión vigentes al pagar. */
+  comision_estimada: string | null
+  importe_neto_estimado: string | null
+  vence: string
+  pagado_en: string | null
+  comprobante_id: string | null
+  created_at: string
+}
 
 export type EstadoPagoMP =
   | 'CREADO'
@@ -176,5 +199,41 @@ export async function sincronizarPagoMP(pagoId: string): Promise<PagoMercadoPago
 export async function fetchRegistroMP(page: number): Promise<Page<PagoMercadoPago>> {
   return (
     await api.get<Page<PagoMercadoPago>>(`${P}/mercadopago`, { params: { page, page_size: 25 } })
+  ).data
+}
+
+// --------------------------------------------------------------------------- botón Supervielle
+
+export async function fetchSupervielleHabilitado(): Promise<boolean> {
+  return (await api.get<{ habilitado: boolean }>(`${P}/supervielle/estado`)).data.habilitado
+}
+
+/** Publica la deuda en el banco (o reutiliza la vigente) y devuelve su link de pago. */
+export async function pagarConSupervielle(
+  boletaId: string,
+): Promise<{ pago_id: string; url_pago: string }> {
+  return (
+    await api.post<{ pago_id: string; url_pago: string }>(
+      `${P}/boletas/${encodeURIComponent(boletaId)}/supervielle`,
+    )
+  ).data
+}
+
+export async function fetchPagosSupervielle(boletaId: string): Promise<PagoSupervielle[]> {
+  return (
+    await api.get<PagoSupervielle[]>(`${P}/boletas/${encodeURIComponent(boletaId)}/supervielle`)
+  ).data
+}
+
+/** «Ya pagué»: la Suite consulta la publicación al banco y registra sus pagos. */
+export async function sincronizarPagoSPV(pagoId: string): Promise<PagoSupervielle> {
+  return (
+    await api.post<PagoSupervielle>(`${P}/supervielle/${encodeURIComponent(pagoId)}/sincronizar`)
+  ).data
+}
+
+export async function fetchRegistroSPV(page: number): Promise<Page<PagoSupervielle>> {
+  return (
+    await api.get<Page<PagoSupervielle>>(`${P}/supervielle`, { params: { page, page_size: 25 } })
   ).data
 }

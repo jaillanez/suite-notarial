@@ -144,8 +144,8 @@ export interface Boleta {
   /** Último comprobante adjuntado (adjuntar no es pagar: lo confirma Tesorería). */
   comprobante: {
     id: string
-    /** ARCHIVO: lo adjuntó el escribano. MERCADO_PAGO: lo informó Mercado Pago. */
-    origen: 'ARCHIVO' | 'MERCADO_PAGO'
+    /** ARCHIVO: lo adjuntó el escribano. MERCADO_PAGO o SUPERVIELLE: lo informó ese medio. */
+    origen: 'ARCHIVO' | 'MERCADO_PAGO' | 'SUPERVIELLE'
     estado: EstadoComprobante
     importe_declarado: string
     motivo_rechazo: string | null

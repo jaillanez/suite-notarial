@@ -266,6 +266,7 @@ describe('ficha de Tesorería', () => {
       revisado_en: null,
       conciliacion: null,
       mercado_pago: PAGO,
+      supervielle: null,
     })
     renderWithProviders(
       <Routes>

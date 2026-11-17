@@ -114,7 +114,7 @@ function ProponerDialog({
         regla_redondeo: form.regla_redondeo,
         resolucion_respaldo: form.resolucion_respaldo.trim(),
         motivo: form.motivo.trim(),
-        ...(t === 'PORCENTUAL_ACTO' && {
+        ...((t === 'PORCENTUAL_ACTO' || t === 'COMISION_COBRO') && {
           porcentaje: optTasa(form.porcentaje),
           monto_minimo: opt(form.monto_minimo),
           monto_maximo: opt(form.monto_maximo),
@@ -204,9 +204,14 @@ function ProponerDialog({
           hint="Vacío: sin fecha de fin."
           {...bind('fecha_hasta')}
         />
-        {t === 'PORCENTUAL_ACTO' && (
+        {(t === 'PORCENTUAL_ACTO' || t === 'COMISION_COBRO') && (
           <>
-            <Field label="Porcentaje (%)" placeholder="1,5" {...money} {...bind('porcentaje')} />
+            <Field
+              label={t === 'COMISION_COBRO' ? 'Porcentaje sobre lo cobrado (%)' : 'Porcentaje (%)'}
+              placeholder={t === 'COMISION_COBRO' ? '0,4' : '1,5'}
+              {...money}
+              {...bind('porcentaje')}
+            />
             <div aria-hidden="true" className="hidden sm:block" />
             <Field
               label="Mínimo ($, opcional)"
@@ -380,6 +385,7 @@ function Simulador({ concepto }: { concepto: Concepto }) {
         concepto_codigo: concepto.codigo,
         fecha,
         ...(concepto.tipo === 'PORCENTUAL_ACTO' && { base_imponible: normalizeDecimalInput(base) }),
+        ...(concepto.tipo === 'COMISION_COBRO' && { monto: normalizeDecimalInput(monto) }),
         ...(concepto.tipo === 'TASA_MORA' && {
           monto: normalizeDecimalInput(monto),
           vencimiento,
@@ -409,6 +415,17 @@ function Simulador({ concepto }: { concepto: Concepto }) {
             value={base}
             onChange={(e) => {
               setBase(e.target.value)
+            }}
+            className="[&_input]:tabular-nums"
+          />
+        )}
+        {concepto.tipo === 'COMISION_COBRO' && (
+          <Field
+            label="Importe cobrado ($)"
+            inputMode="decimal"
+            value={monto}
+            onChange={(e) => {
+              setMonto(e.target.value)
             }}
             className="[&_input]:tabular-nums"
           />
@@ -463,7 +480,9 @@ function Simulador({ concepto }: { concepto: Concepto }) {
               Versión {run.data.vigencia.version} ·{' '}
               {concepto.tipo === 'PORCENTUAL_ACTO'
                 ? `${formatPercent(run.data.vigencia.porcentaje)} sobre ${formatMoney(normalizeDecimalInput(base))}, con mínimo y tope`
-                : `${formatPercent(run.data.vigencia.tasa)} ${run.data.vigencia.periodo_tasa ? PERIODO_TASA[run.data.vigencia.periodo_tasa] : ''} · ${String(run.data.dias_mora ?? 0)} días computables`}
+                : concepto.tipo === 'COMISION_COBRO'
+                  ? `${formatPercent(run.data.vigencia.porcentaje)} sobre ${formatMoney(normalizeDecimalInput(monto))}, con mínimo y tope`
+                  : `${formatPercent(run.data.vigencia.tasa)} ${run.data.vigencia.periodo_tasa ? PERIODO_TASA[run.data.vigencia.periodo_tasa] : ''} · ${String(run.data.dias_mora ?? 0)} días computables`}
               {run.data.vigencia.es_ejemplo && ' · valor a confirmar, no oficial'}
             </p>
           </div>
