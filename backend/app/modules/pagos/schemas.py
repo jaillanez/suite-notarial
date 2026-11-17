@@ -11,6 +11,7 @@ from app.modules.ddjj.schemas import RegistroResumen
 from app.modules.pagos.catalog import (
     EstadoComprobante,
     EstadoPagoMP,
+    EstadoPagoSPV,
     OrigenComprobante,
     ResultadoConciliacion,
 )
@@ -117,6 +118,8 @@ class ComprobanteOut(BaseModel):
     conciliacion: ConciliacionOut | None
     # Solo en un comprobante de Mercado Pago.
     mercado_pago: PagoMercadoPagoOut | None = None
+    # Solo en un comprobante del botón Supervielle.
+    supervielle: "PagoSupervielleOut | None" = None
 
 
 class MercadoPagoEstadoOut(BaseModel):
@@ -127,3 +130,39 @@ class InicioPagoMPOut(BaseModel):
     """Dirección de Mercado Pago a la que se lleva al escribano para pagar."""
 
     url_pago: str
+
+
+class PagoSupervielleOut(BaseModel):
+    """Una deuda publicada en el botón Supervielle y lo que informó el banco del pago
+    (consultado a su API, no al navegador ni al aviso)."""
+
+    id: uuid.UUID
+    boleta_id: uuid.UUID
+    id_publicacion: int
+    estado: EstadoPagoSPV
+    medio_pago: str | None
+    importe_boleta: Money
+    importe_pagado: Money | None
+    # Datos internos de la Caja (solo Tesorería): comisión estimada con los parámetros vigentes
+    # a la fecha del pago y lo que quedaría neto. Vacíos si faltaba algún parámetro.
+    comision_estimada: Money | None = None
+    importe_neto_estimado: Money | None = None
+    vence: date
+    pagado_en: datetime | None
+    comprobante_id: uuid.UUID | None
+    created_at: datetime
+
+
+class SupervielleEstadoOut(BaseModel):
+    habilitado: bool
+
+
+class InicioPagoSPVOut(BaseModel):
+    """Link del banco al que se lleva al escribano para pagar, y el registro para consultar
+    después el resultado («Ya pagué»)."""
+
+    pago_id: uuid.UUID
+    url_pago: str
+
+
+ComprobanteOut.model_rebuild()

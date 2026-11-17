@@ -218,6 +218,14 @@ async def simular(body: SimulacionIn, _: CanRead, session: SessionDep) -> Simula
             )
         if snap.tipo == TipoConcepto.CRITERIO_PLURALIDAD:
             raise motor.MotorError("Un criterio es una regla: no calcula un importe.")
+        if snap.tipo == TipoConcepto.COMISION_COBRO:
+            if body.monto is None:
+                raise motor.MotorError("Indicá el importe cobrado.")
+            return SimulacionOut(
+                vigencia=out,
+                resultado=motor.comision_cobro(body.monto, snap),
+                detalle=f"{snap.porcentaje} % sobre {body.monto}, con mínimo y tope.",
+            )
         if body.monto is None or body.vencimiento is None or body.fecha_pago is None:
             raise motor.MotorError("Indicá monto, vencimiento y fecha de pago.")
         dias = motor.dias_de_mora(body.vencimiento, body.fecha_pago, snap)

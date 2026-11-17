@@ -5,7 +5,8 @@
   `pagos_conciliaciones`. Recién con un asiento aprobado la boleta puede pasar a PAGADA (trigger).
 - El archivo se guarda fuera del webroot con nombre UUID; acá quedan su tipo real, tamaño y huella.
 - Un pago con Mercado Pago aprobado genera un comprobante de origen MERCADO_PAGO (sin archivo):
-  también queda en revisión hasta que Tesorería lo confirma.
+  también queda en revisión hasta que Tesorería lo confirma. Lo mismo un pago con el botón de
+  pagos Supervielle (origen SUPERVIELLE).
 """
 
 import uuid
@@ -39,7 +40,9 @@ class Comprobante(UUIDMixin, Base):
         CheckConstraint(
             "estado IN ('PENDIENTE_REVISION', 'APROBADO', 'RECHAZADO')", name="estado_valido"
         ),
-        CheckConstraint("origen IN ('ARCHIVO', 'MERCADO_PAGO')", name="origen_valido"),
+        CheckConstraint(
+            "origen IN ('ARCHIVO', 'MERCADO_PAGO', 'SUPERVIELLE')", name="origen_valido"
+        ),
         # El archivo es obligatorio solo para el comprobante que adjunta el escribano.
         CheckConstraint(
             "(origen = 'ARCHIVO') = (archivo IS NOT NULL AND nombre_original IS NOT NULL "
@@ -241,6 +244,75 @@ class PagoMercadoPago(UUIDMixin, Base):
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
     )
     confirmado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# Numera las publicaciones: el banco pide un `id_publicacion` numérico que no se repita.
+SECUENCIA_PUBLICACION_SPV = "pagos_supervielle_publicacion_seq"
+
+
+class PagoSupervielle(UUIDMixin, Base):
+    """Cada deuda publicada en el botón de pagos Supervielle y el pago que informa (no se borra).
+
+    La deuda se publica cuando el escribano pide pagar, por el total exacto de la boleta y con
+    vencimiento en su fecha de pago. El banco no permite anularla (TODO(banco): confirmar), así
+    que mientras siga vigente se reutiliza su link en lugar de publicar otra. El `id` viaja en
+    `identificadores` y el banco identifica la deuda con `hash`. El estado y el importe del pago
+    se toman siempre de la API del banco.
+    """
+
+    __tablename__ = "pagos_supervielle"
+    __table_args__ = (
+        CheckConstraint(
+            "estado IN ('CREADO', 'APROBADO', 'ACREDITADO', 'PENDIENTE', 'REVERSADO', 'ANULADO')",
+            name="estado_valido",
+        ),
+        CheckConstraint("importe_boleta > 0", name="importe_boleta"),
+        CheckConstraint("estado = 'CREADO' OR spv_pago_id IS NOT NULL", name="pago_informado"),
+    )
+
+    boleta_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("ddjj_boletas.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    id_publicacion: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    hash: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    link_pago: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Lo que se publicó: el total de la boleta y su fecha de pago.
+    importe_boleta: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    vence: Mapped[date] = mapped_column(Date, nullable=False)
+    iniciado_por_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, server_default="CREADO")
+    # Lo que informa el banco del pago.
+    spv_pago_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
+    medio_pago: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    importe_pagado: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    pagado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Comisión estimada con los parámetros vigentes a la fecha del pago (la API no la informa) y
+    # las vigencias con que se estimó (regla SNAP). Vacía si faltaba algún parámetro.
+    comision_estimada: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    vigencia_comision_boton_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("parametros_vigencias.id"), nullable=True
+    )
+    vigencia_comision_medio_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("parametros_vigencias.id"), nullable=True
+    )
+    # Comprobante que quedó en la mesa de Tesorería (al aprobarse el pago).
+    comprobante_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pagos_comprobantes.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

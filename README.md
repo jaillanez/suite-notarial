@@ -333,6 +333,23 @@ Ya aplicadas:
   motivo y avisa por correo al escribano.
 - **Asientos inmutables** en `pagos_conciliaciones`; la aplicación no puede modificarlos ni
   borrarlos. Mientras un comprobante está en revisión, la boleta no se reemite ni se rectifica.
+- **Botón de pagos Supervielle** (APIBANK Recaudaciones), con las credenciales `SUPERVIELLE_*`
+  y el convenio de la Caja en el `.env` (sin ellos, el botón no aparece):
+  - «Pagar con Supervielle» publica en el banco una deuda por el **total exacto** que vence con
+    la fecha de pago de la boleta (el banco exige que venza después del día en que se publica:
+    una boleta que vence hoy se paga por transferencia). Mientras esa deuda siga vigente se
+    reutiliza su link: el banco no permite anularla.
+  - El link se abre en otra pestaña. Al volver, «Ya pagué: verificar» consulta la publicación
+    al banco; el banco también avisa por `GET /api/v1/pagos/supervielle/aviso/{hash}`. El aviso
+    no viene firmado: solo dispara la consulta a la API, nunca se toma como cierto.
+  - Cada deuda queda en `pagos_supervielle` (sin borrado). Un pago aprobado entra a la mesa como
+    comprobante «Supervielle» y **Tesorería lo confirma** contra la rendición del banco.
+  - **Comisiones como parámetros**: tipo de concepto «Comisión de un medio de pago»
+    (`COMISION_SPV_*`). La Suite estima la comisión y el neto de cada pago con las vigencias
+    aprobadas a la fecha del pago y guarda cuáles usó. Si el banco cambia un valor, la Caja carga
+    una vigencia nueva desde Parámetros (la aprueba otra persona). Para cargar la propuesta del
+    banco por primera vez (queda pendiente de aprobación):
+    `python -m app.modules.pagos.comisiones_spv proponer --operador EMAIL --desde AAAA-MM-DD`.
 - **Pago con Mercado Pago** (Checkout Pro), con `MERCADOPAGO_ACCESS_TOKEN` de la cuenta de la
   Caja en `backend/.env` (sin token, el botón no aparece):
   - La boleta pendiente ofrece «Pagar con Mercado Pago»: se cobra el **total exacto** (la

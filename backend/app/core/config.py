@@ -95,6 +95,31 @@ class Settings(BaseSettings):
     MERCADOPAGO_BASE_URL: str = "https://api.mercadopago.com"
     MERCADOPAGO_TIMEOUT_S: Annotated[int, Field(gt=0, le=120)] = 30
 
+    # Botón de pagos Supervielle (APIBANK Recaudaciones, doc. técnica v1.3.4, 10/2025): cobra a
+    # la cuenta de la Caja. Sin credenciales o sin convenio, el botón no se ofrece. Las
+    # credenciales llegan del banco cifradas con nuestra clave PGP, una por ambiente; los valores
+    # por defecto son los del ambiente de pruebas del banco.
+    SUPERVIELLE_USUARIO: str | None = None
+    SUPERVIELLE_CLAVE: SecretStr | None = None
+    SUPERVIELLE_CLIENT_ID: str | None = None
+    SUPERVIELLE_CLIENT_SECRET: SecretStr | None = None
+    # Cabecera `x-ibm-client-id` de cada pedido a la API.
+    SUPERVIELLE_IBM_CLIENT_ID: SecretStr | None = None
+    SUPERVIELLE_CONVENIO: Annotated[int, Field(gt=0)] | None = None
+    SUPERVIELLE_API_URL: str = (
+        "https://apitst.supervielle.com.ar/supervielletest/apibank/apibank/banca-comercial/"
+        "recaudaciones"
+    )
+    # TODO(banco): el documento muestra dos direcciones del token para pruebas; esta es la del
+    # ejemplo con curl. Confirmarla, y la de producción (.../apibank/auth2/b2b/v2/token).
+    SUPERVIELLE_AUTH_URL: str = (
+        "https://apitst.supervielle.com.ar/auth/realms/b2b/protocol/openid-connect/token"
+    )
+    # TODO(banco): valor para producción (el documento solo da el de pruebas).
+    SUPERVIELLE_FORWARDED_HOST: str = "idpauttst.supervielle.com.ar"
+    SUPERVIELLE_SCOPE: str = "boton-pago.publicar"
+    SUPERVIELLE_TIMEOUT_S: Annotated[int, Field(gt=0, le=120)] = 30
+
     # Migración (Fase 10): simulacros cuadrados exigidos antes de la carga definitiva
     # (módulo 11: tres simulacros completos).
     MIGRACION_SIMULACROS_MINIMOS: Annotated[int, Field(ge=1, le=20)] = 3

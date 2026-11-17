@@ -64,11 +64,21 @@ def _require(v: VigenciaSnapshot, tipo: TipoConcepto) -> None:
 def aporte_porcentual(base_imponible: Decimal, v: VigenciaSnapshot) -> Decimal:
     """`base * porcentaje / 100`, acotado por mínimo y tope, redondeado al final."""
     _require(v, TipoConcepto.PORCENTUAL_ACTO)
+    return _porcentual(base_imponible, v, "La base imponible no puede ser negativa.")
+
+
+def comision_cobro(importe: Decimal, v: VigenciaSnapshot) -> Decimal:
+    """Comisión de un medio de pago: `importe * porcentaje / 100`, acotada por mínimo y tope."""
+    _require(v, TipoConcepto.COMISION_COBRO)
+    return _porcentual(importe, v, "El importe cobrado no puede ser negativo.")
+
+
+def _porcentual(monto: Decimal, v: VigenciaSnapshot, negativo: str) -> Decimal:
     if v.porcentaje is None:
         raise MotorError("La vigencia porcentual no tiene porcentaje.")
-    base = to_money(base_imponible)
+    base = to_money(monto)
     if base < 0:
-        raise MotorError("La base imponible no puede ser negativa.")
+        raise MotorError(negativo)
     bruto = base * v.porcentaje / CIEN
     if v.monto_minimo is not None and bruto < v.monto_minimo:
         bruto = v.monto_minimo
