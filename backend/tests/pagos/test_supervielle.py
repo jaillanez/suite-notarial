@@ -4,7 +4,6 @@ mismo parser que las respuestas reales."""
 
 # ruff: noqa: F811
 
-import asyncio
 import json
 import uuid
 from datetime import date, timedelta
@@ -500,15 +499,6 @@ async def test_aviso_del_banco_sin_sesion(
         return await consultar(hash_)
 
     monkeypatch.setattr(supervielle, "pagos_de", contar)
-    monkeypatch.setattr(supervielle_service, "_ultima_consulta", {})
-    monkeypatch.setattr(supervielle_service, "_diferidas", {})
-
-    def sesion_del_test() -> AsyncSession:
-        return AsyncSession(
-            bind=db_session.bind, join_transaction_mode="create_savepoint", expire_on_commit=False
-        )
-
-    monkeypatch.setattr(supervielle_service, "_abrir_sesion", sesion_del_test)
     # El banco llama sin cookies ni la cabecera anti-CSRF de la Suite.
     async with AsyncClient(
         transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
@@ -521,9 +511,8 @@ async def test_aviso_del_banco_sin_sesion(
         valido = await externo.get(url)
         assert valido.status_code == 200, valido.text
         assert valido.json()["status"] == "success"
-        # Un aviso repetido enseguida (venga de donde venga) no consulta otra vez al banco en
-        # el momento: se da por recibido y la consulta queda programada para después de la pausa.
-        monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 200_000_000)
+        # Un aviso repetido enseguida no consulta otra vez al banco: se da por recibido y queda
+        # marcado en la base antes de responder (no se pierde aunque se reinicie el proceso).
         assert (await externo.get(url)).status_code == 200
         assert consultas == 1
     async with AsyncClient(
@@ -531,17 +520,29 @@ async def test_aviso_del_banco_sin_sesion(
     ) as otro_origen:
         assert (await otro_origen.get(url)).status_code == 200
     assert consultas == 1
-    assert len(supervielle_service._diferidas) == 1
-    await asyncio.gather(*supervielle_service._diferidas.values())
+    item = await _registro(db_session, boleta["id"])
+    assert item.aviso_pendiente_en is not None
+    ctx = supervielle_cli.CLI_CONTEXT
+    # Dentro de la pausa, el procesamiento programado todavía no consulta.
+    assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 0
+    # Pasada la pausa, consulta y borra la marca.
+    monkeypatch.setattr(supervielle_service, "PAUSA_AVISO", timedelta(0))
+    assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 1
     assert consultas == 2
-    assert supervielle_service._diferidas == {}
-    # Si el banco no contesta la consulta, el aviso no se da por recibido (503: reintenta).
-    monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 0)
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is None
+    # Si el banco no contesta, el aviso no se da por recibido (503: reintenta) y queda pendiente
+    # para el procesamiento programado.
     banco.caido = True
     async with AsyncClient(
         transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
     ) as externo:
         assert (await externo.get(url)).status_code == 503
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is not None
+    assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 0
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is not None
+    banco.caido = False
+    assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 1
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is None
     assert len((await db_session.scalars(select(Comprobante))).all()) == 1
     # Un hash inventado no deja filas en la auditoría (cualquiera puede llamar a la dirección).
     assert (

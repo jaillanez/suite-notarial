@@ -14,16 +14,14 @@
 Todo cambio de estado queda en la auditoría.
 """
 
-import asyncio
 import logging
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, AuditSecurityLog, RequestContext, Severity, record_audit
@@ -48,14 +46,11 @@ from app.modules.pagos.models import SECUENCIA_PUBLICACION_SPV, Comprobante, Pag
 
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 logger = logging.getLogger(__name__)
-# A lo sumo una consulta al banco por publicación en este lapso (por proceso), venga de donde
-# venga el aviso. Un aviso repetido dentro de la pausa no se descarta: se responde 200 y la
-# consulta queda programada para cuando termine la pausa (una sola por publicación). Así nadie
-# puede multiplicar los pedidos a la API ni frenar los avisos del banco. Las claves son hashes de
-# publicaciones de la Suite (los desconocidos se rechazan antes): no crecen con lo que se reciba.
-PAUSA_AVISO_NS = 15 * 1_000_000_000
-_ultima_consulta: dict[str, int] = {}
-_diferidas: dict[str, asyncio.Task[None]] = {}
+# A lo sumo una consulta al banco por publicación en este lapso, venga de donde venga el aviso
+# (lo controla la base: vale para todos los procesos). Un aviso que llega dentro de la pausa no
+# se descarta: queda marcado en la fila (`aviso_pendiente_en`) antes de responder 200, y lo
+# procesa `procesar_avisos_pendientes` (cron cada 2 minutos). Nada vive en memoria.
+PAUSA_AVISO = timedelta(seconds=15)
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
 EFECTIVOS = {e.value for e in ESTADOS_SPV_EFECTIVOS}
 
@@ -443,46 +438,71 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
     if not supervielle.configurado():
         # Sin 200 el banco reintenta más tarde.
         raise _no_disponible()
-    ahora = time.monotonic_ns()
-    transcurrido = ahora - _ultima_consulta.get(item.hash, -PAUSA_AVISO_NS)
-    if transcurrido < PAUSA_AVISO_NS:
-        if item.hash not in _diferidas:
-            espera_ms = (PAUSA_AVISO_NS - transcurrido) // 1_000_000 + 1
-            _diferidas[item.hash] = asyncio.create_task(
-                _consulta_diferida(item.id, item.hash, espera_ms, ctx)
-            )
+    bloqueado = await session.get(PagoSupervielle, item.id, with_for_update=True)
+    assert bloqueado is not None  # noqa: S101 - recién leído
+    ahora = datetime.now(UTC)
+    if bloqueado.consultado_en is not None and ahora - bloqueado.consultado_en < PAUSA_AVISO:
+        if bloqueado.aviso_pendiente_en is None:
+            bloqueado.aviso_pendiente_en = ahora
+        await session.commit()
         return
-    _ultima_consulta[item.hash] = ahora
+    bloqueado.consultado_en = ahora
+    await session.commit()
     try:
-        await _consultar_y_registrar(session, ctx, item)
+        await _consultar_y_registrar(session, ctx, bloqueado)
     except ProblemError:
-        # Si el banco no contestó, se responde 503 y el reintento del banco vuelve a consultar.
-        _ultima_consulta.pop(item.hash, None)
+        # El banco no contestó: se responde 503 (el banco reintenta) y además queda pendiente.
+        await session.rollback()
+        await _marcar_pendiente(session, item.id)
         raise
 
 
-def _abrir_sesion() -> AsyncSession:
-    from app.core.db import get_sessionmaker
+async def _marcar_pendiente(session: AsyncSession, pago_id: uuid.UUID) -> None:
+    await session.execute(
+        update(PagoSupervielle)
+        .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_pendiente_en.is_(None))
+        .values(aviso_pendiente_en=func.now())
+    )
+    await session.commit()
 
-    return get_sessionmaker()()
 
-
-async def _consulta_diferida(
-    pago_id: uuid.UUID, hash_: str, espera_ms: int, ctx: RequestContext
-) -> None:
-    """La consulta de un aviso que llegó durante la pausa. Si falla, la recupera la conciliación
-    programada (deploy/instalar-cron.sh)."""
-    try:
-        await asyncio.sleep(espera_ms / 1000)
-        _ultima_consulta[hash_] = time.monotonic_ns()
-        async with _abrir_sesion() as session:
-            item = await session.get(PagoSupervielle, pago_id)
-            if item is not None:
-                await _consultar_y_registrar(session, ctx, item)
-    except Exception:
-        logger.exception("Falló la consulta diferida de un aviso de Supervielle")
-    finally:
-        _diferidas.pop(hash_, None)
+async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext) -> int:
+    """Consulta al banco las publicaciones con un aviso pendiente. La marca se borra solo si no
+    llegó otro aviso mientras se consultaba; si el banco falla, queda para la próxima vuelta.
+    Devuelve cuántas se consultaron."""
+    if not supervielle.configurado():
+        return 0
+    pendientes = (
+        await session.execute(
+            select(PagoSupervielle.id, PagoSupervielle.aviso_pendiente_en).where(
+                PagoSupervielle.aviso_pendiente_en.is_not(None)
+            )
+        )
+    ).all()
+    await session.commit()
+    consultadas = 0
+    for pago_id, marca in pendientes:
+        item = await session.get(PagoSupervielle, pago_id, with_for_update=True)
+        assert item is not None  # noqa: S101 - sin borrado
+        ahora = datetime.now(UTC)
+        if item.consultado_en is not None and ahora - item.consultado_en < PAUSA_AVISO:
+            await session.commit()
+            continue
+        item.consultado_en = ahora
+        await session.commit()
+        try:
+            await _consultar_y_registrar(session, ctx, item)
+        except ProblemError:
+            await session.rollback()
+            continue
+        consultadas += 1
+        await session.execute(
+            update(PagoSupervielle)
+            .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_pendiente_en == marca)
+            .values(aviso_pendiente_en=None)
+        )
+        await session.commit()
+    return consultadas
 
 
 # --------------------------------------------------------------------------- conciliación

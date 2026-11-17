@@ -146,8 +146,9 @@ falta tocar el código. Sin credenciales o sin convenio, el botón no aparece en
    $C exec -T api python -m app.modules.pagos.comisiones_spv proponer --operador EMAIL --desde AAAA-MM-DD
    ```
 
-4. **Conciliación diaria**: `deploy/instalar-cron.sh` la programa a las 6:10 y 14:10 (recupera los
-   pagos cuyo aviso del banco se perdió; registro en `/var/log/suite-notarial-supervielle.log`).
+4. **Tareas programadas**: `deploy/instalar-cron.sh` procesa cada 2 minutos los avisos que llegaron
+   durante la pausa entre consultas al banco, y concilia a las 6:10 y 14:10 (recupera los pagos
+   cuyo aviso se perdió; registro en `/var/log/suite-notarial-supervielle.log`).
    Antes de cargar las credenciales no hace nada. A mano:
    `$C exec -T api python -m app.modules.pagos.supervielle_cli conciliar --dias 7`.
 

@@ -5,10 +5,13 @@
 - `probar`: pide un token al banco (confirma las credenciales). Con `--publicar-prueba`, solo en
   el ambiente de pruebas del banco, publica una deuda de $10 que vence mañana y muestra su link,
   para pagarla con las tarjetas de prueba del banco; con `--hash` consulta su estado.
+- `procesar-avisos`: consulta las publicaciones con un aviso recibido durante la pausa entre
+  consultas. Lo programa deploy/instalar-cron.sh (cada 2 minutos).
 - `conciliar`: recupera los pagos cuyo aviso se perdió. Lo programa deploy/instalar-cron.sh.
 
 python -m app.modules.pagos.supervielle_cli estado
 python -m app.modules.pagos.supervielle_cli probar [--publicar-prueba | --hash HASH]
+python -m app.modules.pagos.supervielle_cli procesar-avisos
 python -m app.modules.pagos.supervielle_cli conciliar [--dias 3]
 """
 
@@ -112,6 +115,17 @@ async def conciliar(dias: int) -> int:
     return 1 if r.errores else 0
 
 
+async def procesar_avisos() -> int:
+    from app.core.db import get_sessionmaker
+    from app.modules.pagos import supervielle_service
+
+    async with get_sessionmaker()() as session:
+        consultadas = await supervielle_service.procesar_avisos_pendientes(session, CLI_CONTEXT)
+    if consultadas:
+        _escribir(f"avisos pendientes consultados: {consultadas}")
+    return 0
+
+
 def main(argumentos: list[str] | None = None) -> int:
     lector = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = lector.add_subparsers(dest="comando", required=True)
@@ -120,6 +134,7 @@ def main(argumentos: list[str] | None = None) -> int:
     grupo = p.add_mutually_exclusive_group()
     grupo.add_argument("--publicar-prueba", action="store_true")
     grupo.add_argument("--hash", help="Consulta el estado de una publicación")
+    sub.add_parser("procesar-avisos", help="Consulta los avisos recibidos durante la pausa")
     p = sub.add_parser("conciliar", help="Recupera los pagos cuyo aviso se perdió")
     p.add_argument("--dias", type=int, default=3, help="Días hacia atrás de la rendición")
     args = lector.parse_args(argumentos)
@@ -130,6 +145,8 @@ def main(argumentos: list[str] | None = None) -> int:
     # Registra todos los modelos: corriendo solo, SQLAlchemy no resolvería las relaciones.
     import app.db.models  # noqa: F401
 
+    if args.comando == "procesar-avisos":
+        return asyncio.run(procesar_avisos())
     return asyncio.run(conciliar(max(1, min(args.dias, 60))))
 
 

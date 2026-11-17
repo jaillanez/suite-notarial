@@ -98,6 +98,8 @@ def upgrade() -> None:
         sa.Column("comision_estimada", sa.Numeric(precision=15, scale=2), nullable=True),
         sa.Column("vigencia_comision_boton_id", sa.UUID(), nullable=True),
         sa.Column("vigencia_comision_medio_id", sa.UUID(), nullable=True),
+        sa.Column("consultado_en", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("aviso_pendiente_en", sa.DateTime(timezone=True), nullable=True),
         sa.Column("comprobante_id", sa.UUID(), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
