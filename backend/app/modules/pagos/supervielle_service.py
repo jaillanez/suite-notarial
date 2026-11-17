@@ -17,7 +17,8 @@ Todo cambio de estado queda en la auditoría.
 import logging
 import time
 import uuid
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 from zoneinfo import ZoneInfo
 
@@ -47,7 +48,8 @@ from app.modules.pagos.models import SECUENCIA_PUBLICACION_SPV, Comprobante, Pag
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 logger = logging.getLogger(__name__)
 # Un aviso del banco dispara a lo sumo una consulta por publicación en este lapso (por proceso):
-# repetir el aviso no multiplica los pedidos a la API.
+# repetir el aviso no multiplica los pedidos a la API. El aviso que llega dentro de la pausa se
+# responde con 503 para que el banco lo reintente: nunca se da por recibido sin procesarlo.
 PAUSA_AVISO_NS = 15 * 1_000_000_000
 _ultimo_aviso: dict[str, int] = {}
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
@@ -385,6 +387,20 @@ async def _consultar_y_registrar(
     return await registrar(session, ctx, bloqueado, pagos)
 
 
+async def refrescar_antes_de_aprobar(
+    session: AsyncSession, ctx: RequestContext, comprobante_id: uuid.UUID
+) -> None:
+    """Antes de que Tesorería apruebe un comprobante de Supervielle, se vuelve a consultar el pago
+    al banco: una reversión cuyo aviso todavía no llegó tiene que bloquear la aprobación. Si el
+    banco no responde, no se aprueba (503)."""
+    item = await de_comprobante(session, comprobante_id)
+    if item is None:
+        return
+    if not supervielle.configurado():
+        raise _no_disponible()
+    await _consultar_y_registrar(session, ctx, item)
+
+
 async def sincronizar(
     session: AsyncSession, ctx: RequestContext, principal: Principal, pago_spv_id: uuid.UUID
 ) -> PagoSupervielle:
@@ -425,7 +441,7 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         raise _no_disponible()
     ahora = time.monotonic_ns()
     if ahora - _ultimo_aviso.get(item.hash, -PAUSA_AVISO_NS) < PAUSA_AVISO_NS:
-        return
+        raise ProblemError(HTTPStatus.SERVICE_UNAVAILABLE, "Aviso repetido: reintentar más tarde.")
     _ultimo_aviso[item.hash] = ahora
     try:
         await _consultar_y_registrar(session, ctx, item)
@@ -433,6 +449,78 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         # Si el banco no contestó, el próximo reintento vuelve a consultar.
         _ultimo_aviso.pop(item.hash, None)
         raise
+
+
+# --------------------------------------------------------------------------- conciliación
+
+
+# Una deuda vencida hace más de estos días ya no se consulta en la conciliación diaria (un pago en
+# caja o por DEBIN puede acreditarse unos días después).
+DIAS_ABIERTAS = 10
+ABIERTOS = (
+    EstadoPagoSPV.CREADO.value,
+    EstadoPagoSPV.PENDIENTE.value,
+    EstadoPagoSPV.APROBADO.value,
+)
+
+
+@dataclass
+class ResultadoConciliacion:
+    consultadas: int = 0
+    # (id_publicacion, estado anterior, estado nuevo)
+    actualizadas: list[tuple[int, str, str]] = field(default_factory=list)
+    # Pagos de la rendición de publicaciones que no armó la Suite: (hash, id de pago, importe).
+    ajenos: list[tuple[str, str, str]] = field(default_factory=list)
+    errores: list[str] = field(default_factory=list)
+
+
+async def conciliar(
+    session: AsyncSession, ctx: RequestContext, desde: date, hasta: date
+) -> ResultadoConciliacion:
+    """Recupera los pagos cuyo aviso se perdió (el banco descarta el aviso cuando agota los
+    reintentos): consulta las deudas abiertas de la Suite y las que figuran en la rendición del
+    banco entre `desde` y `hasta`, y las registra como si hubiera llegado el aviso."""
+    if not supervielle.configurado():
+        raise _no_disponible()
+    resultado = ResultadoConciliacion()
+    try:
+        rendidos = await supervielle.rendicion_pagos(desde, hasta)
+    except supervielle.SupervielleError as exc:
+        resultado.errores.append(f"rendición: {exc}")
+        rendidos = []
+    hashes = {r.hash_publicacion for r in rendidos}
+    propias = (
+        await session.scalars(select(PagoSupervielle).where(PagoSupervielle.hash.in_(hashes)))
+    ).all()
+    conocidos = {p.hash for p in propias}
+    resultado.ajenos = [
+        (r.hash_publicacion, r.pago.id, f"{r.pago.importe:.2f}" if r.pago.importe else "")
+        for r in rendidos
+        if r.hash_publicacion not in conocidos
+    ]
+    abiertas = (
+        await session.scalars(
+            select(PagoSupervielle).where(
+                PagoSupervielle.estado.in_(ABIERTOS),
+                PagoSupervielle.vence >= today_local() - timedelta(days=DIAS_ABIERTAS),
+            )
+        )
+    ).all()
+    a_consultar = {p.id: (p.id_publicacion, p.estado) for p in [*abiertas, *propias]}
+    await session.commit()
+    for pago_id, (id_publicacion, antes) in a_consultar.items():
+        resultado.consultadas += 1
+        item = await session.get(PagoSupervielle, pago_id)
+        assert item is not None  # noqa: S101 - sin borrado
+        try:
+            actualizado = await _consultar_y_registrar(session, ctx, item)
+        except ProblemError:
+            await session.rollback()
+            resultado.errores.append(f"publicación {id_publicacion}: el banco no respondió")
+            continue
+        if actualizado.estado != antes:
+            resultado.actualizadas.append((id_publicacion, antes, actualizado.estado))
+    return resultado
 
 
 # --------------------------------------------------------------------------- consulta

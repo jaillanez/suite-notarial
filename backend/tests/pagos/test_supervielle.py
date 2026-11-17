@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
 from app.core.config import Environment, Settings, get_settings
-from app.modules.pagos import comisiones_spv, supervielle, supervielle_service
+from app.modules.pagos import comisiones_spv, supervielle, supervielle_cli, supervielle_service
 from app.modules.pagos.catalog import EstadoPagoSPV
 from app.modules.pagos.models import Comprobante, PagoSupervielle
 from app.modules.parametros import service as parametros
@@ -400,6 +400,30 @@ async def test_un_pago_reversado_no_se_puede_aprobar(
     )
     assert aprobado.status_code == 409
     assert "revirtió" in aprobado.json()["detail"]
+
+
+async def test_antes_de_aprobar_se_consulta_al_banco(
+    notario: AsyncClient,
+    tesoreria: AsyncClient,
+    boleta: dict[str, Any],
+    banco: BancoFalso,
+    db_session: AsyncSession,
+) -> None:
+    await _pagar(notario, boleta["id"])
+    item = await _registro(db_session, boleta["id"])
+    pago = banco.informar(item.hash, importe=Decimal(boleta["total_a_pagar"]))
+    await _sincronizar(notario, item)
+    comprobante = await db_session.scalar(select(Comprobante))
+    assert comprobante is not None
+    datos = {"importe_confirmado": boleta["total_a_pagar"], "fecha_acreditacion": "2026-10-23"}
+    url = f"/api/v1/pagos/comprobantes/{comprobante.id}/aprobar"
+    # El banco revirtió el pago y el aviso todavía no llegó: la consulta previa lo detecta.
+    pago["id_estado_pago"] = 5
+    assert (await tesoreria.post(url, json=datos)).status_code == 409
+    # Si el banco no responde, no se aprueba a ciegas.
+    pago["id_estado_pago"] = 1
+    banco.caido = True
+    assert (await tesoreria.post(url, json=datos)).status_code == 503
     assert (await notario.get(f"/api/v1/ddjj/boletas/{boleta['id']}")).json()["estado"] == (
         "PENDIENTE"
     )
@@ -483,8 +507,9 @@ async def test_aviso_del_banco_sin_sesion(
         valido = await externo.get(url)
         assert valido.status_code == 200, valido.text
         assert valido.json()["status"] == "success"
-        # El banco reintenta enseguida: no duplica nada ni repite la consulta a la API.
-        assert (await externo.get(url)).status_code == 200
+        # El banco reintenta enseguida: no se consulta de nuevo, y se le pide que reintente más
+        # tarde (503) en vez de darlo por recibido.
+        assert (await externo.get(url)).status_code == 503
         assert consultas == 1
         # Pasada la pausa, si el banco no contesta la consulta, el aviso no se da por recibido.
         monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 0)
@@ -626,3 +651,123 @@ async def test_la_caja_puede_simular_una_comision(
     )
     assert r.status_code == 200, r.text
     assert r.json()["resultado"] == "500.00"
+
+
+# --------------------------------------------------------------------------- conciliación y consola
+
+
+async def test_rendicion_pagina_y_lee_sin_flotantes(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configurar(monkeypatch)
+    supervielle._token.olvidar()
+    monkeypatch.setattr(supervielle, "POR_PAGINA", 2)
+    paginas = {
+        "1": '[{"id_pago": 1, "id_estado_pago": 2, "id_medio_pago": 4, "importe": 100.10,'
+        ' "fecha_pago": "2026-10-22T10:00:00.000", "hash_publicacion": "h-1"},'
+        ' {"id_pago": 2, "id_estado_pago": 1, "importe": 5, "hash_publicacion": "h-2"}]',
+        "2": '{"pagos": [{"id_pago": 3, "id_estado_pago": 1, "importe": 7,'
+        ' "hash_publicacion": "h-3"}]}',
+    }
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/token"):
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 300})
+        assert request.url.path.endswith("/v1.0/rendiciones/pagos")
+        assert request.url.params["fecha_desde"] == "2026-10-20"
+        return httpx.Response(200, text=paginas[request.url.params["page"]])
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(transport=httpx.MockTransport(responder), **kw),
+    )
+    rendidos = await supervielle.rendicion_pagos(date(2026, 10, 20), date(2026, 10, 22))
+    assert [r.hash_publicacion for r in rendidos] == ["h-1", "h-2", "h-3"]
+    assert rendidos[0].pago.importe == Decimal("100.10")
+    assert rendidos[0].pago.estado is EstadoPagoSPV.ACREDITADO
+    assert rendidos[0].pago.fecha is not None
+
+
+async def test_conciliar_recupera_un_aviso_perdido(
+    notario: AsyncClient,
+    boleta: dict[str, Any],
+    banco: BancoFalso,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _pagar(notario, boleta["id"])
+    item = await _registro(db_session, boleta["id"])
+    pago = banco.informar(item.hash, importe=Decimal(boleta["total_a_pagar"]))
+
+    async def rendicion(desde: date, hasta: date) -> list[supervielle.PagoRendido]:
+        rendido = await banco.pagos_de(item.hash)
+        ajeno = supervielle.pago_desde({"id_pago": 77, "id_estado_pago": 1, "importe": 3})
+        return [
+            supervielle.PagoRendido(item.hash, rendido[0]),
+            supervielle.PagoRendido("de-otro-sistema", ajeno),
+        ]
+
+    monkeypatch.setattr(supervielle, "rendicion_pagos", rendicion)
+    ctx = supervielle_cli.CLI_CONTEXT
+    r = await supervielle_service.conciliar(db_session, ctx, AYER - timedelta(days=3), AYER)
+    assert r.consultadas == 1
+    assert r.actualizadas == [(item.id_publicacion, "CREADO", "APROBADO")]
+    assert r.ajenos == [("de-otro-sistema", "77", "3.00")]
+    assert r.errores == []
+    assert len((await db_session.scalars(select(Comprobante))).all()) == 1
+    # Correrla de nuevo no duplica nada; el paso a acreditado se registra.
+    pago["id_estado_pago"] = 2
+    otra = await supervielle_service.conciliar(db_session, ctx, AYER, AYER)
+    assert otra.actualizadas == [(item.id_publicacion, "APROBADO", "ACREDITADO")]
+    assert len((await db_session.scalars(select(Comprobante))).all()) == 1
+
+
+async def test_conciliar_con_el_banco_caido_informa_el_error(
+    notario: AsyncClient,
+    boleta: dict[str, Any],
+    banco: BancoFalso,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _pagar(notario, boleta["id"])
+
+    async def caida(desde: date, hasta: date) -> list[supervielle.PagoRendido]:
+        raise supervielle.SupervielleError("El banco respondió 500 al pedir la rendición.")
+
+    banco.caido = True
+    monkeypatch.setattr(supervielle, "rendicion_pagos", caida)
+    r = await supervielle_service.conciliar(db_session, supervielle_cli.CLI_CONTEXT, AYER, AYER)
+    assert len(r.errores) == 2
+    assert "rendición" in r.errores[0]
+
+
+def test_consola_informa_lo_que_falta_sin_mostrar_secretos(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert supervielle_cli.main(["estado"]) == 1
+    salida = capsys.readouterr().out
+    assert "SUPERVIELLE_CONVENIO" in salida and "PRUEBAS" in salida
+    _configurar(monkeypatch)
+    assert supervielle_cli.main(["estado"]) == 0
+    salida = capsys.readouterr().out
+    assert "configuración completa" in salida
+    assert "clave-test" not in salida and "secret-test" not in salida
+
+
+def test_conciliar_sin_configurar_no_falla(capsys: pytest.CaptureFixture[str]) -> None:
+    assert supervielle_cli.main(["conciliar"]) == 0
+    assert "sin configurar" in capsys.readouterr().out
+
+
+async def test_probar_publica_solo_en_el_ambiente_de_pruebas(
+    transporte: _Transporte,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert await supervielle_cli.probar(publicar=True, hash_=None) == 0
+    salida = capsys.readouterr().out
+    assert "acceso: OK" in salida and "link de pago: https://" in salida
+    monkeypatch.setattr(
+        get_settings(), "SUPERVIELLE_API_URL", "https://api.supervielle.com.ar/supervielle/x"
+    )
+    assert await supervielle_cli.probar(publicar=True, hash_=None) == 2

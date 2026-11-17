@@ -275,3 +275,89 @@ async def pagos_de(hash_: str) -> list[Pago]:
     if not isinstance(pagos, list):
         raise SupervielleError("Estado de la publicación con formato inesperado.")
     return [pago_desde(p) for p in pagos]
+
+
+# --------------------------------------------------------------------------- rendiciones
+
+# Registros por página al pedir una rendición, y tope de páginas (contra una respuesta que no
+# termina nunca).
+POR_PAGINA = 100
+MAX_PAGINAS = 200
+
+
+@dataclass(frozen=True)
+class PagoRendido:
+    """Un pago de la rendición del banco, con la publicación a la que corresponde."""
+
+    hash_publicacion: str
+    pago: Pago
+
+
+def _registros(datos: Any) -> list[Any]:
+    # La documentación dice «devuelve un array»; se acepta también un objeto que lo envuelva.
+    if isinstance(datos, list):
+        return datos
+    if isinstance(datos, dict):
+        for clave in ("pagos", "items", "data", "resultado"):
+            if isinstance(datos.get(clave), list):
+                return list(datos[clave])
+    raise SupervielleError("Rendición del banco con formato inesperado.")
+
+
+async def rendicion_pagos(desde: date, hasta: date) -> list[PagoRendido]:
+    """Pagos recibidos entre dos fechas (inclusive), de todas las publicaciones del convenio."""
+    rendidos: list[PagoRendido] = []
+    for pagina in range(1, MAX_PAGINAS + 1):
+        codigo, datos = await _pedir(
+            "GET",
+            "v1.0/rendiciones/pagos",
+            params={
+                "fecha_desde": desde.isoformat(),
+                "fecha_hasta": hasta.isoformat(),
+                "page": str(pagina),
+                "count": str(POR_PAGINA),
+            },
+        )
+        if codigo == 404 and pagina > 1:
+            break
+        if codigo != 200:
+            raise SupervielleError(f"El banco respondió {codigo} al pedir la rendición.")
+        registros = _registros(datos)
+        for r in registros:
+            if not isinstance(r, dict) or not r.get("hash_publicacion"):
+                continue
+            # La rendición informa la fecha del pago como `fecha_pago`.
+            pago = pago_desde({**r, "fecha": r.get("fecha_pago", r.get("fecha"))})
+            rendidos.append(PagoRendido(str(r["hash_publicacion"])[:100], pago))
+        if len(registros) < POR_PAGINA:
+            break
+    return rendidos
+
+
+async def probar_acceso() -> None:
+    """Pide un token: confirma usuario, clave, client_id y client_secret (no publica nada)."""
+    _token.olvidar()
+    await _token.obtener()
+
+
+def faltantes() -> list[str]:
+    """Variables de configuración que faltan para habilitar el botón."""
+    s = get_settings()
+    textos = {
+        "SUPERVIELLE_USUARIO": s.SUPERVIELLE_USUARIO,
+        "SUPERVIELLE_CLIENT_ID": s.SUPERVIELLE_CLIENT_ID,
+    }
+    secretos = {
+        "SUPERVIELLE_CLAVE": s.SUPERVIELLE_CLAVE,
+        "SUPERVIELLE_CLIENT_SECRET": s.SUPERVIELLE_CLIENT_SECRET,
+        "SUPERVIELLE_IBM_CLIENT_ID": s.SUPERVIELLE_IBM_CLIENT_ID,
+    }
+    faltan = [k for k, v in textos.items() if not (v or "").strip()]
+    faltan += [k for k, v in secretos.items() if v is None or not v.get_secret_value().strip()]
+    if s.SUPERVIELLE_CONVENIO is None:
+        faltan.append("SUPERVIELLE_CONVENIO")
+    return sorted(faltan)
+
+
+def es_ambiente_de_pruebas() -> bool:
+    return "apitst." in get_settings().SUPERVIELLE_API_URL

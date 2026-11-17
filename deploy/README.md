@@ -104,3 +104,52 @@ leer los 2FA ya activados.
 
 TODO(caja): copia fuera del servidor. Los backups viven en el mismo disco que la base; falta definir
 con la Caja un destino externo (almacenamiento propio de la Caja) para copiarlos cifrados.
+
+## Botón de pagos Supervielle: cuando lleguen las credenciales
+
+Todo lo que entrega el banco es configuración (`SUPERVIELLE_*` en `deploy/.env.server`); no hace
+falta tocar el código. Sin credenciales o sin convenio, el botón no aparece en las boletas.
+
+1. **Cargar y probar** (pide cada valor; los secretos no se muestran ni quedan en el historial):
+
+   ```bash
+   cd /opt/suite-notarial && ./deploy/configurar-supervielle.sh
+   ```
+
+   Pregunta el ambiente (`pruebas` o `produccion`; en producción, además, las tres direcciones que
+   confirme el banco), el convenio, usuario, clave, `client_id`, `client_secret` y
+   `x-ibm-client-id`. Reinicia la API, pide un token al banco y, si lo entrega, muestra la
+   **dirección de aviso de pagos** para registrar en el banco.
+
+2. **Probar un pago punta a punta** (solo con el ambiente de pruebas del banco):
+
+   ```bash
+   C="docker compose --env-file deploy/.env.server -f deploy/compose.server.yml"
+   $C exec -T api python -m app.modules.pagos.supervielle_cli probar --publicar-prueba
+   ```
+
+   Publica una deuda de $10 y muestra su link: se paga con las tarjetas de prueba del documento
+   del banco (p. ej. Visa crédito 4507990000004905, vto. 08/30, CVV 123). Después:
+
+   ```bash
+   $C exec -T api python -m app.modules.pagos.supervielle_cli probar --hash HASH
+   ```
+
+   Para la prueba completa desde la Suite: emitir una boleta con fecha de pago de mañana o
+   posterior, «Pagar con Supervielle», pagar con la tarjeta de prueba y «Ya pagué: verificar». El
+   pago aparece en Tesorería → Conciliación.
+
+3. **Comisiones** (una vez): propone los valores de la propuesta del banco; los aprueba otra
+   persona desde Parámetros.
+
+   ```bash
+   $C exec -T api python -m app.modules.pagos.comisiones_spv proponer --operador EMAIL --desde AAAA-MM-DD
+   ```
+
+4. **Conciliación diaria**: `deploy/instalar-cron.sh` la programa a las 6:10 y 14:10 (recupera los
+   pagos cuyo aviso del banco se perdió; registro en `/var/log/suite-notarial-supervielle.log`).
+   Antes de cargar las credenciales no hace nada. A mano:
+   `$C exec -T api python -m app.modules.pagos.supervielle_cli conciliar --dias 7`.
+
+`python -m app.modules.pagos.supervielle_cli estado` muestra qué falta configurar y a qué ambiente
+apunta, sin mostrar secretos.

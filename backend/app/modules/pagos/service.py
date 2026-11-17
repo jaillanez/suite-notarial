@@ -28,7 +28,7 @@ from app.modules.ddjj.models import Boleta
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
-from app.modules.pagos import storage
+from app.modules.pagos import storage, supervielle_service
 from app.modules.pagos.catalog import (
     ESTADOS_MP_REVERTIDOS,
     ESTADOS_SPV_REVERTIDOS,
@@ -279,6 +279,7 @@ async def aprobar(
     comprobante_id: uuid.UUID,
     data: AprobacionIn,
 ) -> Resolucion:
+    await supervielle_service.refrescar_antes_de_aprobar(session, ctx, comprobante_id)
     item, boleta = await _para_revisar(session, principal, comprobante_id)
     if boleta.estado != EstadoBoleta.PENDIENTE.value:
         raise _conflict("La boleta ya no está pendiente: rechazá el comprobante indicando por qué.")
