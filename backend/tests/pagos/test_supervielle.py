@@ -801,22 +801,41 @@ async def test_probar_publica_solo_en_el_ambiente_de_pruebas(
     assert await supervielle_cli.probar(publicar=True, hash_=None) == 2
 
 
-async def test_marca_de_aviso_posterior_se_conserva_y_la_vieja_se_abandona(
-    notario: AsyncClient, boleta: dict[str, Any], banco: BancoFalso, db_session: AsyncSession
+async def test_la_marca_no_se_corre_ni_se_descarta(
+    notario: AsyncClient,
+    boleta: dict[str, Any],
+    banco: BancoFalso,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _pagar(notario, boleta["id"])
     item = await _registro(db_session, boleta["id"])
-    consulta = datetime.now(UTC)
-    # Un aviso que llegó después de la consulta no se borra al terminarla.
-    item.aviso_pendiente_en = consulta + timedelta(seconds=5)
-    await db_session.commit()
-    await supervielle_service._limpiar_pendiente(db_session, item.id, consulta)
-    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is not None
-    # Una marca que no se pudo consultar en un día se abandona (queda para la conciliación).
+    # Avisos repetidos: la hora queda en la del más viejo y la generación sube con cada uno.
+    await supervielle_service._marcar_pendiente(db_session, item.id)
+    primera = (await _registro(db_session, boleta["id"])).aviso_pendiente_en
+    await supervielle_service._marcar_pendiente(db_session, item.id)
     item = await _registro(db_session, boleta["id"])
-    item.aviso_pendiente_en = consulta - timedelta(days=2)
+    assert item.aviso_pendiente_en == primera
+    assert item.aviso_generacion == 2
+    # Si llegó otro aviso mientras se consultaba, la marca se conserva.
+    await supervielle_service._limpiar_pendiente(db_session, item.id, 1)
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is not None
+    # Una marca de hace más de un día no se descarta: alerta crítica una sola vez.
+    item = await _registro(db_session, boleta["id"])
+    item.aviso_pendiente_en = datetime.now(UTC) - timedelta(days=2)
     await db_session.commit()
     banco.caido = True
     ctx = supervielle_cli.CLI_CONTEXT
     assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 0
-    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is None
+    assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 0
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is not None
+    assert len(await _eventos(db_session, "PAGO_SPV_AVISO_DEMORADO")) == 1
+    # La conciliación también revisa la publicación con el aviso pendiente.
+    banco.caido = False
+
+    async def sin_rendicion(desde: date, hasta: date) -> list[supervielle.PagoRendido]:
+        return []
+
+    monkeypatch.setattr(supervielle, "rendicion_pagos", sin_rendicion)
+    r = await supervielle_service.conciliar(db_session, ctx, AYER, AYER)
+    assert r.consultadas == 1

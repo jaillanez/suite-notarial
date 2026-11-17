@@ -21,7 +21,7 @@ from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, AuditSecurityLog, RequestContext, Severity, record_audit
@@ -442,12 +442,10 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
     assert bloqueado is not None  # noqa: S101 - recién leído
     ahora = datetime.now(UTC)
     if bloqueado.consultado_en is not None and ahora - bloqueado.consultado_en < PAUSA_AVISO:
-        # La marca siempre lleva la hora del último aviso: así el procesamiento programado sabe
-        # si llegó otro mientras consultaba.
-        bloqueado.aviso_pendiente_en = ahora
-        await session.commit()
+        await _marcar_pendiente(session, item.id)
         return
     bloqueado.consultado_en = ahora
+    generacion = bloqueado.aviso_generacion
     await session.commit()
     try:
         await _consultar_y_registrar(session, ctx, bloqueado)
@@ -457,59 +455,55 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         await _marcar_pendiente(session, item.id)
         raise
     # Consultado ahora: los avisos anteriores a esta consulta ya quedaron cubiertos.
-    await _limpiar_pendiente(session, item.id, ahora)
+    await _limpiar_pendiente(session, item.id, generacion)
 
 
 async def _marcar_pendiente(session: AsyncSession, pago_id: uuid.UUID) -> None:
+    """Un aviso más sin consultar: sube la generación y conserva la hora del más viejo (quien
+    llame a la dirección del aviso no puede correr esa hora hacia adelante)."""
     await session.execute(
         update(PagoSupervielle)
         .where(PagoSupervielle.id == pago_id)
-        .values(aviso_pendiente_en=func.now())
+        .values(
+            aviso_generacion=PagoSupervielle.aviso_generacion + 1,
+            aviso_pendiente_en=func.coalesce(PagoSupervielle.aviso_pendiente_en, func.now()),
+        )
     )
     await session.commit()
 
 
-async def _limpiar_pendiente(session: AsyncSession, pago_id: uuid.UUID, hasta: datetime) -> None:
-    """Borra la marca solo si es anterior o igual a `hasta`: un aviso posterior la conserva."""
+async def _limpiar_pendiente(session: AsyncSession, pago_id: uuid.UUID, generacion: int) -> None:
+    """Borra la marca solo si no llegó otro aviso desde que se leyó `generacion`."""
     await session.execute(
         update(PagoSupervielle)
-        .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_pendiente_en <= hasta)
+        .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_generacion == generacion)
         .values(aviso_pendiente_en=None)
     )
     await session.commit()
 
 
 # Tope por vuelta del procesamiento programado (cada 2 minutos): cantidad de publicaciones y
-# tiempo total. Una marca que sigue sin poder consultarse después de un día se abandona y queda
-# para la conciliación diaria (que consulta la rendición del banco).
+# tiempo total. Se toman primero las que hace más tiempo no se consultan, así una publicación que
+# falla siempre no frena a las demás. Una marca no se descarta nunca: si sigue pendiente después
+# de un día, se avisa a Tesorería (auditoría crítica) y la conciliación diaria también la revisa.
 AVISOS_POR_VUELTA = 50
 TIEMPO_POR_VUELTA = timedelta(seconds=90)
-ABANDONAR_AVISO = timedelta(days=1)
+AVISO_DEMORADO = timedelta(days=1)
 
 
 async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext) -> int:
-    """Consulta al banco las publicaciones con un aviso pendiente, las más viejas primero. La
-    marca se borra solo si no llegó otro aviso mientras se consultaba; si el banco falla, queda
-    para la próxima vuelta. Devuelve cuántas se consultaron."""
+    """Consulta al banco las publicaciones con un aviso pendiente. La marca se borra solo si no
+    llegó otro aviso mientras se consultaba; si el banco falla, queda para la próxima vuelta.
+    Devuelve cuántas se consultaron."""
     if not supervielle.configurado():
         return 0
     inicio = datetime.now(UTC)
-    abandonadas = await session.execute(
-        update(PagoSupervielle)
-        .where(PagoSupervielle.aviso_pendiente_en < inicio - ABANDONAR_AVISO)
-        .values(aviso_pendiente_en=None)
-        .returning(PagoSupervielle.id_publicacion)
-    )
-    for (numero,) in abandonadas.all():
-        logger.warning(
-            "Aviso de Supervielle sin poder consultarse en un día: queda para la conciliación",
-            extra={"id_publicacion": numero},
-        )
+    await _alertar_demorados(session, ctx, inicio)
     ids = (
         await session.scalars(
             select(PagoSupervielle.id)
             .where(PagoSupervielle.aviso_pendiente_en.is_not(None))
-            .order_by(PagoSupervielle.aviso_pendiente_en)
+            .order_by(PagoSupervielle.consultado_en.asc().nulls_first())
             .limit(AVISOS_POR_VUELTA)
         )
     ).all()
@@ -527,6 +521,7 @@ async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext)
             await session.commit()
             continue
         item.consultado_en = ahora
+        generacion = item.aviso_generacion
         await session.commit()
         try:
             await _consultar_y_registrar(session, ctx, item)
@@ -534,8 +529,43 @@ async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext)
             await session.rollback()
             continue
         consultadas += 1
-        await _limpiar_pendiente(session, pago_id, ahora)
+        await _limpiar_pendiente(session, pago_id, generacion)
     return consultadas
+
+
+async def _alertar_demorados(session: AsyncSession, ctx: RequestContext, ahora: datetime) -> None:
+    """Auditoría crítica (una vez por marca) de los avisos que llevan un día sin consultarse."""
+    demorados = (
+        await session.execute(
+            select(
+                PagoSupervielle.id,
+                PagoSupervielle.id_publicacion,
+                PagoSupervielle.aviso_pendiente_en,
+            ).where(PagoSupervielle.aviso_pendiente_en < ahora - AVISO_DEMORADO)
+        )
+    ).all()
+    for pago_id, numero, desde in demorados:
+        marca = desde.isoformat() if desde is not None else ""
+        ya = await session.scalar(
+            select(func.count()).where(
+                AuditSecurityLog.event_type == AuditEvent.PAGO_SPV_AVISO_DEMORADO.value,
+                AuditSecurityLog.details["pago_spv_id"].astext == str(pago_id),
+                AuditSecurityLog.details["pendiente_desde"].astext == marca,
+            )
+        )
+        if not ya:
+            record_audit(
+                session,
+                ctx,
+                AuditEvent.PAGO_SPV_AVISO_DEMORADO,
+                severity=Severity.CRITICAL,
+                details={
+                    "pago_spv_id": str(pago_id),
+                    "id_publicacion": numero,
+                    "pendiente_desde": marca,
+                },
+            )
+    await session.commit()
 
 
 # --------------------------------------------------------------------------- conciliación
@@ -588,8 +618,14 @@ async def conciliar(
     abiertas = (
         await session.scalars(
             select(PagoSupervielle).where(
-                PagoSupervielle.estado.in_(ABIERTOS),
-                PagoSupervielle.vence >= today_local() - timedelta(days=DIAS_ABIERTAS),
+                or_(
+                    and_(
+                        PagoSupervielle.estado.in_(ABIERTOS),
+                        PagoSupervielle.vence >= today_local() - timedelta(days=DIAS_ABIERTAS),
+                    ),
+                    # Un aviso que no se pudo consultar se revisa sea cual sea su estado.
+                    PagoSupervielle.aviso_pendiente_en.is_not(None),
+                ),
             )
         )
     ).all()
