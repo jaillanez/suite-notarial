@@ -15,6 +15,9 @@ class TipoConcepto(StrEnum):
     TASA_MORA = "TASA_MORA"
     # Regla (no un monto): cómo aportan varios actos de una misma escritura (`criterio`).
     CRITERIO_PLURALIDAD = "CRITERIO_PLURALIDAD"
+    # Porcentaje que cobra un medio de pago sobre lo cobrado, con mínimo y tope opcionales (p. ej.
+    # el botón de pagos Supervielle). No es un aporte: estima la comisión de cada cobro.
+    COMISION_COBRO = "COMISION_COBRO"
 
 
 class CriterioPluralidad(StrEnum):

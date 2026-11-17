@@ -32,6 +32,7 @@ const COMPROBANTE: apiModule.Comprobante = {
   },
   origen: 'ARCHIVO',
   mercado_pago: null,
+  supervielle: null,
   nombre_original: 'transferencia.pdf',
   mime_type: 'application/pdf',
   tamano_bytes: 2048,

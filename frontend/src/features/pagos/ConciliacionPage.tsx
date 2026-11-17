@@ -13,8 +13,8 @@ import { formatLocalDateTime } from '../../lib/datetime'
 import { formatMoney } from '../../lib/decimal'
 import { formatPeriodo } from '../ddjj/labels'
 import { formatDate } from '../padron/labels'
-import { fetchMesa, fetchRegistroMP, type EstadoComprobante } from './api'
-import { ESTADO_COMPROBANTE, ESTADO_PAGO_MP } from './labels'
+import { fetchMesa, fetchRegistroMP, fetchRegistroSPV, type EstadoComprobante } from './api'
+import { ESTADO_COMPROBANTE, ESTADO_PAGO_MP, ESTADO_PAGO_SPV } from './labels'
 
 const PAGE_SIZE = 20
 
@@ -92,7 +92,11 @@ export function ConciliacionPage() {
                       · {formatPeriodo(c.boleta.periodo)}
                     </span>
                     <span className="block text-sm text-ink-muted tabular-nums">
-                      {c.origen === 'MERCADO_PAGO' ? 'Mercado Pago, aprobado el' : 'Transferido el'}{' '}
+                      {c.origen === 'MERCADO_PAGO'
+                        ? 'Mercado Pago, aprobado el'
+                        : c.origen === 'SUPERVIELLE'
+                          ? 'Supervielle, pagado el'
+                          : 'Transferido el'}{' '}
                       {formatDate(c.fecha_transferencia)} · Op. {c.numero_operacion} · Recibido{' '}
                       {formatLocalDateTime(new Date(c.created_at))}
                     </span>
@@ -129,6 +133,9 @@ export function ConciliacionPage() {
           }}
         />
       </Panel>
+      <div className="mt-6">
+        <RegistroSupervielle />
+      </div>
       <div className="mt-6">
         <RegistroMercadoPago />
       </div>
@@ -215,6 +222,95 @@ function RegistroMercadoPago() {
                   <td className="px-3 py-3 text-right">{formatMoney(p.importe_pagado)}</td>
                   <td className="px-3 py-3 text-right">{formatMoney(p.comision)}</td>
                   <td className="px-5 py-3 text-right sm:px-6">{formatMoney(p.importe_neto)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {(query.data?.total ?? 0) > 25 && (
+        <Pagination page={page} pageSize={25} total={query.data?.total ?? 0} onPage={setPage} />
+      )}
+    </Panel>
+  )
+}
+
+/** Todos los pagos que informó el botón Supervielle, con la comisión y el neto estimados. */
+function RegistroSupervielle() {
+  const [page, setPage] = useState(1)
+  const query = useQuery({
+    queryKey: ['pagos', 'supervielle', 'registro', page],
+    queryFn: () => fetchRegistroSPV(page),
+    placeholderData: keepPreviousData,
+  })
+  const items = query.data?.items ?? []
+  return (
+    <Panel
+      title="Pagos con el botón Supervielle"
+      description="Registro de los pagos informados por el banco. Los aprobados entran a la mesa de arriba. La comisión no la informa el banco: se estima con los parámetros de comisión vigentes al pagar."
+    >
+      {query.isError && (
+        <div className="px-5 py-4 sm:px-6">
+          <Alert tone="danger">{toProblem(query.error).detail}</Alert>
+        </div>
+      )}
+      {query.data && items.length === 0 && (
+        <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
+          Todavía no hay pagos con el botón Supervielle.
+        </p>
+      )}
+      {items.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-sunken text-left text-ink-muted">
+              <tr>
+                <th scope="col" className="px-5 py-3 font-semibold sm:px-6">
+                  Publicación
+                </th>
+                <th scope="col" className="px-3 py-3 font-semibold">
+                  Estado
+                </th>
+                <th scope="col" className="px-3 py-3 text-right font-semibold">
+                  Pagado
+                </th>
+                <th scope="col" className="px-3 py-3 text-right font-semibold">
+                  Comisión estimada
+                </th>
+                <th scope="col" className="px-5 py-3 text-right font-semibold sm:px-6">
+                  Neto estimado
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line tabular-nums">
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td className="px-5 py-3 sm:px-6">
+                    <span className="block font-semibold text-ink">N° {p.id_publicacion}</span>
+                    <span className="block text-ink-muted">
+                      {formatLocalDateTime(new Date(p.pagado_en ?? p.created_at))}
+                      {p.medio_pago && ` · ${p.medio_pago}`}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    {p.comprobante_id ? (
+                      <Link to={`/tesoreria/conciliacion/${p.comprobante_id}`}>
+                        {ESTADO_PAGO_SPV[p.estado]}
+                      </Link>
+                    ) : (
+                      ESTADO_PAGO_SPV[p.estado]
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right">{formatMoney(p.importe_pagado)}</td>
+                  <td className="px-3 py-3 text-right">
+                    {p.comision_estimada === null ? (
+                      <span className="text-ink-muted">Sin estimar</span>
+                    ) : (
+                      formatMoney(p.comision_estimada)
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-right sm:px-6">
+                    {formatMoney(p.importe_neto_estimado)}
+                  </td>
                 </tr>
               ))}
             </tbody>

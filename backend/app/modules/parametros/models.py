@@ -37,7 +37,7 @@ class Concepto(UUIDMixin, TimestampMixin, Base):
         CheckConstraint("codigo ~ '^[A-Z][A-Z0-9_]{2,49}$'", name="codigo_formato"),
         CheckConstraint(
             "tipo IN ('PORCENTUAL_ACTO', 'FIJO_ACTO', 'FIJO_MENSUAL', 'TASA_MORA', "
-            "'CRITERIO_PLURALIDAD')",
+            "'CRITERIO_PLURALIDAD', 'COMISION_COBRO')",
             name="tipo_valido",
         ),
     )

@@ -54,6 +54,10 @@ CAMPOS_POR_TIPO: dict[TipoConcepto, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"tasa", "periodo_tasa", "dias_gracia"}),
         frozenset({"porcentaje", "monto_fijo", "monto_minimo", "monto_maximo", "criterio"}),
     ),
+    TipoConcepto.COMISION_COBRO: (
+        frozenset({"porcentaje"}),
+        frozenset({"monto_fijo", "tasa", "periodo_tasa", "dias_gracia", "criterio"}),
+    ),
     TipoConcepto.CRITERIO_PLURALIDAD: (
         frozenset({"criterio"}),
         frozenset(

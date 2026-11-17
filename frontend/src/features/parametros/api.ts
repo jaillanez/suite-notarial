@@ -2,7 +2,12 @@ import { api } from '../../lib/api'
 import type { CriterioPluralidad } from '../ddjj/api'
 
 export type TipoConcepto =
-  'PORCENTUAL_ACTO' | 'FIJO_ACTO' | 'FIJO_MENSUAL' | 'TASA_MORA' | 'CRITERIO_PLURALIDAD'
+  | 'PORCENTUAL_ACTO'
+  | 'FIJO_ACTO'
+  | 'FIJO_MENSUAL'
+  | 'TASA_MORA'
+  | 'CRITERIO_PLURALIDAD'
+  | 'COMISION_COBRO'
 export type PeriodoTasa = 'MENSUAL' | 'ANUAL'
 export type EstadoVigencia = 'PENDIENTE_APROBACION' | 'VIGENTE' | 'RECHAZADA' | 'RETIRADA'
 export type ReglaRedondeo = 'HALF_UP' | 'FLOOR' | 'CEILING'

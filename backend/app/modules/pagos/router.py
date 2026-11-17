@@ -10,11 +10,13 @@ from fastapi import (
     File,
     Form,
     Header,
+    Path,
     Query,
     Request,
     Response,
     UploadFile,
 )
+from fastapi.responses import JSONResponse
 
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
@@ -32,14 +34,23 @@ from app.modules.iam.deps import (
 )
 from app.modules.iam.router_auth import MailerDep
 from app.modules.padron.models import RegistroNotarial
-from app.modules.pagos import mails, mercadopago, mercadopago_service, service, storage
+from app.modules.pagos import (
+    mails,
+    mercadopago,
+    mercadopago_service,
+    service,
+    storage,
+    supervielle,
+    supervielle_service,
+)
 from app.modules.pagos.catalog import (
     EstadoComprobante,
     EstadoPagoMP,
+    EstadoPagoSPV,
     OrigenComprobante,
     ResultadoConciliacion,
 )
-from app.modules.pagos.models import Comprobante, PagoMercadoPago
+from app.modules.pagos.models import Comprobante, PagoMercadoPago, PagoSupervielle
 from app.modules.pagos.schemas import (
     AprobacionIn,
     BoletaResumen,
@@ -48,9 +59,12 @@ from app.modules.pagos.schemas import (
     ConciliacionOut,
     CuotaCobradaOut,
     InicioPagoMPOut,
+    InicioPagoSPVOut,
     MercadoPagoEstadoOut,
     PagoMercadoPagoOut,
+    PagoSupervielleOut,
     RechazoIn,
+    SupervielleEstadoOut,
 )
 from app.modules.parametros import service as parametros
 
@@ -125,6 +139,33 @@ async def comprobante_out(
         mercado_pago=pago_mp_out(mp, interno=service.es_tesoreria(principal))
         if (mp := await mercadopago_service.de_comprobante(session, c.id))
         else None,
+        supervielle=pago_spv_out(spv, interno=service.es_tesoreria(principal))
+        if (spv := await supervielle_service.de_comprobante(session, c.id))
+        else None,
+    )
+
+
+def pago_spv_out(p: PagoSupervielle, *, interno: bool) -> PagoSupervielleOut:
+    """`interno`: la comisión estimada y el neto son datos de la Caja; solo los ve Tesorería."""
+    estimada = p.comision_estimada if interno else None
+    return PagoSupervielleOut(
+        id=p.id,
+        boleta_id=p.boleta_id,
+        id_publicacion=p.id_publicacion,
+        estado=EstadoPagoSPV(p.estado),
+        medio_pago=p.medio_pago,
+        importe_boleta=p.importe_boleta,
+        importe_pagado=p.importe_pagado,
+        comision_estimada=estimada,
+        importe_neto_estimado=(
+            p.importe_pagado - estimada
+            if estimada is not None and p.importe_pagado is not None
+            else None
+        ),
+        vence=p.vence,
+        pagado_en=p.pagado_en,
+        comprobante_id=p.comprobante_id,
+        created_at=p.created_at,
     )
 
 
@@ -228,6 +269,79 @@ async def notificacion_mp(
         session, ctx, tipo=tipo, data_id=data_id, firma=x_signature, request_id=x_request_id
     )
     return {"status": "ok"}
+
+
+# --------------------------------------------------------------------------- botón Supervielle
+
+
+@router.get("/supervielle/estado", response_model=SupervielleEstadoOut)
+async def supervielle_estado(_: CanRead) -> SupervielleEstadoOut:
+    return SupervielleEstadoOut(habilitado=supervielle.configurado())
+
+
+@router.post("/boletas/{boleta_id}/supervielle", response_model=InicioPagoSPVOut, status_code=201)
+async def pagar_con_supervielle(
+    boleta_id: uuid.UUID, principal: CanUpload, session: SessionDep, ctx: RequestContextDep
+) -> InicioPagoSPVOut:
+    item = await supervielle_service.iniciar(session, ctx, principal, boleta_id)
+    return InicioPagoSPVOut(pago_id=item.id, url_pago=item.link_pago)
+
+
+@router.get("/boletas/{boleta_id}/supervielle", response_model=list[PagoSupervielleOut])
+async def pagos_spv_de_boleta(
+    boleta_id: uuid.UUID, principal: CanRead, session: SessionDep
+) -> list[PagoSupervielleOut]:
+    return [
+        pago_spv_out(p, interno=service.es_tesoreria(principal))
+        for p in await supervielle_service.de_boleta(session, principal, boleta_id)
+    ]
+
+
+@router.post("/supervielle/{pago_id}/sincronizar", response_model=PagoSupervielleOut)
+async def sincronizar_pago_spv(
+    pago_id: uuid.UUID, principal: CanRead, session: SessionDep, ctx: RequestContextDep
+) -> PagoSupervielleOut:
+    """«Ya pagué»: la Suite consulta la publicación al banco y registra sus pagos."""
+    pago = await supervielle_service.sincronizar(session, ctx, principal, pago_id)
+    return pago_spv_out(pago, interno=service.es_tesoreria(principal))
+
+
+@router.get("/supervielle", response_model=Page[PagoSupervielleOut])
+async def registro_pagos_spv(
+    _: CanVerify, session: SessionDep, page: PageParamsDep
+) -> Page[PagoSupervielleOut]:
+    items, total = await supervielle_service.registro(session, page)
+    return Page(
+        items=[pago_spv_out(p, interno=True) for p in items],
+        total=total,
+        page=page.page,
+        page_size=page.page_size,
+    )
+
+
+@router.get("/supervielle/aviso/{hash_publicacion}", status_code=200)
+async def aviso_supervielle(
+    hash_publicacion: Annotated[str, Path(max_length=100)],
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> Response:
+    """Aviso de pago del banco (servidor a servidor, sin sesión ni firma). Solo dispara la
+    consulta a la API del banco: lo que trae el aviso no se toma como cierto. Responde con el
+    formato que espera el banco (con un código distinto de 200, reintenta)."""
+    try:
+        await supervielle_service.aviso(session, ctx, hash_publicacion)
+    except supervielle_service.AvisoInvalidoError:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Solicitud inválida",
+                "errors": [{"field": "hash", "error": "El hash no es válido"}],
+            },
+        )
+    return JSONResponse(
+        content={"status": "success", "message": "Solicitud procesada correctamente"}
+    )
 
 
 @router.post("/boletas/{boleta_id}/comprobantes", response_model=ComprobanteOut, status_code=201)

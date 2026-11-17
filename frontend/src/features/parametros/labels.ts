@@ -19,6 +19,11 @@ export const TIPO: Record<TipoConcepto, { label: string; ayuda: string }> = {
     ayuda:
       'Cómo aportan los actos de una escritura con varios actos y las mismas partes. No es un importe: es una política que se cambia con una vigencia nueva.',
   },
+  COMISION_COBRO: {
+    label: 'Comisión de un medio de pago',
+    ayuda:
+      'Porcentaje que cobra el banco sobre lo cobrado, con mínimo y tope opcionales. No es un aporte: estima la comisión y el neto de cada pago para Tesorería.',
+  },
 }
 
 export const ESTADO_VIGENCIA: Record<EstadoVigencia, { label: string; tone: Tone }> = {
@@ -39,6 +44,10 @@ export const REDONDEO: Record<ReglaRedondeo, string> = {
 /** Valor principal de una vigencia, en una línea legible. */
 export function resumenValor(tipo: TipoConcepto, v: Vigencia): string {
   if (tipo === 'PORCENTUAL_ACTO') return formatPercent(v.porcentaje)
+  if (tipo === 'COMISION_COBRO') {
+    const minimo = v.monto_minimo ? `, mínimo ${formatMoney(v.monto_minimo)}` : ''
+    return `${formatPercent(v.porcentaje)} de lo cobrado${minimo}`
+  }
   if (tipo === 'FIJO_ACTO') return `${formatMoney(v.monto_fijo)} por acto`
   if (tipo === 'FIJO_MENSUAL') return formatMoney(v.monto_fijo)
   if (tipo === 'CRITERIO_PLURALIDAD')
@@ -48,7 +57,7 @@ export function resumenValor(tipo: TipoConcepto, v: Vigencia): string {
 
 /** Valores secundarios (mínimo, tope, gracia) como pares etiqueta/valor. */
 export function detalleValores(tipo: TipoConcepto, v: Vigencia): [string, string][] {
-  if (tipo === 'PORCENTUAL_ACTO') {
+  if (tipo === 'PORCENTUAL_ACTO' || tipo === 'COMISION_COBRO') {
     return [
       ['Porcentaje', formatPercent(v.porcentaje)],
       ['Mínimo', v.monto_minimo ? formatMoney(v.monto_minimo) : 'Sin mínimo'],

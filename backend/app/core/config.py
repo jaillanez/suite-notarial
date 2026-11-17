@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import re
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -20,6 +21,8 @@ class Environment(StrEnum):
 
 
 _PRIVATE_HOSTS = ("localhost", "127.", "10.", "192.168.", "0.0.0.0", "[::1]")  # noqa: S104
+# Direcciones del ambiente de pruebas del botón Supervielle (no se aceptan en producción).
+_ES_PRUEBA_SPV = re.compile(r"apitst\.|supervielletest|idpauttst\.")
 
 
 class Settings(BaseSettings):
@@ -95,6 +98,31 @@ class Settings(BaseSettings):
     MERCADOPAGO_BASE_URL: str = "https://api.mercadopago.com"
     MERCADOPAGO_TIMEOUT_S: Annotated[int, Field(gt=0, le=120)] = 30
 
+    # Botón de pagos Supervielle (APIBANK Recaudaciones, doc. técnica v1.3.4, 10/2025): cobra a
+    # la cuenta de la Caja. Sin credenciales o sin convenio, el botón no se ofrece. Las
+    # credenciales llegan del banco cifradas con nuestra clave PGP, una por ambiente; los valores
+    # por defecto son los del ambiente de pruebas del banco.
+    SUPERVIELLE_USUARIO: str | None = None
+    SUPERVIELLE_CLAVE: SecretStr | None = None
+    SUPERVIELLE_CLIENT_ID: str | None = None
+    SUPERVIELLE_CLIENT_SECRET: SecretStr | None = None
+    # Cabecera `x-ibm-client-id` de cada pedido a la API.
+    SUPERVIELLE_IBM_CLIENT_ID: SecretStr | None = None
+    SUPERVIELLE_CONVENIO: Annotated[int, Field(gt=0)] | None = None
+    SUPERVIELLE_API_URL: str = (
+        "https://apitst.supervielle.com.ar/supervielletest/apibank/apibank/banca-comercial/"
+        "recaudaciones"
+    )
+    # TODO(banco): el documento muestra dos direcciones del token para pruebas; esta es la del
+    # ejemplo con curl. Confirmarla, y la de producción (.../apibank/auth2/b2b/v2/token).
+    SUPERVIELLE_AUTH_URL: str = (
+        "https://apitst.supervielle.com.ar/auth/realms/b2b/protocol/openid-connect/token"
+    )
+    # TODO(banco): valor para producción (el documento solo da el de pruebas).
+    SUPERVIELLE_FORWARDED_HOST: str = "idpauttst.supervielle.com.ar"
+    SUPERVIELLE_SCOPE: str = "boton-pago.publicar"
+    SUPERVIELLE_TIMEOUT_S: Annotated[int, Field(gt=0, le=120)] = 30
+
     # Migración (Fase 10): simulacros cuadrados exigidos antes de la carga definitiva
     # (módulo 11: tres simulacros completos).
     MIGRACION_SIMULACROS_MINIMOS: Annotated[int, Field(ge=1, le=20)] = 3
@@ -117,6 +145,12 @@ class Settings(BaseSettings):
 
     # Solo desarrollo: contraseña de los usuarios de demostración (make seed-dev).
     DEV_SEED_PASSWORD: SecretStr | None = None
+
+    @field_validator("SUPERVIELLE_CONVENIO", mode="before")
+    @classmethod
+    def _convenio_vacio(cls, value: object) -> object:
+        # `SUPERVIELLE_CONVENIO=` vacío en el .env equivale a no tener convenio (botón apagado).
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("JWT_SECRET")
     @classmethod
@@ -178,6 +212,20 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Con Mercado Pago habilitado fuera de desarrollo, MERCADOPAGO_WEBHOOK_SECRET es "
                 "obligatorio (las notificaciones se verifican por firma)"
+            )
+        spv_urls = (
+            self.SUPERVIELLE_API_URL,
+            self.SUPERVIELLE_AUTH_URL,
+            self.SUPERVIELLE_FORWARDED_HOST,
+        )
+        if (
+            self.ENVIRONMENT is Environment.PRODUCTION
+            and self.SUPERVIELLE_CONVENIO is not None
+            and any(_ES_PRUEBA_SPV.search(u) for u in spv_urls)
+        ):
+            raise ValueError(
+                "En producción, SUPERVIELLE_API_URL, SUPERVIELLE_AUTH_URL y "
+                "SUPERVIELLE_FORWARDED_HOST no pueden apuntar al ambiente de pruebas del banco"
             )
         return self
 
