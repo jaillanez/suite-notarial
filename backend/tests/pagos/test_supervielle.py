@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
-from app.core.config import get_settings
+from app.core.config import Environment, Settings, get_settings
 from app.modules.pagos import comisiones_spv, supervielle, supervielle_service
 from app.modules.pagos.catalog import EstadoPagoSPV
 from app.modules.pagos.models import Comprobante, PagoSupervielle
@@ -366,6 +366,63 @@ async def test_importe_distinto_va_a_tesoreria_con_aviso(
     assert (await _eventos(db_session, "PAGO_SPV_ACREDITADO"))[0]["importe_coincide"] is False
 
 
+async def test_sin_importe_informado_no_se_supone_el_total(
+    notario: AsyncClient, boleta: dict[str, Any], banco: BancoFalso, db_session: AsyncSession
+) -> None:
+    await _pagar(notario, boleta["id"])
+    item = await _registro(db_session, boleta["id"])
+    banco.informar(item.hash, importe=None)
+    await _sincronizar(notario, item)
+    await _sincronizar(notario, item)
+    assert (await db_session.scalars(select(Comprobante))).all() == []
+    alertas = await _eventos(db_session, "PAGO_SPV_SIN_COMPROBANTE")
+    assert len(alertas) == 1 and alertas[0]["motivo"] == "importe no informado"
+
+
+async def test_un_pago_reversado_no_se_puede_aprobar(
+    notario: AsyncClient,
+    tesoreria: AsyncClient,
+    boleta: dict[str, Any],
+    banco: BancoFalso,
+    db_session: AsyncSession,
+) -> None:
+    await _pagar(notario, boleta["id"])
+    item = await _registro(db_session, boleta["id"])
+    pago = banco.informar(item.hash, importe=Decimal(boleta["total_a_pagar"]))
+    await _sincronizar(notario, item)
+    pago["id_estado_pago"] = 4
+    await _sincronizar(notario, item)
+    comprobante = await db_session.scalar(select(Comprobante))
+    assert comprobante is not None
+    aprobado = await tesoreria.post(
+        f"/api/v1/pagos/comprobantes/{comprobante.id}/aprobar",
+        json={"importe_confirmado": boleta["total_a_pagar"], "fecha_acreditacion": "2026-10-23"},
+    )
+    assert aprobado.status_code == 409
+    assert "revirtió" in aprobado.json()["detail"]
+    assert (await notario.get(f"/api/v1/ddjj/boletas/{boleta['id']}")).json()["estado"] == (
+        "PENDIENTE"
+    )
+
+
+def test_produccion_no_acepta_el_ambiente_de_pruebas_del_banco() -> None:
+    base: dict[str, Any] = {
+        "ENVIRONMENT": Environment.PRODUCTION,
+        "PUBLIC_WEB_URL": "https://suite.cajanotarial-sj.com.ar",
+        "SMTP_SECURITY": "tls",
+        "MFA_ENFORCED": True,
+        "SUPERVIELLE_CONVENIO": 989888,
+    }
+    with pytest.raises(ValueError, match="ambiente de pruebas del banco"):
+        Settings(**base)
+    Settings(
+        **base,
+        SUPERVIELLE_API_URL="https://api.supervielle.com.ar/supervielle/apibank/apibank/x",
+        SUPERVIELLE_AUTH_URL="https://api.supervielle.com.ar/supervielle/apibank/auth2/b2b/v2/token",
+        SUPERVIELLE_FORWARDED_HOST="idpaut.supervielle.com.ar",
+    )
+
+
 async def test_reversado_queda_como_alerta(
     notario: AsyncClient, boleta: dict[str, Any], banco: BancoFalso, db_session: AsyncSession
 ) -> None:
@@ -399,10 +456,21 @@ async def test_aviso_del_banco_sin_sesion(
     boleta: dict[str, Any],
     banco: BancoFalso,
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _pagar(notario, boleta["id"])
     item = await _registro(db_session, boleta["id"])
     banco.informar(item.hash, importe=Decimal(boleta["total_a_pagar"]))
+    consultas = 0
+    consultar = banco.pagos_de
+
+    async def contar(hash_: str) -> list[supervielle.Pago]:
+        nonlocal consultas
+        consultas += 1
+        return await consultar(hash_)
+
+    monkeypatch.setattr(supervielle, "pagos_de", contar)
+    monkeypatch.setattr(supervielle_service, "_ultimo_aviso", {})
     # El banco llama sin cookies ni la cabecera anti-CSRF de la Suite.
     async with AsyncClient(
         transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
@@ -415,13 +483,23 @@ async def test_aviso_del_banco_sin_sesion(
         valido = await externo.get(url)
         assert valido.status_code == 200, valido.text
         assert valido.json()["status"] == "success"
-        # El banco reintenta: no duplica nada.
+        # El banco reintenta enseguida: no duplica nada ni repite la consulta a la API.
         assert (await externo.get(url)).status_code == 200
-        # Si el banco no contesta la consulta, el aviso no se da por recibido (reintenta).
+        assert consultas == 1
+        # Pasada la pausa, si el banco no contesta la consulta, el aviso no se da por recibido.
+        monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 0)
         banco.caido = True
         assert (await externo.get(url)).status_code == 503
     assert len((await db_session.scalars(select(Comprobante))).all()) == 1
-    assert len(await _eventos(db_session, "PAGO_SPV_DESCONOCIDO")) == 1
+    # Un hash inventado no deja filas en la auditoría (cualquiera puede llamar a la dirección).
+    assert (
+        await db_session.scalars(
+            select(AuditSecurityLog.id).where(
+                AuditSecurityLog.event_type.like("PAGO_SPV_%"),
+                AuditSecurityLog.event_type.not_in(("PAGO_SPV_INICIADO", "PAGO_SPV_ACREDITADO")),
+            )
+        )
+    ).all() == []
 
 
 async def test_permisos(

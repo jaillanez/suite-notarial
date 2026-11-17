@@ -29,8 +29,13 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.pagos import storage
-from app.modules.pagos.catalog import EstadoComprobante, ResultadoConciliacion
-from app.modules.pagos.models import Comprobante, Conciliacion
+from app.modules.pagos.catalog import (
+    ESTADOS_MP_REVERTIDOS,
+    ESTADOS_SPV_REVERTIDOS,
+    EstadoComprobante,
+    ResultadoConciliacion,
+)
+from app.modules.pagos.models import Comprobante, Conciliacion, PagoMercadoPago, PagoSupervielle
 from app.modules.pagos.schemas import AprobacionIn, ComprobanteIn
 
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
@@ -254,6 +259,19 @@ def _marcar_revisado(item: Comprobante, actor: User, estado: EstadoComprobante) 
     item.revisado_en = datetime.now(UTC)
 
 
+async def _pago_revertido(session: AsyncSession, comprobante_id: uuid.UUID) -> bool:
+    """El pago online que generó el comprobante figura revertido en el medio de pago."""
+    spv = await session.scalar(
+        select(PagoSupervielle.estado).where(PagoSupervielle.comprobante_id == comprobante_id)
+    )
+    if spv is not None and spv in {e.value for e in ESTADOS_SPV_REVERTIDOS}:
+        return True
+    mp = await session.scalar(
+        select(PagoMercadoPago.estado).where(PagoMercadoPago.comprobante_id == comprobante_id)
+    )
+    return mp is not None and mp in {e.value for e in ESTADOS_MP_REVERTIDOS}
+
+
 async def aprobar(
     session: AsyncSession,
     ctx: RequestContext,
@@ -264,6 +282,11 @@ async def aprobar(
     item, boleta = await _para_revisar(session, principal, comprobante_id)
     if boleta.estado != EstadoBoleta.PENDIENTE.value:
         raise _conflict("La boleta ya no está pendiente: rechazá el comprobante indicando por qué.")
+    if await _pago_revertido(session, item.id):
+        raise _conflict(
+            "El medio de pago informó que este pago se revirtió (devuelto, reversado o anulado): "
+            "no se puede aprobar. Rechazá el comprobante indicando el motivo."
+        )
     # TODO(negocio): pagos parciales o con diferencia (a favor o en contra). Por ahora solo se
     # aprueba un pago por el total exacto; cualquier otro caso se rechaza con motivo.
     if data.importe_confirmado != boleta.total_a_pagar:

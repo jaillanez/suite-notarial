@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import re
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -20,6 +21,8 @@ class Environment(StrEnum):
 
 
 _PRIVATE_HOSTS = ("localhost", "127.", "10.", "192.168.", "0.0.0.0", "[::1]")  # noqa: S104
+# Direcciones del ambiente de pruebas del botón Supervielle (no se aceptan en producción).
+_ES_PRUEBA_SPV = re.compile(r"apitst\.|supervielletest|idpauttst\.")
 
 
 class Settings(BaseSettings):
@@ -203,6 +206,20 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Con Mercado Pago habilitado fuera de desarrollo, MERCADOPAGO_WEBHOOK_SECRET es "
                 "obligatorio (las notificaciones se verifican por firma)"
+            )
+        spv_urls = (
+            self.SUPERVIELLE_API_URL,
+            self.SUPERVIELLE_AUTH_URL,
+            self.SUPERVIELLE_FORWARDED_HOST,
+        )
+        if (
+            self.ENVIRONMENT is Environment.PRODUCTION
+            and self.SUPERVIELLE_CONVENIO is not None
+            and any(_ES_PRUEBA_SPV.search(u) for u in spv_urls)
+        ):
+            raise ValueError(
+                "En producción, SUPERVIELLE_API_URL, SUPERVIELLE_AUTH_URL y "
+                "SUPERVIELLE_FORWARDED_HOST no pueden apuntar al ambiente de pruebas del banco"
             )
         return self
 

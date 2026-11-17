@@ -14,6 +14,8 @@
 Todo cambio de estado queda en la auditoría.
 """
 
+import logging
+import time
 import uuid
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -43,6 +45,11 @@ from app.modules.pagos.catalog import (
 from app.modules.pagos.models import SECUENCIA_PUBLICACION_SPV, Comprobante, PagoSupervielle
 
 ZONA = ZoneInfo("America/Argentina/San_Juan")
+logger = logging.getLogger(__name__)
+# Un aviso del banco dispara a lo sumo una consulta por publicación en este lapso (por proceso):
+# repetir el aviso no multiplica los pedidos a la API.
+PAUSA_AVISO_NS = 15 * 1_000_000_000
+_ultimo_aviso: dict[str, int] = {}
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
 EFECTIVOS = {e.value for e in ESTADOS_SPV_EFECTIVOS}
 
@@ -289,7 +296,11 @@ async def _comprobante_para_tesoreria(
     pago: supervielle.Pago,
     detalles: dict[str, object],
 ) -> None:
-    coincide = pago.importe is not None and pago.importe == boleta.total_a_pagar
+    if pago.importe is None:
+        # Sin importe informado no se arma el comprobante (nunca se supone el total).
+        await _sin_comprobante(session, ctx, pago, {**detalles, "motivo": "importe no informado"})
+        return
+    coincide = pago.importe == boleta.total_a_pagar
     en_revision = await session.scalar(
         select(Comprobante.id).where(
             Comprobante.boleta_id == boleta.id, Comprobante.estado == PENDIENTE
@@ -297,21 +308,8 @@ async def _comprobante_para_tesoreria(
     )
     if en_revision is not None or boleta.estado != EstadoBoleta.PENDIENTE.value:
         # La boleta ya tiene otro pago en revisión (o ya no está pendiente): el pago queda
-        # registrado para que Tesorería lo vea, sin un segundo comprobante. Se avisa una vez.
-        ya = await session.scalar(
-            select(func.count()).where(
-                AuditSecurityLog.event_type == AuditEvent.PAGO_SPV_SIN_COMPROBANTE.value,
-                AuditSecurityLog.details["spv_pago_id"].astext == pago.id,
-            )
-        )
-        if not ya:
-            record_audit(
-                session,
-                ctx,
-                AuditEvent.PAGO_SPV_SIN_COMPROBANTE,
-                severity=Severity.CRITICAL,
-                details={**detalles, "boleta_estado": boleta.estado},
-            )
+        # registrado para que Tesorería lo vea, sin un segundo comprobante.
+        await _sin_comprobante(session, ctx, pago, {**detalles, "boleta_estado": boleta.estado})
         return
     fecha = pago.fecha.date() if pago.fecha else today_local()
     comprobante = Comprobante(
@@ -323,7 +321,7 @@ async def _comprobante_para_tesoreria(
         fecha_transferencia=fecha,
         banco_origen=f"Supervielle · {pago.medio_pago}" if pago.medio_pago else "Supervielle",
         numero_operacion=pago.id,
-        importe_declarado=pago.importe if pago.importe is not None else boleta.total_a_pagar,
+        importe_declarado=pago.importe,
         estado=PENDIENTE,
         subido_por_user_id=item.iniciado_por_user_id,
     )
@@ -350,6 +348,29 @@ async def _comprobante_para_tesoreria(
             "total_boleta": format_pesos(boleta.total_a_pagar),
         },
     )
+
+
+async def _sin_comprobante(
+    session: AsyncSession,
+    ctx: RequestContext,
+    pago: supervielle.Pago,
+    detalles: dict[str, object],
+) -> None:
+    """Pago hecho que no entra a la mesa: alerta crítica para Tesorería, una vez por pago."""
+    ya = await session.scalar(
+        select(func.count()).where(
+            AuditSecurityLog.event_type == AuditEvent.PAGO_SPV_SIN_COMPROBANTE.value,
+            AuditSecurityLog.details["spv_pago_id"].astext == pago.id,
+        )
+    )
+    if not ya:
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.PAGO_SPV_SIN_COMPROBANTE,
+            severity=Severity.CRITICAL,
+            details=detalles,
+        )
 
 
 async def _consultar_y_registrar(
@@ -392,19 +413,26 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         else None
     )
     if item is None:
-        record_audit(
-            session,
-            ctx,
-            AuditEvent.PAGO_SPV_DESCONOCIDO,
-            severity=Severity.WARNING,
-            details={"hash": hash_[:100]},
+        # Solo al log (no a la auditoría): cualquiera puede llamar a esta dirección, y una fila
+        # por aviso inventado llenaría la auditoría.
+        logger.warning(
+            "Aviso de Supervielle con un hash desconocido",
+            extra={"ip": ctx.ip_address, "hash": hash_[:100]},
         )
-        await session.commit()
         raise AvisoInvalidoError
     if not supervielle.configurado():
         # Sin 200 el banco reintenta más tarde.
         raise _no_disponible()
-    await _consultar_y_registrar(session, ctx, item)
+    ahora = time.monotonic_ns()
+    if ahora - _ultimo_aviso.get(item.hash, -PAUSA_AVISO_NS) < PAUSA_AVISO_NS:
+        return
+    _ultimo_aviso[item.hash] = ahora
+    try:
+        await _consultar_y_registrar(session, ctx, item)
+    except ProblemError:
+        # Si el banco no contestó, el próximo reintento vuelve a consultar.
+        _ultimo_aviso.pop(item.hash, None)
+        raise
 
 
 # --------------------------------------------------------------------------- consulta
