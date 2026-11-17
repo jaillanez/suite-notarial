@@ -429,6 +429,11 @@ async def test_antes_de_aprobar_se_consulta_al_banco(
     )
 
 
+def test_convenio_vacio_en_el_env_es_sin_convenio() -> None:
+    assert Settings(SUPERVIELLE_CONVENIO="").SUPERVIELLE_CONVENIO is None
+    assert Settings(SUPERVIELLE_CONVENIO=" 989888 ").SUPERVIELLE_CONVENIO == 989888
+
+
 def test_produccion_no_acepta_el_ambiente_de_pruebas_del_banco() -> None:
     base: dict[str, Any] = {
         "ENVIRONMENT": Environment.PRODUCTION,

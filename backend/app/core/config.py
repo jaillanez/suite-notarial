@@ -146,6 +146,12 @@ class Settings(BaseSettings):
     # Solo desarrollo: contraseña de los usuarios de demostración (make seed-dev).
     DEV_SEED_PASSWORD: SecretStr | None = None
 
+    @field_validator("SUPERVIELLE_CONVENIO", mode="before")
+    @classmethod
+    def _convenio_vacio(cls, value: object) -> object:
+        # `SUPERVIELLE_CONVENIO=` vacío en el .env equivale a no tener convenio (botón apagado).
+        return None if isinstance(value, str) and not value.strip() else value
+
     @field_validator("JWT_SECRET")
     @classmethod
     def _jwt_secret_length(cls, value: SecretStr) -> SecretStr:
