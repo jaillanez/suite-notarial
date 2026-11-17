@@ -28,6 +28,11 @@ Se agrega un archivo **opcional**, `actos.csv`, con las mismas reglas que los ot
 
 El extractor `python -m app.modules.migracion.extractor_web --volcado SQL --lote-base DIR --salida DIR` lee el volcado MySQL del sitio (sin ejecutar su SQL) y arma un lote nuevo: copia el lote base y le agrega `actos.csv` con su fila de control. Toma solo las DDJJ presentadas; deja afuera los actos borrados en el origen, los de borradores y los renglones vacíos (DDJJ sin movimiento). El extractor reconoce un `INSERT` solo al comienzo de una sentencia (respeta textos y comentarios: un valor que contenga SQL no agrega filas) y rechaza el volcado si una tabla repite un `id`. El escribano va por CUIT. Si el CUIT no está en el lote base, propone la coincidencia por el documento que contiene el CUIT o por apellido y nombre (solo si es única) y la lista para revisarla; se asigna únicamente con `--aceptar-coincidencias`. Si no, queda «a completar» con el dato del sitio.
 
+**Teléfono y correo de los registros (después de la carga definitiva).** Las planillas de la Caja no traen el contacto de los registros y el sitio web anterior sí. Como la carga definitiva es una sola por base, va por un comando aparte en dos pasos, para que el volcado no salga del equipo de trabajo:
+
+1. En el equipo: `python -m app.modules.migracion.contacto_registros extraer --volcado SQL --salida CSV` escribe solo `numero_registro;telefono;email`. «--» o vacío es «sin dato»; un correo inválido no se toma y se informa (no se adivina la corrección).
+2. En el servidor: `python -m app.modules.migracion.contacto_registros cargar --archivo CSV --operador EMAIL [--aplicar]` completa cada registro por su número **solo en los campos vacíos**: lo que ya se cargó o corrigió en la Suite no se pisa y la diferencia se informa. Los registros cerrados no se tocan. Sin `--aplicar` solo informa. Cada registro completado queda en la auditoría (`PADRON_REGISTRO_UPDATED`, valor previo y nuevo, origen `cli:migracion:contacto_registros`).
+
 ### Ajustes de la Caja tras revisar el padrón (compatibles con la versión 2)
 
 Decisiones de la Caja, sin cambiar de versión (un lote anterior se sigue leyendo igual):
