@@ -597,7 +597,7 @@ async def list_actos(session: AsyncSession, ddjj_id: uuid.UUID) -> list[Acto]:
     result = await session.execute(
         select(Acto)
         .where(Acto.ddjj_id == ddjj_id, Acto.is_active.is_(True))
-        .order_by(Acto.tipo_protocolo.desc(), Acto.numero_escritura)
+        .order_by(Acto.tipo_protocolo.desc(), Acto.numero_escritura, Acto.orden_en_escritura)
     )
     return list(result.unique().scalars())
 
