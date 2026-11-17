@@ -442,8 +442,9 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
     assert bloqueado is not None  # noqa: S101 - recién leído
     ahora = datetime.now(UTC)
     if bloqueado.consultado_en is not None and ahora - bloqueado.consultado_en < PAUSA_AVISO:
-        if bloqueado.aviso_pendiente_en is None:
-            bloqueado.aviso_pendiente_en = ahora
+        # La marca siempre lleva la hora del último aviso: así el procesamiento programado sabe
+        # si llegó otro mientras consultaba.
+        bloqueado.aviso_pendiente_en = ahora
         await session.commit()
         return
     bloqueado.consultado_en = ahora
@@ -455,37 +456,74 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         await session.rollback()
         await _marcar_pendiente(session, item.id)
         raise
+    # Consultado ahora: los avisos anteriores a esta consulta ya quedaron cubiertos.
+    await _limpiar_pendiente(session, item.id, ahora)
 
 
 async def _marcar_pendiente(session: AsyncSession, pago_id: uuid.UUID) -> None:
     await session.execute(
         update(PagoSupervielle)
-        .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_pendiente_en.is_(None))
+        .where(PagoSupervielle.id == pago_id)
         .values(aviso_pendiente_en=func.now())
     )
     await session.commit()
 
 
+async def _limpiar_pendiente(session: AsyncSession, pago_id: uuid.UUID, hasta: datetime) -> None:
+    """Borra la marca solo si es anterior o igual a `hasta`: un aviso posterior la conserva."""
+    await session.execute(
+        update(PagoSupervielle)
+        .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_pendiente_en <= hasta)
+        .values(aviso_pendiente_en=None)
+    )
+    await session.commit()
+
+
+# Tope por vuelta del procesamiento programado (cada 2 minutos): cantidad de publicaciones y
+# tiempo total. Una marca que sigue sin poder consultarse después de un día se abandona y queda
+# para la conciliación diaria (que consulta la rendición del banco).
+AVISOS_POR_VUELTA = 50
+TIEMPO_POR_VUELTA = timedelta(seconds=90)
+ABANDONAR_AVISO = timedelta(days=1)
+
+
 async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext) -> int:
-    """Consulta al banco las publicaciones con un aviso pendiente. La marca se borra solo si no
-    llegó otro aviso mientras se consultaba; si el banco falla, queda para la próxima vuelta.
-    Devuelve cuántas se consultaron."""
+    """Consulta al banco las publicaciones con un aviso pendiente, las más viejas primero. La
+    marca se borra solo si no llegó otro aviso mientras se consultaba; si el banco falla, queda
+    para la próxima vuelta. Devuelve cuántas se consultaron."""
     if not supervielle.configurado():
         return 0
-    pendientes = (
-        await session.execute(
-            select(PagoSupervielle.id, PagoSupervielle.aviso_pendiente_en).where(
-                PagoSupervielle.aviso_pendiente_en.is_not(None)
-            )
+    inicio = datetime.now(UTC)
+    abandonadas = await session.execute(
+        update(PagoSupervielle)
+        .where(PagoSupervielle.aviso_pendiente_en < inicio - ABANDONAR_AVISO)
+        .values(aviso_pendiente_en=None)
+        .returning(PagoSupervielle.id_publicacion)
+    )
+    for (numero,) in abandonadas.all():
+        logger.warning(
+            "Aviso de Supervielle sin poder consultarse en un día: queda para la conciliación",
+            extra={"id_publicacion": numero},
+        )
+    ids = (
+        await session.scalars(
+            select(PagoSupervielle.id)
+            .where(PagoSupervielle.aviso_pendiente_en.is_not(None))
+            .order_by(PagoSupervielle.aviso_pendiente_en)
+            .limit(AVISOS_POR_VUELTA)
         )
     ).all()
     await session.commit()
     consultadas = 0
-    for pago_id, marca in pendientes:
+    for pago_id in ids:
+        if datetime.now(UTC) - inicio > TIEMPO_POR_VUELTA:
+            break
         item = await session.get(PagoSupervielle, pago_id, with_for_update=True)
         assert item is not None  # noqa: S101 - sin borrado
         ahora = datetime.now(UTC)
-        if item.consultado_en is not None and ahora - item.consultado_en < PAUSA_AVISO:
+        if item.aviso_pendiente_en is None or (
+            item.consultado_en is not None and ahora - item.consultado_en < PAUSA_AVISO
+        ):
             await session.commit()
             continue
         item.consultado_en = ahora
@@ -496,12 +534,7 @@ async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext)
             await session.rollback()
             continue
         consultadas += 1
-        await session.execute(
-            update(PagoSupervielle)
-            .where(PagoSupervielle.id == pago_id, PagoSupervielle.aviso_pendiente_en == marca)
-            .values(aviso_pendiente_en=None)
-        )
-        await session.commit()
+        await _limpiar_pendiente(session, pago_id, ahora)
     return consultadas
 
 

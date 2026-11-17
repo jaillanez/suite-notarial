@@ -16,8 +16,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 15 3 * * * root /opt/suite-notarial/deploy/backup.sh >> $LOG 2>&1
 30 4 * * 0 root /opt/suite-notarial/deploy/probar-restauracion.sh >> $LOG 2>&1
 # Botón Supervielle: avisos recibidos durante la pausa entre consultas, y pagos cuyo aviso se perdió.
-*/2 * * * * root $C exec -T api python -m app.modules.pagos.supervielle_cli procesar-avisos >> $LOG_SPV 2>&1
-10 6,14 * * * root $C exec -T api python -m app.modules.pagos.supervielle_cli conciliar >> $LOG_SPV 2>&1
+*/2 * * * * root flock -n /var/lock/suite-notarial-spv-avisos.lock timeout 100 $C exec -T api python -m app.modules.pagos.supervielle_cli procesar-avisos >> $LOG_SPV 2>&1
+10 6,14 * * * root flock -n /var/lock/suite-notarial-spv-conciliar.lock timeout 1800 $C exec -T api python -m app.modules.pagos.supervielle_cli conciliar >> $LOG_SPV 2>&1
 EOF
 chmod 644 /etc/cron.d/suite-notarial
 

@@ -310,7 +310,7 @@ class PagoSupervielle(UUIDMixin, Base):
     # todavía no se consultó (lo procesa el cron): la pausa entre avisos vive en la base.
     consultado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     aviso_pendiente_en: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime(timezone=True), nullable=True, index=True
     )
     # Comprobante que quedó en la mesa de Tesorería (al aprobarse el pago).
     comprobante_id: Mapped[uuid.UUID | None] = mapped_column(

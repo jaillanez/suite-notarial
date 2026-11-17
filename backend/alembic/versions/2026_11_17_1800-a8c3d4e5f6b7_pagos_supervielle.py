@@ -151,6 +151,9 @@ def upgrade() -> None:
         sa.UniqueConstraint("spv_pago_id", name=op.f("uq_pagos_supervielle_spv_pago_id")),
     )
     op.create_index(op.f("ix_pagos_supervielle_boleta_id"), SPV, ["boleta_id"], unique=False)
+    op.create_index(
+        op.f("ix_pagos_supervielle_aviso_pendiente_en"), SPV, ["aviso_pendiente_en"], unique=False
+    )
     op.drop_constraint(
         op.f("ck_pagos_comprobantes_origen_valido"), "pagos_comprobantes", type_="check"
     )
@@ -209,6 +212,7 @@ def downgrade() -> None:
     op.create_check_constraint(
         op.f("ck_pagos_comprobantes_origen_valido"), "pagos_comprobantes", ORIGEN_ANTERIOR
     )
+    op.drop_index(op.f("ix_pagos_supervielle_aviso_pendiente_en"), table_name=SPV)
     op.drop_index(op.f("ix_pagos_supervielle_boleta_id"), table_name=SPV)
     op.drop_table(SPV)
     op.execute(f"DROP SEQUENCE IF EXISTS {SECUENCIA}")

@@ -6,7 +6,7 @@ mismo parser que las respuestas reales."""
 
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -799,3 +799,24 @@ async def test_probar_publica_solo_en_el_ambiente_de_pruebas(
         get_settings(), "SUPERVIELLE_API_URL", "https://api.supervielle.com.ar/supervielle/x"
     )
     assert await supervielle_cli.probar(publicar=True, hash_=None) == 2
+
+
+async def test_marca_de_aviso_posterior_se_conserva_y_la_vieja_se_abandona(
+    notario: AsyncClient, boleta: dict[str, Any], banco: BancoFalso, db_session: AsyncSession
+) -> None:
+    await _pagar(notario, boleta["id"])
+    item = await _registro(db_session, boleta["id"])
+    consulta = datetime.now(UTC)
+    # Un aviso que llegó después de la consulta no se borra al terminarla.
+    item.aviso_pendiente_en = consulta + timedelta(seconds=5)
+    await db_session.commit()
+    await supervielle_service._limpiar_pendiente(db_session, item.id, consulta)
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is not None
+    # Una marca que no se pudo consultar en un día se abandona (queda para la conciliación).
+    item = await _registro(db_session, boleta["id"])
+    item.aviso_pendiente_en = consulta - timedelta(days=2)
+    await db_session.commit()
+    banco.caido = True
+    ctx = supervielle_cli.CLI_CONTEXT
+    assert await supervielle_service.procesar_avisos_pendientes(db_session, ctx) == 0
+    assert (await _registro(db_session, boleta["id"])).aviso_pendiente_en is None
