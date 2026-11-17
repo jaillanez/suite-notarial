@@ -4,6 +4,7 @@ mismo parser que las respuestas reales."""
 
 # ruff: noqa: F811
 
+import asyncio
 import json
 import uuid
 from datetime import date, timedelta
@@ -499,7 +500,15 @@ async def test_aviso_del_banco_sin_sesion(
         return await consultar(hash_)
 
     monkeypatch.setattr(supervielle, "pagos_de", contar)
-    monkeypatch.setattr(supervielle_service, "_ultimo_aviso", {})
+    monkeypatch.setattr(supervielle_service, "_ultima_consulta", {})
+    monkeypatch.setattr(supervielle_service, "_diferidas", {})
+
+    def sesion_del_test() -> AsyncSession:
+        return AsyncSession(
+            bind=db_session.bind, join_transaction_mode="create_savepoint", expire_on_commit=False
+        )
+
+    monkeypatch.setattr(supervielle_service, "_abrir_sesion", sesion_del_test)
     # El banco llama sin cookies ni la cabecera anti-CSRF de la Suite.
     async with AsyncClient(
         transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
@@ -512,22 +521,26 @@ async def test_aviso_del_banco_sin_sesion(
         valido = await externo.get(url)
         assert valido.status_code == 200, valido.text
         assert valido.json()["status"] == "success"
-        # El banco reintenta enseguida: no se consulta de nuevo, y se le pide que reintente más
-        # tarde (503) en vez de darlo por recibido.
-        assert (await externo.get(url)).status_code == 503
+        # Un aviso repetido enseguida (venga de donde venga) no consulta otra vez al banco en
+        # el momento: se da por recibido y la consulta queda programada para después de la pausa.
+        monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 200_000_000)
+        assert (await externo.get(url)).status_code == 200
         assert consultas == 1
-    # Desde otra dirección (el banco) el aviso se procesa: un tercero no puede frenarlo.
     async with AsyncClient(
         transport=ASGITransport(app=app, client=("203.0.113.9", 443)), base_url="https://test"
-    ) as banco_real:
-        assert (await banco_real.get(url)).status_code == 200
-        assert consultas == 2
+    ) as otro_origen:
+        assert (await otro_origen.get(url)).status_code == 200
+    assert consultas == 1
+    assert len(supervielle_service._diferidas) == 1
+    await asyncio.gather(*supervielle_service._diferidas.values())
+    assert consultas == 2
+    assert supervielle_service._diferidas == {}
+    # Si el banco no contesta la consulta, el aviso no se da por recibido (503: reintenta).
+    monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 0)
+    banco.caido = True
     async with AsyncClient(
         transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
     ) as externo:
-        # Pasada la pausa, si el banco no contesta la consulta, el aviso no se da por recibido.
-        monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 0)
-        banco.caido = True
         assert (await externo.get(url)).status_code == 503
     assert len((await db_session.scalars(select(Comprobante))).all()) == 1
     # Un hash inventado no deja filas en la auditoría (cualquiera puede llamar a la dirección).

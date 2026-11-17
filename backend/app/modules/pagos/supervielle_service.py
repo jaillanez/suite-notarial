@@ -14,6 +14,7 @@
 Todo cambio de estado queda en la auditoría.
 """
 
+import asyncio
 import logging
 import time
 import uuid
@@ -47,13 +48,14 @@ from app.modules.pagos.models import SECUENCIA_PUBLICACION_SPV, Comprobante, Pag
 
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 logger = logging.getLogger(__name__)
-# Un aviso dispara a lo sumo una consulta por publicación y por dirección de origen en este lapso
-# (por proceso): repetir el aviso no multiplica los pedidos a la API. El aviso que llega dentro de
-# la pausa se responde con 503 para que se reintente: nunca se da por recibido sin procesarlo. La
-# pausa es por origen para que un tercero que conozca un hash no pueda frenar los avisos del banco.
+# A lo sumo una consulta al banco por publicación en este lapso (por proceso), venga de donde
+# venga el aviso. Un aviso repetido dentro de la pausa no se descarta: se responde 200 y la
+# consulta queda programada para cuando termine la pausa (una sola por publicación). Así nadie
+# puede multiplicar los pedidos a la API ni frenar los avisos del banco. Las claves son hashes de
+# publicaciones de la Suite (los desconocidos se rechazan antes): no crecen con lo que se reciba.
 PAUSA_AVISO_NS = 15 * 1_000_000_000
-MAX_AVISOS_RECORDADOS = 10_000
-_ultimo_aviso: dict[tuple[str, str], int] = {}
+_ultima_consulta: dict[str, int] = {}
+_diferidas: dict[str, asyncio.Task[None]] = {}
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
 EFECTIVOS = {e.value for e in ESTADOS_SPV_EFECTIVOS}
 
@@ -442,19 +444,45 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         # Sin 200 el banco reintenta más tarde.
         raise _no_disponible()
     ahora = time.monotonic_ns()
-    clave = (ctx.ip_address or "", item.hash)
-    if ahora - _ultimo_aviso.get(clave, -PAUSA_AVISO_NS) < PAUSA_AVISO_NS:
-        raise ProblemError(HTTPStatus.SERVICE_UNAVAILABLE, "Aviso repetido: reintentar más tarde.")
-    if len(_ultimo_aviso) >= MAX_AVISOS_RECORDADOS:
-        for vieja in [k for k, t in _ultimo_aviso.items() if ahora - t >= PAUSA_AVISO_NS]:
-            del _ultimo_aviso[vieja]
-    _ultimo_aviso[clave] = ahora
+    transcurrido = ahora - _ultima_consulta.get(item.hash, -PAUSA_AVISO_NS)
+    if transcurrido < PAUSA_AVISO_NS:
+        if item.hash not in _diferidas:
+            espera_ms = (PAUSA_AVISO_NS - transcurrido) // 1_000_000 + 1
+            _diferidas[item.hash] = asyncio.create_task(
+                _consulta_diferida(item.id, item.hash, espera_ms, ctx)
+            )
+        return
+    _ultima_consulta[item.hash] = ahora
     try:
         await _consultar_y_registrar(session, ctx, item)
     except ProblemError:
-        # Si el banco no contestó, el próximo reintento vuelve a consultar.
-        _ultimo_aviso.pop(clave, None)
+        # Si el banco no contestó, se responde 503 y el reintento del banco vuelve a consultar.
+        _ultima_consulta.pop(item.hash, None)
         raise
+
+
+def _abrir_sesion() -> AsyncSession:
+    from app.core.db import get_sessionmaker
+
+    return get_sessionmaker()()
+
+
+async def _consulta_diferida(
+    pago_id: uuid.UUID, hash_: str, espera_ms: int, ctx: RequestContext
+) -> None:
+    """La consulta de un aviso que llegó durante la pausa. Si falla, la recupera la conciliación
+    programada (deploy/instalar-cron.sh)."""
+    try:
+        await asyncio.sleep(espera_ms / 1000)
+        _ultima_consulta[hash_] = time.monotonic_ns()
+        async with _abrir_sesion() as session:
+            item = await session.get(PagoSupervielle, pago_id)
+            if item is not None:
+                await _consultar_y_registrar(session, ctx, item)
+    except Exception:
+        logger.exception("Falló la consulta diferida de un aviso de Supervielle")
+    finally:
+        _diferidas.pop(hash_, None)
 
 
 # --------------------------------------------------------------------------- conciliación
