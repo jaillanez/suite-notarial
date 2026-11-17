@@ -316,6 +316,10 @@ class PagoSupervielle(UUIDMixin, Base):
     # Avisos recibidos sin consultar: sube con cada uno. La marca se borra solo si no cambió
     # mientras se consultaba (un aviso que llega en el medio la conserva).
     aviso_generacion: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Cuándo se alertó a Tesorería de un aviso demorado (una alerta por marca).
+    aviso_alertado_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Comprobante que quedó en la mesa de Tesorería (al aprobarse el pago).
     comprobante_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

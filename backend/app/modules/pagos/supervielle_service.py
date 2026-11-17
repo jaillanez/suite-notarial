@@ -534,37 +534,38 @@ async def procesar_avisos_pendientes(session: AsyncSession, ctx: RequestContext)
 
 
 async def _alertar_demorados(session: AsyncSession, ctx: RequestContext, ahora: datetime) -> None:
-    """Auditoría crítica (una vez por marca) de los avisos que llevan un día sin consultarse."""
+    """Auditoría crítica (una vez por marca) de los avisos que llevan un día sin consultarse.
+    Acotada por vuelta; la fila recuerda cuándo se alertó, así no se repite."""
     demorados = (
-        await session.execute(
-            select(
-                PagoSupervielle.id,
-                PagoSupervielle.id_publicacion,
-                PagoSupervielle.aviso_pendiente_en,
-            ).where(PagoSupervielle.aviso_pendiente_en < ahora - AVISO_DEMORADO)
+        await session.scalars(
+            select(PagoSupervielle)
+            .where(
+                PagoSupervielle.aviso_pendiente_en < ahora - AVISO_DEMORADO,
+                or_(
+                    PagoSupervielle.aviso_alertado_en.is_(None),
+                    PagoSupervielle.aviso_alertado_en < PagoSupervielle.aviso_pendiente_en,
+                ),
+            )
+            .order_by(PagoSupervielle.aviso_pendiente_en)
+            .limit(AVISOS_POR_VUELTA)
+            .with_for_update()
         )
     ).all()
-    for pago_id, numero, desde in demorados:
-        marca = desde.isoformat() if desde is not None else ""
-        ya = await session.scalar(
-            select(func.count()).where(
-                AuditSecurityLog.event_type == AuditEvent.PAGO_SPV_AVISO_DEMORADO.value,
-                AuditSecurityLog.details["pago_spv_id"].astext == str(pago_id),
-                AuditSecurityLog.details["pendiente_desde"].astext == marca,
-            )
+    for item in demorados:
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.PAGO_SPV_AVISO_DEMORADO,
+            severity=Severity.CRITICAL,
+            details={
+                "pago_spv_id": str(item.id),
+                "id_publicacion": item.id_publicacion,
+                "pendiente_desde": item.aviso_pendiente_en.isoformat()
+                if item.aviso_pendiente_en
+                else None,
+            },
         )
-        if not ya:
-            record_audit(
-                session,
-                ctx,
-                AuditEvent.PAGO_SPV_AVISO_DEMORADO,
-                severity=Severity.CRITICAL,
-                details={
-                    "pago_spv_id": str(pago_id),
-                    "id_publicacion": numero,
-                    "pendiente_desde": marca,
-                },
-            )
+        item.aviso_alertado_en = ahora
     await session.commit()
 
 
@@ -574,6 +575,11 @@ async def _alertar_demorados(session: AsyncSession, ctx: RequestContext, ahora: 
 # Una deuda vencida hace más de estos días ya no se consulta en la conciliación diaria (un pago en
 # caja o por DEBIN puede acreditarse unos días después).
 DIAS_ABIERTAS = 10
+# Avisos sin consultar que también revisa la conciliación, y topes de cada corrida (el cron la
+# corta a los 30 minutos).
+DIAS_ABIERTAS_AVISO = 7
+CONSULTAS_POR_CONCILIACION = 200
+TIEMPO_POR_CONCILIACION = timedelta(minutes=20)
 ABIERTOS = (
     EstadoPagoSPV.CREADO.value,
     EstadoPagoSPV.PENDIENTE.value,
@@ -617,21 +623,32 @@ async def conciliar(
     ]
     abiertas = (
         await session.scalars(
-            select(PagoSupervielle).where(
+            select(PagoSupervielle)
+            .where(
                 or_(
                     and_(
                         PagoSupervielle.estado.in_(ABIERTOS),
                         PagoSupervielle.vence >= today_local() - timedelta(days=DIAS_ABIERTAS),
                     ),
-                    # Un aviso que no se pudo consultar se revisa sea cual sea su estado.
-                    PagoSupervielle.aviso_pendiente_en.is_not(None),
+                    # Un aviso reciente que no se pudo consultar se revisa sea cual sea su estado.
+                    PagoSupervielle.aviso_pendiente_en
+                    >= datetime.now(UTC) - timedelta(days=DIAS_ABIERTAS_AVISO),
                 ),
             )
+            .order_by(PagoSupervielle.vence.desc())
+            .limit(CONSULTAS_POR_CONCILIACION)
         )
     ).all()
-    a_consultar = {p.id: (p.id_publicacion, p.estado) for p in [*abiertas, *propias]}
+    # Primero las que figuran en la rendición (hay un pago informado); después las abiertas.
+    a_consultar = {p.id: (p.id_publicacion, p.estado) for p in [*propias, *abiertas]}
     await session.commit()
-    for pago_id, (id_publicacion, antes) in a_consultar.items():
+    inicio = datetime.now(UTC)
+    for n, (pago_id, (id_publicacion, antes)) in enumerate(a_consultar.items()):
+        if n >= CONSULTAS_POR_CONCILIACION or datetime.now(UTC) - inicio > TIEMPO_POR_CONCILIACION:
+            resultado.errores.append(
+                f"quedaron {len(a_consultar) - n} publicaciones sin consultar (tope de la corrida)"
+            )
+            break
         resultado.consultadas += 1
         item = await session.get(PagoSupervielle, pago_id)
         assert item is not None  # noqa: S101 - sin borrado
