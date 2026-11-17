@@ -516,6 +516,15 @@ async def test_aviso_del_banco_sin_sesion(
         # tarde (503) en vez de darlo por recibido.
         assert (await externo.get(url)).status_code == 503
         assert consultas == 1
+    # Desde otra dirección (el banco) el aviso se procesa: un tercero no puede frenarlo.
+    async with AsyncClient(
+        transport=ASGITransport(app=app, client=("203.0.113.9", 443)), base_url="https://test"
+    ) as banco_real:
+        assert (await banco_real.get(url)).status_code == 200
+        assert consultas == 2
+    async with AsyncClient(
+        transport=ASGITransport(app=app, client=("198.51.100.7", 443)), base_url="https://test"
+    ) as externo:
         # Pasada la pausa, si el banco no contesta la consulta, el aviso no se da por recibido.
         monkeypatch.setattr(supervielle_service, "PAUSA_AVISO_NS", 0)
         banco.caido = True

@@ -47,11 +47,13 @@ from app.modules.pagos.models import SECUENCIA_PUBLICACION_SPV, Comprobante, Pag
 
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 logger = logging.getLogger(__name__)
-# Un aviso del banco dispara a lo sumo una consulta por publicación en este lapso (por proceso):
-# repetir el aviso no multiplica los pedidos a la API. El aviso que llega dentro de la pausa se
-# responde con 503 para que el banco lo reintente: nunca se da por recibido sin procesarlo.
+# Un aviso dispara a lo sumo una consulta por publicación y por dirección de origen en este lapso
+# (por proceso): repetir el aviso no multiplica los pedidos a la API. El aviso que llega dentro de
+# la pausa se responde con 503 para que se reintente: nunca se da por recibido sin procesarlo. La
+# pausa es por origen para que un tercero que conozca un hash no pueda frenar los avisos del banco.
 PAUSA_AVISO_NS = 15 * 1_000_000_000
-_ultimo_aviso: dict[str, int] = {}
+MAX_AVISOS_RECORDADOS = 10_000
+_ultimo_aviso: dict[tuple[str, str], int] = {}
 PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
 EFECTIVOS = {e.value for e in ESTADOS_SPV_EFECTIVOS}
 
@@ -440,14 +442,18 @@ async def aviso(session: AsyncSession, ctx: RequestContext, hash_: str) -> None:
         # Sin 200 el banco reintenta más tarde.
         raise _no_disponible()
     ahora = time.monotonic_ns()
-    if ahora - _ultimo_aviso.get(item.hash, -PAUSA_AVISO_NS) < PAUSA_AVISO_NS:
+    clave = (ctx.ip_address or "", item.hash)
+    if ahora - _ultimo_aviso.get(clave, -PAUSA_AVISO_NS) < PAUSA_AVISO_NS:
         raise ProblemError(HTTPStatus.SERVICE_UNAVAILABLE, "Aviso repetido: reintentar más tarde.")
-    _ultimo_aviso[item.hash] = ahora
+    if len(_ultimo_aviso) >= MAX_AVISOS_RECORDADOS:
+        for vieja in [k for k, t in _ultimo_aviso.items() if ahora - t >= PAUSA_AVISO_NS]:
+            del _ultimo_aviso[vieja]
+    _ultimo_aviso[clave] = ahora
     try:
         await _consultar_y_registrar(session, ctx, item)
     except ProblemError:
         # Si el banco no contestó, el próximo reintento vuelve a consultar.
-        _ultimo_aviso.pop(item.hash, None)
+        _ultimo_aviso.pop(clave, None)
         raise
 
 
