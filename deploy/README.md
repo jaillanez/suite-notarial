@@ -62,6 +62,19 @@ cd /opt/suite-notarial && ./deploy/deploy.sh
 y conserva 14 días (`BACKUP_DIAS`). Antes de darlo por bueno verifica que el dump se pueda leer y
 que el `.tar.gz` esté entero, y deja una suma SHA-256 de cada par.
 
+El respaldo y la reversa de la migración (manual de corte, `Docs/corte-y-reversa.md`) usan el
+`pg_dump`/`pg_restore` 16 que trae la imagen de la API. En el servidor se corren con un contenedor
+de un solo uso y una carpeta del host montada para el archivo:
+
+```bash
+cd /opt/suite-notarial
+docker compose --env-file deploy/.env.server -f deploy/compose.server.yml run --rm --no-deps -T \
+  -v /opt/suite-notarial-ensayo/respaldos:/respaldo api \
+  python -m app.modules.migracion.cli respaldo --salida /respaldo/antes-de-la-carga.dump
+```
+
+La carpeta tiene que existir y ser del usuario de la imagen (uid 10001).
+
 `deploy/probar-restauracion.sh` restaura el último backup en una base aparte (`restauracion_prueba`),
 cuenta tablas, usuarios, escribanos y auditoría, revisa los archivos y borra la base de prueba. No
 toca la base en uso.
