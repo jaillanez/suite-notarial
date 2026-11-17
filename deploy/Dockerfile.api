@@ -6,7 +6,7 @@ FROM python:3.12-slim-bookworm
 # Cliente de PostgreSQL 16 (pg_dump/pg_restore) para el respaldo y la reversa de la migración:
 # tiene que ser de la misma versión que el servidor (postgres:16 en compose.server.yml), y
 # bookworm solo trae la 15, así que sale del repositorio oficial de PostgreSQL (PGDG). La clave
-# se acepta solo si su huella es la publicada por PGDG; el repositorio queda limitado a los
+# se toma solo por su huella publicada (se exporta esa clave y ninguna otra); el repositorio queda limitado a los
 # paquetes del cliente (prioridad -1 para el resto) y se borra al terminar: la imagen final no
 # conserva ninguna fuente ni clave de terceros.
 ARG PGDG_FPR=B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
@@ -17,17 +17,19 @@ RUN apt-get update \
       fonts-dejavu-core fonts-liberation2 \
       ca-certificates curl gnupg \
  && curl -fsSL --proto '=https' --tlsv1.2 https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /tmp/pgdg.asc \
- && gpg --show-keys --with-colons --with-fingerprint /tmp/pgdg.asc | grep -q "^fpr:::::::::${PGDG_FPR}:" \
- && mv /tmp/pgdg.asc /usr/share/keyrings/pgdg.asc \
- && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+ && gpg --batch --no-default-keyring --keyring /tmp/pgdg.kbx --import /tmp/pgdg.asc \
+ && gpg --batch --no-default-keyring --keyring /tmp/pgdg.kbx --export "${PGDG_FPR}" \
+      > /usr/share/keyrings/pgdg.gpg \
+ && test -s /usr/share/keyrings/pgdg.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list \
  && printf 'Package: *\nPin: release o=apt.postgresql.org\nPin-Priority: -1\n\nPackage: postgresql-client-16 postgresql-client-common libpq5\nPin: release o=apt.postgresql.org\nPin-Priority: 600\n' \
       > /etc/apt/preferences.d/pgdg \
  && apt-get update \
  && apt-get install -y --no-install-recommends postgresql-client-16 \
  && apt-get purge -y curl gnupg && apt-get autoremove -y \
- && rm -f /etc/apt/sources.list.d/pgdg.list /etc/apt/preferences.d/pgdg /usr/share/keyrings/pgdg.asc \
- && rm -rf /var/lib/apt/lists/* /root/.gnupg
+ && rm -f /etc/apt/sources.list.d/pgdg.list /etc/apt/preferences.d/pgdg /usr/share/keyrings/pgdg.gpg \
+ && rm -rf /var/lib/apt/lists/* /root/.gnupg /tmp/pgdg.asc /tmp/pgdg.kbx*
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
