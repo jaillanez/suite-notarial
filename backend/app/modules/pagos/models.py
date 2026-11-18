@@ -298,13 +298,16 @@ class PagoSupervielle(UUIDMixin, Base):
     medio_pago: Mapped[str | None] = mapped_column(String(50), nullable=True)
     importe_pagado: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     pagado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Comisión estimada con los parámetros vigentes a la fecha del pago (la API no la informa) y
-    # las vigencias con que se estimó (regla SNAP). Vacía si faltaba algún parámetro.
+    # Comisión estimada, IVA incluido, con los parámetros vigentes a la fecha del pago (la API no
+    # la informa) y las vigencias con que se estimó (regla SNAP). Vacía si faltaba algún parámetro.
     comision_estimada: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     vigencia_comision_boton_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("parametros_vigencias.id"), nullable=True
     )
     vigencia_comision_medio_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("parametros_vigencias.id"), nullable=True
+    )
+    vigencia_comision_iva_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("parametros_vigencias.id"), nullable=True
     )
     # Última consulta al banco disparada por un aviso, y hora del aviso más viejo todavía sin

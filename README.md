@@ -345,8 +345,10 @@ Ya aplicadas:
   - Cada deuda queda en `pagos_supervielle` (sin borrado). Un pago aprobado entra a la mesa como
     comprobante «Supervielle» y **Tesorería lo confirma** contra la rendición del banco.
   - **Comisiones como parámetros**: tipo de concepto «Comisión de un medio de pago»
-    (`COMISION_SPV_*`). La Suite estima la comisión y el neto de cada pago con las vigencias
-    aprobadas a la fecha del pago y guarda cuáles usó. Si el banco cambia un valor, la Caja carga
+    (`COMISION_SPV_*`), más el IVA sobre la comisión (`IVA_COMISION_SPV`, 21 %: los porcentajes
+    del banco no lo incluyen). La Suite estima la comisión con IVA y el neto de cada pago con las
+    vigencias aprobadas a la fecha del pago y guarda cuáles usó; sin IVA aprobado, el pago queda
+    «sin estimar». Si el banco cambia un valor, la Caja carga
     una vigencia nueva desde Parámetros (la aprueba otra persona). Para cargar la propuesta del
     banco por primera vez (queda pendiente de aprobación):
     `python -m app.modules.pagos.comisiones_spv proponer --operador EMAIL --desde AAAA-MM-DD`.

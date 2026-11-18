@@ -7,7 +7,7 @@ mismo parser que las respuestas reales."""
 import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import httpx
@@ -631,16 +631,49 @@ async def test_proponer_carga_la_propuesta_del_banco_sin_aprobarla(
 async def test_estimacion_con_minimo_y_por_medio(db_session: AsyncSession) -> None:
     await _comisiones_aprobadas(db_session)
     fecha = date(2026, 10, 22)
-    # Efectivo: 0,4 % del botón + 0,25 % con mínimo de $500.
+    # Efectivo: 0,4 % del botón + 0,25 % con mínimo de $500, más 21 % de IVA sobre la comisión.
     chico = await comisiones_spv.estimar(db_session, Decimal("10000.00"), 3, fecha)
-    assert chico is not None and chico.comision == Decimal("540.00")
+    assert chico is not None
+    assert (chico.comision_sin_iva, chico.iva) == (Decimal("540.00"), Decimal("113.40"))
+    assert chico.comision == Decimal("653.40")
     grande = await comisiones_spv.estimar(db_session, Decimal("1000000.00"), 3, fecha)
-    assert grande is not None and grande.comision == Decimal("6500.00")
-    # QR MODO: 0,4 % + 0,8 %, redondeo a centavos sin flotantes.
+    assert grande is not None and grande.comision == Decimal("7865.00")
+    # QR MODO: 0,4 % + 0,8 % = 4094,53; IVA 859,8513 -> 859,85 (redondeo a centavos sin
+    # flotantes).
     modo = await comisiones_spv.estimar(db_session, Decimal("341211.07"), 4, fecha)
-    assert modo is not None and modo.comision == Decimal("4094.53")
+    assert modo is not None
+    assert (modo.comision_sin_iva, modo.iva) == (Decimal("4094.53"), Decimal("859.85"))
+    assert modo.comision == Decimal("4954.38")
     # Un medio desconocido no se estima.
     assert await comisiones_spv.estimar(db_session, Decimal(1000), 99, fecha) is None
+
+
+async def test_sin_iva_aprobado_no_se_estima(db_session: AsyncSession) -> None:
+    """Sin el IVA la comisión quedaría corta y el neto inflado: mejor «sin estimar»."""
+    autor = await make_user(db_session, roles=("ROLE_ADMIN",))
+    aprobador = await make_user(db_session, roles=("ROLE_ADMIN",))
+    await comisiones_spv.proponer(db_session, autor.email, date(2026, 1, 1))
+    iva = await db_session.scalar(
+        select(Vigencia).join(Concepto).where(Concepto.codigo == comisiones_spv.IVA)
+    )
+    assert iva is not None and iva.porcentaje == Decimal("21")
+    pendientes = (
+        await db_session.scalars(
+            select(Vigencia.id).where(
+                Vigencia.estado == "PENDIENTE_APROBACION", Vigencia.id != iva.id
+            )
+        )
+    ).all()
+    for vigencia_id in pendientes:
+        await parametros.aprobar_vigencia(
+            db_session, comisiones_spv.CLI_CONTEXT, aprobador, vigencia_id
+        )
+    fecha = date(2026, 10, 22)
+    assert await comisiones_spv.estimar(db_session, Decimal("10000.00"), 3, fecha) is None
+
+    await parametros.aprobar_vigencia(db_session, comisiones_spv.CLI_CONTEXT, aprobador, iva.id)
+    con_iva = await comisiones_spv.estimar(db_session, Decimal("10000.00"), 3, fecha)
+    assert con_iva is not None and con_iva.vigencia_iva_id == iva.id
 
 
 async def test_el_pago_guarda_la_comision_estimada_solo_para_tesoreria(
@@ -658,12 +691,15 @@ async def test_el_pago_guarda_la_comision_estimada_solo_para_tesoreria(
     propio = (await _sincronizar(notario, item)).json()
     assert propio["comision_estimada"] is None
     item = await _registro(db_session, boleta["id"])
-    esperada = (total * Decimal("0.004")).quantize(Decimal("0.01")) + (
+    centavo = Decimal("0.01")
+    sin_iva = (total * Decimal("0.004")).quantize(centavo, ROUND_HALF_UP) + (
         total * Decimal("0.02")
-    ).quantize(Decimal("0.01"))
+    ).quantize(centavo, ROUND_HALF_UP)
+    esperada = sin_iva + (sin_iva * Decimal("0.21")).quantize(centavo, ROUND_HALF_UP)
     assert item.comision_estimada == esperada
     assert item.vigencia_comision_boton_id is not None
     assert item.vigencia_comision_medio_id is not None
+    assert item.vigencia_comision_iva_id is not None
     (visto,) = (await tesoreria.get("/api/v1/pagos/supervielle")).json()["items"]
     assert visto["comision_estimada"] == f"{esperada:.2f}"
     assert visto["importe_neto_estimado"] == f"{total - esperada:.2f}"
