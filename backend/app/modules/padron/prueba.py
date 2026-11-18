@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.core.config import Environment
+from app.modules.iam.catalog import Perm
 from app.modules.iam.models import User
 from app.modules.padron import a_cargo
 from app.modules.padron.catalog import Cargo, EstadoMatricula, EstadoRegistro
@@ -65,6 +66,18 @@ def _exigir_entorno(entorno: Environment) -> None:
         raise PruebaError(
             "El registro de prueba solo se usa en desarrollo o en el servidor de prueba "
             f"(ENVIRONMENT={entorno.value})."
+        )
+
+
+def _exigir_operador(actor: User, *permisos: Perm) -> None:
+    """Quien figura en la auditoría tiene que poder hacer lo mismo desde la pantalla: si no,
+    el registro diría que lo hizo alguien sin facultad para hacerlo."""
+    if not actor.is_active:
+        raise PruebaError(f"La cuenta del operador {actor.email} está suspendida.")
+    faltan = [p.value for p in permisos if p.value not in actor.permission_codes]
+    if faltan:
+        raise PruebaError(
+            f"El operador {actor.email} no tiene permiso para esto ({', '.join(faltan)})."
         )
 
 
@@ -125,6 +138,7 @@ async def vincular_cuenta(
 
     El CUIT de la cuenta tiene que ser el del escribano: evita darle a alguien la autogestión
     de otra persona por un error de tipeo."""
+    _exigir_operador(actor, Perm.ESCRIBANOS_WRITE)
     _exigir_cuenta_de_escribano(cuenta)
     if cuenta.cuit != cuit_escribano:
         raise PruebaError(
@@ -160,6 +174,7 @@ async def crear_registro_prueba(
     """Crea el registro de prueba con un escribano ficticio titular desde `desde` y le vincula
     la cuenta. Todo en una transacción: o queda completo o no queda nada."""
     _exigir_entorno(entorno)
+    _exigir_operador(actor, Perm.ESCRIBANOS_WRITE)
     _exigir_cuenta_de_escribano(cuenta)
     if (actual := await _escribano_de(session, cuenta)) is not None:
         raise PruebaError(
@@ -295,6 +310,7 @@ async def baja_registro_prueba(
     """Baja lógica del registro de prueba: cierra cargos y registro, pasa al escribano ficticio
     a CESANTE y desvincula la cuenta (que sigue activa). Las DDJJ y boletas quedan."""
     _exigir_entorno(entorno)
+    _exigir_operador(actor, Perm.ESCRIBANOS_WRITE, Perm.ESCRIBANOS_STATUS)
     registro = await session.scalar(
         select(RegistroNotarial)
         .where(RegistroNotarial.numero_registro == numero_registro)
