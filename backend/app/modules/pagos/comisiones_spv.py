@@ -9,7 +9,9 @@ una segunda persona); el código no cambia. Cada pago guarda las vigencias con q
 
 La comisión la absorbe la Caja: al escribano se le cobra el total exacto de la boleta.
 TODO(negocio): confirmar con la Caja, como se definió para Mercado Pago el 27/10/2026.
-TODO(banco): confirmar si los porcentajes incluyen IVA.
+Los porcentajes del banco no incluyen IVA (lo confirmó el banco el 18/11/2026: «a los costos
+debe sumarse el IVA»). La estimación suma el IVA sobre la comisión con su propio parámetro
+(`IVA_COMISION_SPV`), así un cambio de alícuota es una vigencia nueva y no toca el código.
 
 `proponer` carga los conceptos (si faltan) y propone los valores de la propuesta comercial del
 banco; quedan pendientes hasta que otra persona con permiso de aprobación los apruebe:
@@ -37,6 +39,7 @@ from app.modules.parametros.models import Concepto
 from app.modules.parametros.schemas import ConceptoIn, VigenciaIn
 
 BOTON = "COMISION_SPV_BOTON"
+IVA = "IVA_COMISION_SPV"
 # `id_medio_pago` de la API -> concepto de la comisión de ese medio. La API no distingue la
 # marca de la tarjeta: un pago con crédito se estima con la tasa general (la de AMEX se usará
 # cuando la rendición de transacciones informe la tarjeta).
@@ -72,6 +75,8 @@ PROPUESTA_BANCO: tuple[Propuesta, ...] = (
     Propuesta("COMISION_SPV_CREDITO_AMEX", "Supervielle: tarjeta de crédito AMEX", Decimal("2.8")),
     Propuesta("COMISION_SPV_MODO", "Supervielle: QR MODO", Decimal("0.8")),
     Propuesta("COMISION_SPV_DEBIN", "Supervielle: DEBIN", Decimal("0.1")),
+    # IVA sobre la comisión (no sobre lo cobrado): alícuota general de la Ley de IVA.
+    Propuesta(IVA, "Supervielle: IVA sobre las comisiones del botón", Decimal("21")),
 )
 RESPALDO = "Propuesta Supervielle Botón de Pago (Pricing)"
 CLI_CONTEXT = RequestContext(
@@ -81,29 +86,40 @@ CLI_CONTEXT = RequestContext(
 
 @dataclass(frozen=True)
 class Estimacion:
+    # Total que descuenta el banco: comisión sin IVA más el IVA.
     comision: Decimal
+    comision_sin_iva: Decimal
+    iva: Decimal
     vigencia_boton_id: uuid.UUID
     vigencia_medio_id: uuid.UUID
+    vigencia_iva_id: uuid.UUID
 
 
 async def estimar(
     session: AsyncSession, importe: Decimal, id_medio: int | None, fecha: date
 ) -> Estimacion | None:
-    """Comisión estimada de un pago: la del botón más la del medio, con las vigencias aprobadas
-    a la fecha del pago. None si falta alguna (Tesorería ve «sin estimar»)."""
+    """Comisión estimada de un pago: la del botón más la del medio, más el IVA sobre esa suma, con
+    las vigencias aprobadas a la fecha del pago. None si falta alguna (Tesorería ve «sin
+    estimar»): sin el IVA el neto quedaría inflado."""
     codigo_medio = POR_MEDIO.get(id_medio) if id_medio is not None else None
     if codigo_medio is None:
         return None
     boton = await parametros.vigencia_opcional(session, BOTON, fecha)
     medio = await parametros.vigencia_opcional(session, codigo_medio, fecha)
-    if boton is None or medio is None:
+    iva = await parametros.vigencia_opcional(session, IVA, fecha)
+    if boton is None or medio is None or iva is None:
         return None
-    if boton.tipo != TipoConcepto.COMISION_COBRO or medio.tipo != TipoConcepto.COMISION_COBRO:
+    if any(v.tipo != TipoConcepto.COMISION_COBRO for v in (boton, medio, iva)):
         return None
+    sin_iva = motor.comision_cobro(importe, boton) + motor.comision_cobro(importe, medio)
+    monto_iva = motor.comision_cobro(sin_iva, iva)
     return Estimacion(
-        comision=motor.comision_cobro(importe, boton) + motor.comision_cobro(importe, medio),
+        comision=sin_iva + monto_iva,
+        comision_sin_iva=sin_iva,
+        iva=monto_iva,
         vigencia_boton_id=boton.vigencia_id,
         vigencia_medio_id=medio.vigencia_id,
+        vigencia_iva_id=iva.vigencia_id,
     )
 
 
@@ -131,7 +147,11 @@ async def proponer(session: AsyncSession, operador_email: str, desde: date) -> l
                     codigo=p.codigo,
                     nombre=p.nombre,
                     tipo=TipoConcepto.COMISION_COBRO,
-                    descripcion="Comisión del botón de pagos Supervielle, en % de lo cobrado.",
+                    descripcion=(
+                        "IVA sobre las comisiones del botón Supervielle, en % de la comisión."
+                        if p.codigo == IVA
+                        else "Comisión del botón de pagos Supervielle, en % de lo cobrado."
+                    ),
                 ),
             )
         if await parametros.list_vigencias(session, concepto.id):

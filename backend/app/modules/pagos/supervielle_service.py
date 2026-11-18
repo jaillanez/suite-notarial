@@ -335,6 +335,7 @@ async def _comprobante_para_tesoreria(
             item.comision_estimada = estimacion.comision
             item.vigencia_comision_boton_id = estimacion.vigencia_boton_id
             item.vigencia_comision_medio_id = estimacion.vigencia_medio_id
+            item.vigencia_comision_iva_id = estimacion.vigencia_iva_id
     record_audit(
         session,
         ctx,

@@ -247,7 +247,7 @@ function RegistroSupervielle() {
   return (
     <Panel
       title="Pagos con el botón Supervielle"
-      description="Registro de los pagos informados por el banco. Los aprobados entran a la mesa de arriba. La comisión no la informa el banco: se estima con los parámetros de comisión vigentes al pagar."
+      description="Registro de los pagos informados por el banco. Los aprobados entran a la mesa de arriba. La comisión no la informa el banco: se estima, IVA incluido, con los parámetros de comisión vigentes al pagar."
     >
       {query.isError && (
         <div className="px-5 py-4 sm:px-6">
@@ -274,7 +274,7 @@ function RegistroSupervielle() {
                   Pagado
                 </th>
                 <th scope="col" className="px-3 py-3 text-right font-semibold">
-                  Comisión estimada
+                  Comisión estimada (con IVA)
                 </th>
                 <th scope="col" className="px-5 py-3 text-right font-semibold sm:px-6">
                   Neto estimado
