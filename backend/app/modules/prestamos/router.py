@@ -19,10 +19,16 @@ from app.modules.iam.deps import (
     require_permissions,
 )
 from app.modules.padron.models import Escribano
-from app.modules.pagos import mercadopago, mercadopago_service, storage
-from app.modules.pagos.catalog import EstadoPagoMP
-from app.modules.pagos.models import PagoMercadoPago
-from app.modules.pagos.schemas import InicioPagoMPOut
+from app.modules.pagos import (
+    mercadopago,
+    mercadopago_service,
+    storage,
+    supervielle,
+    supervielle_service,
+)
+from app.modules.pagos.catalog import ESTADOS_SPV_EFECTIVOS, EstadoPagoMP
+from app.modules.pagos.models import PagoSupervielle
+from app.modules.pagos.schemas import InicioPagoMPOut, InicioPagoSPVOut
 from app.modules.parametros import service as parametros
 from app.modules.prestamos import documentos, motor, service
 from app.modules.prestamos.catalog import (
@@ -36,6 +42,7 @@ from app.modules.prestamos.models import CuotaPrestamo, DocumentoPrestamo, Linea
 from app.modules.prestamos.schemas import (
     AnulacionDocumentoIn,
     CobroCuotaMPOut,
+    CobroCuotaSPVOut,
     CuotaOut,
     DocumentoOut,
     EvaluacionOut,
@@ -256,16 +263,24 @@ async def prestamo_detalle(
             avisos = ev.avisos
     else:
         plan = [cuota_out(c, hoy) for c in await service.plan_guardado(session, p.id)]
-    # Los pagos con Mercado Pago son del titular: el garante no los ve (sí la cuota pagada).
+    # Los pagos con Mercado Pago y Supervielle son del titular: el garante no los ve (sí la
+    # cuota pagada).
+    solo_garante = await _solo_garante(session, principal, p)
     cobros = (
         []
-        if await _solo_garante(session, principal, p)
+        if solo_garante
         else [
             c
             for c in await mercadopago_service.de_prestamo(session, p.id)
             if c.estado != EstadoPagoMP.CREADO.value
         ]
     )
+    cobros_spv = [] if solo_garante else await supervielle_service.de_prestamo(session, p.id)
+    a_confirmar = {
+        c.cuota_id
+        for c in cobros
+        if c.estado == EstadoPagoMP.APPROVED.value and c.confirmado_en is None
+    } | {c.cuota_id for c in cobros_spv if _spv_a_confirmar(c)}
     numeros = {c.id: c.numero for c in await service.plan_guardado(session, p.id)}
     return PrestamoDetalle(
         **base.model_dump(),
@@ -288,7 +303,28 @@ async def prestamo_detalle(
             for c in cobros
             if c.cuota_id in numeros
         ],
-        puede_pagar_mp=await _puede_pagar_mp(session, principal, p, cobros),
+        puede_pagar_mp=await _puede_pagar(
+            session, principal, p, a_confirmar, configurado=mercadopago.configurado()
+        ),
+        cobros_spv=[
+            CobroCuotaSPVOut(
+                id=c.id,
+                cuota=numeros[c.cuota_id],
+                estado=c.estado,
+                medio_pago=c.medio_pago,
+                importe_pagado=c.importe_pagado,
+                pagado_en=c.pagado_en,
+                vence=c.vence,
+                created_at=c.created_at,
+                confirmado_en=c.confirmado_en,
+                a_confirmar=_spv_a_confirmar(c),
+            )
+            for c in cobros_spv
+            if c.cuota_id in numeros
+        ],
+        puede_pagar_spv=await _puede_pagar(
+            session, principal, p, a_confirmar, configurado=supervielle.configurado()
+        ),
         **await _documentacion(session, principal, p),
     )
 
@@ -336,27 +372,29 @@ async def _documentacion(
     }
 
 
-async def _puede_pagar_mp(
-    session: SessionDep, principal: Principal, p: Prestamo, cobros: list[PagoMercadoPago]
+def _spv_a_confirmar(c: PagoSupervielle) -> bool:
+    return c.estado in {e.value for e in ESTADOS_SPV_EFECTIVOS} and c.confirmado_en is None
+
+
+async def _puede_pagar(
+    session: SessionDep,
+    principal: Principal,
+    p: Prestamo,
+    a_confirmar: set[uuid.UUID | None],
+    *,
+    configurado: bool,
 ) -> bool:
-    """Las mismas condiciones que `mercadopago_service.iniciar_cuota`, para mostrar el botón."""
-    if (
-        p.estado != EstadoPrestamo.OTORGADO.value
-        or p.moneda != Moneda.ARS.value
-        or not mercadopago.configurado()
-    ):
+    """Las condiciones comunes de `mercadopago_service.iniciar_cuota` y
+    `supervielle_service.iniciar_cuota`, para mostrar el botón: préstamo vigente en pesos del
+    escribano que mira, con una cuota pendiente que no esté ya pagada esperando a Tesorería."""
+    if not configurado or p.estado != EstadoPrestamo.OTORGADO.value or p.moneda != Moneda.ARS.value:
         return False
     propio = await service.escribano_de(session, principal.user)
     if propio is None or propio.id != p.escribano_id:
         return False
     plan = await service.plan_guardado(session, p.id)
     proxima = next((c for c in plan if c.estado == EstadoCuota.PENDIENTE.value), None)
-    return proxima is not None and not any(
-        c.cuota_id == proxima.id
-        and c.estado == EstadoPagoMP.APPROVED.value
-        and c.confirmado_en is None
-        for c in cobros
-    )
+    return proxima is not None and proxima.id not in a_confirmar
 
 
 # --------------------------------------------------------------------------- líneas
@@ -533,6 +571,33 @@ async def confirmar_cobro_mp(
 ) -> PrestamoDetalle:
     """Tesorería confirma el pago con Mercado Pago: la cuota pasa a pagada."""
     p = await service.confirmar_cobro_mp(session, ctx, principal, prestamo_id, pago_id)
+    return await prestamo_detalle(session, principal, p)
+
+
+# --------------------------------------------------------------------------- botón Supervielle
+
+
+@router.post("/{prestamo_id}/supervielle", response_model=InicioPagoSPVOut, status_code=201)
+async def pagar_cuota_con_supervielle(
+    prestamo_id: uuid.UUID, principal: CanRead, session: SessionDep, ctx: RequestContextDep
+) -> InicioPagoSPVOut:
+    """Publica la próxima cuota (en pesos) en el botón Supervielle (solo quien tomó el
+    préstamo) y devuelve el link de pago del banco."""
+    item = await supervielle_service.iniciar_cuota(session, ctx, principal, prestamo_id)
+    return InicioPagoSPVOut(pago_id=item.id, url_pago=item.link_pago)
+
+
+@router.post("/{prestamo_id}/supervielle/{pago_id}/confirmar", response_model=PrestamoDetalle)
+async def confirmar_cobro_spv(
+    prestamo_id: uuid.UUID,
+    pago_id: uuid.UUID,
+    principal: CanCobrar,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> PrestamoDetalle:
+    """Tesorería confirma el pago con Supervielle (consultado otra vez al banco): la cuota pasa
+    a pagada."""
+    p = await supervielle_service.confirmar_cuota(session, ctx, principal, prestamo_id, pago_id)
     return await prestamo_detalle(session, principal, p)
 
 

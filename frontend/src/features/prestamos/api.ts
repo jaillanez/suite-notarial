@@ -1,5 +1,5 @@
 import { api } from '../../lib/api'
-import type { EstadoPagoMP } from '../pagos/api'
+import type { EstadoPagoMP, EstadoPagoSPV } from '../pagos/api'
 
 export type Sistema = 'FRANCES' | 'ALEMAN'
 export type EstadoPrestamo = 'SOLICITADO' | 'OTORGADO' | 'RECHAZADO' | 'CANCELADO'
@@ -125,6 +125,21 @@ export interface CobroCuotaMP {
   a_confirmar: boolean
 }
 
+/** Deuda de una cuota publicada en el botón Supervielle y lo que informó el banco. */
+export interface CobroCuotaSPV {
+  id: string
+  cuota: number
+  estado: EstadoPagoSPV
+  medio_pago: string | null
+  importe_pagado: string | null
+  pagado_en: string | null
+  vence: string
+  created_at: string
+  confirmado_en: string | null
+  /** Hecho según el banco (aprobado o acreditado) y todavía sin confirmar por Tesorería. */
+  a_confirmar: boolean
+}
+
 export type TipoDocumento =
   'DOCUMENTO_IDENTIDAD' | 'CERTIFICADO_INGRESOS' | 'CERTIFICADO_BIENES' | 'GARANTIA' | 'OTRO'
 
@@ -179,6 +194,10 @@ export interface PrestamoDetalle extends Prestamo {
   cobros_mp: CobroCuotaMP[]
   /** Quien mira tomó el préstamo y puede pagar la próxima cuota con Mercado Pago. */
   puede_pagar_mp: boolean
+  /** Deudas publicadas en el botón Supervielle (también las todavía sin pagar), las últimas primero. */
+  cobros_spv: CobroCuotaSPV[]
+  /** Quien mira tomó el préstamo y puede pagar la próxima cuota (en pesos) con Supervielle. */
+  puede_pagar_spv: boolean
   /** Vacíos para el garante: no ve la documentación del titular. */
   documentos: DocumentoPrestamo[]
   documentacion_requerida: Requisito[]
@@ -255,6 +274,21 @@ export async function confirmarCobroMP(id: string, pagoId: string): Promise<Pres
   return (
     await api.post<PrestamoDetalle>(
       `${P}/${id}/mercadopago/${encodeURIComponent(pagoId)}/confirmar`,
+    )
+  ).data
+}
+
+/** Publica la próxima cuota en el botón Supervielle y devuelve el link de pago del banco. */
+export async function pagarCuotaConSupervielle(
+  id: string,
+): Promise<{ pago_id: string; url_pago: string }> {
+  return (await api.post<{ pago_id: string; url_pago: string }>(`${P}/${id}/supervielle`)).data
+}
+
+export async function confirmarCobroSPV(id: string, pagoId: string): Promise<PrestamoDetalle> {
+  return (
+    await api.post<PrestamoDetalle>(
+      `${P}/${id}/supervielle/${encodeURIComponent(pagoId)}/confirmar`,
     )
   ).data
 }

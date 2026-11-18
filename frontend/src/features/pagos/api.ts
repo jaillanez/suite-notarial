@@ -51,10 +51,19 @@ export type OrigenComprobante = 'ARCHIVO' | 'MERCADO_PAGO' | 'SUPERVIELLE'
 export type EstadoPagoSPV =
   'CREADO' | 'APROBADO' | 'ACREDITADO' | 'PENDIENTE' | 'REVERSADO' | 'ANULADO'
 
+/** La cuota de préstamo que paga un cobro con Mercado Pago o con el botón Supervielle. */
+export interface CuotaCobrada {
+  prestamo_id: string
+  prestamo_numero: number
+  numero: number
+}
+
 /** Deuda publicada en el botón Supervielle y lo que informó el banco del pago. */
 export interface PagoSupervielle {
   id: string
-  boleta_id: string
+  /** Es de una boleta (`boleta_id`) o de una cuota de préstamo en pesos (`cuota`). */
+  boleta_id: string | null
+  cuota: CuotaCobrada | null
   id_publicacion: number
   estado: EstadoPagoSPV
   medio_pago: string | null
@@ -66,6 +75,8 @@ export interface PagoSupervielle {
   vence: string
   pagado_en: string | null
   comprobante_id: string | null
+  /** Solo en una cuota: cuándo Tesorería confirmó el cobro y la cuota pasó a pagada. */
+  confirmado_en: string | null
   created_at: string
 }
 
@@ -86,7 +97,7 @@ export interface PagoMercadoPago {
   id: string
   /** El cobro es de una boleta o de una cuota de préstamo, nunca de las dos. */
   boleta_id: string | null
-  cuota: { prestamo_id: string; prestamo_numero: number; numero: number } | null
+  cuota: CuotaCobrada | null
   estado: EstadoPagoMP
   estado_detalle: string | null
   mp_payment_id: string | null

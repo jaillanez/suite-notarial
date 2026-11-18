@@ -66,7 +66,7 @@ class BoletaResumen(BaseModel):
 
 
 class CuotaCobradaOut(BaseModel):
-    """La cuota de préstamo que paga un cobro con Mercado Pago."""
+    """La cuota de préstamo que paga un cobro con Mercado Pago o con el botón Supervielle."""
 
     prestamo_id: uuid.UUID
     prestamo_numero: int
@@ -134,10 +134,13 @@ class InicioPagoMPOut(BaseModel):
 
 class PagoSupervielleOut(BaseModel):
     """Una deuda publicada en el botón Supervielle y lo que informó el banco del pago
-    (consultado a su API, no al navegador ni al aviso)."""
+    (consultado a su API, no al navegador ni al aviso).
+
+    Es de una boleta (`boleta_id`) o de una cuota de préstamo en pesos (`cuota`)."""
 
     id: uuid.UUID
-    boleta_id: uuid.UUID
+    boleta_id: uuid.UUID | None
+    cuota: CuotaCobradaOut | None = None
     id_publicacion: int
     estado: EstadoPagoSPV
     medio_pago: str | None
@@ -150,6 +153,8 @@ class PagoSupervielleOut(BaseModel):
     vence: date
     pagado_en: datetime | None
     comprobante_id: uuid.UUID | None
+    # Solo en una cuota: cuándo Tesorería confirmó el cobro y la cuota pasó a pagada.
+    confirmado_en: datetime | None = None
     created_at: datetime
 
 

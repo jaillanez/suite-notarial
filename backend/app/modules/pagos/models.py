@@ -260,11 +260,17 @@ SECUENCIA_PUBLICACION_SPV = "pagos_supervielle_publicacion_seq"
 class PagoSupervielle(UUIDMixin, Base):
     """Cada deuda publicada en el botón de pagos Supervielle y el pago que informa (no se borra).
 
-    La deuda se publica cuando el escribano pide pagar, por el total exacto de la boleta y con
-    vencimiento en su fecha de pago. El banco no permite anularla (TODO(banco): confirmar), así
-    que mientras siga vigente se reutiliza su link en lugar de publicar otra. El `id` viaja en
+    La deuda es de una boleta o de una cuota de préstamo en pesos, nunca de las dos. Se publica
+    cuando el escribano pide pagar, por el importe exacto (la comisión la absorbe la Caja): el
+    total de la boleta con vencimiento en su fecha de pago, o la cuota del plan. El banco no
+    permite anularla (TODO(banco): confirmar), así que mientras siga vigente se reutiliza su
+    link en lugar de publicar otra. El `id` viaja en
     `identificadores` y el banco identifica la deuda con `hash`. El estado y el importe del pago
     se toman siempre de la API del banco.
+
+    Una cuota no tiene comprobante en la mesa de Tesorería (la mesa es de boletas): el pago hecho
+    queda a confirmar y Tesorería lo confirma desde el préstamo (`confirmado_por_user_id`,
+    `confirmado_en`), como con Mercado Pago. Recién ahí la cuota pasa a pagada (regla PAGO).
     """
 
     __tablename__ = "pagos_supervielle"
@@ -275,18 +281,41 @@ class PagoSupervielle(UUIDMixin, Base):
         ),
         CheckConstraint("importe_boleta > 0", name="importe_boleta"),
         CheckConstraint("estado = 'CREADO' OR spv_pago_id IS NOT NULL", name="pago_informado"),
+        CheckConstraint("(boleta_id IS NULL) <> (cuota_id IS NULL)", name="boleta_o_cuota"),
+        CheckConstraint(
+            "(confirmado_en IS NULL) = (confirmado_por_user_id IS NULL)",
+            name="confirmacion_completa",
+        ),
+        # Se confirma solo un pago hecho (lo controla el servicio); después el banco puede
+        # informar una reversión, y ese estado tiene que poder guardarse.
+        CheckConstraint(
+            "confirmado_en IS NULL OR cuota_id IS NOT NULL", name="confirma_solo_cuota"
+        ),
+        # Una cuota se cobra una sola vez.
+        Index(
+            "uq_pagos_supervielle_cuota_confirmada",
+            "cuota_id",
+            unique=True,
+            postgresql_where=text("confirmado_en IS NOT NULL"),
+        ),
     )
 
-    boleta_id: Mapped[uuid.UUID] = mapped_column(
+    boleta_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ddjj_boletas.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    cuota_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prestamos_cuotas.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
     )
     id_publicacion: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     hash: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     link_pago: Mapped[str] = mapped_column(String(500), nullable=False)
-    # Lo que se publicó: el total de la boleta y su fecha de pago.
+    # Lo que se publicó: el total de la boleta (o la cuota) y su vencimiento.
     importe_boleta: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     vence: Mapped[date] = mapped_column(Date, nullable=False)
     iniciado_por_user_id: Mapped[uuid.UUID] = mapped_column(
@@ -330,6 +359,11 @@ class PagoSupervielle(UUIDMixin, Base):
         unique=True,
         nullable=True,
     )
+    # Tesorería confirmó el cobro de la cuota (solo en la deuda de una cuota).
+    confirmado_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    confirmado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

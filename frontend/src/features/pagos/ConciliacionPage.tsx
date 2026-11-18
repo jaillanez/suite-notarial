@@ -247,7 +247,7 @@ function RegistroSupervielle() {
   return (
     <Panel
       title="Pagos con el botón Supervielle"
-      description="Registro de los pagos informados por el banco. Los aprobados entran a la mesa de arriba. La comisión no la informa el banco: se estima, IVA incluido, con los parámetros de comisión vigentes al pagar."
+      description="Registro de los pagos informados por el banco. Los aprobados de boletas entran a la mesa de arriba; los de cuotas de préstamos se confirman desde el préstamo. La comisión no la informa el banco: se estima, IVA incluido, con los parámetros de comisión vigentes al pagar."
     >
       {query.isError && (
         <div className="px-5 py-4 sm:px-6">
@@ -290,11 +290,22 @@ function RegistroSupervielle() {
                       {formatLocalDateTime(new Date(p.pagado_en ?? p.created_at))}
                       {p.medio_pago && ` · ${p.medio_pago}`}
                     </span>
+                    {p.cuota && (
+                      <Link to={`/prestamos/${p.cuota.prestamo_id}`} className="block">
+                        Préstamo N° {p.cuota.prestamo_numero} · cuota {p.cuota.numero}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     {p.comprobante_id ? (
                       <Link to={`/tesoreria/conciliacion/${p.comprobante_id}`}>
                         {ESTADO_PAGO_SPV[p.estado]}
+                      </Link>
+                    ) : p.cuota &&
+                      (p.estado === 'APROBADO' || p.estado === 'ACREDITADO') &&
+                      !p.confirmado_en ? (
+                      <Link to={`/prestamos/${p.cuota.prestamo_id}`}>
+                        {ESTADO_PAGO_SPV[p.estado]} · a confirmar
                       </Link>
                     ) : (
                       ESTADO_PAGO_SPV[p.estado]
