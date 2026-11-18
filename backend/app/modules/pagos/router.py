@@ -145,12 +145,17 @@ async def comprobante_out(
     )
 
 
-def pago_spv_out(p: PagoSupervielle, *, interno: bool) -> PagoSupervielleOut:
-    """`interno`: la comisión estimada y el neto son datos de la Caja; solo los ve Tesorería."""
+def pago_spv_out(
+    p: PagoSupervielle, *, interno: bool, cuota: CuotaCobradaOut | None = None
+) -> PagoSupervielleOut:
+    """`interno`: la comisión estimada y el neto son datos de la Caja; solo los ve Tesorería.
+    `cuota`: la cuota que paga, si la deuda es de un préstamo
+    (`supervielle_service.cuotas_cobradas`)."""
     estimada = p.comision_estimada if interno else None
     return PagoSupervielleOut(
         id=p.id,
         boleta_id=p.boleta_id,
+        cuota=cuota,
         id_publicacion=p.id_publicacion,
         estado=EstadoPagoSPV(p.estado),
         medio_pago=p.medio_pago,
@@ -165,6 +170,7 @@ def pago_spv_out(p: PagoSupervielle, *, interno: bool) -> PagoSupervielleOut:
         vence=p.vence,
         pagado_en=p.pagado_en,
         comprobante_id=p.comprobante_id,
+        confirmado_en=p.confirmado_en,
         created_at=p.created_at,
     )
 
@@ -303,7 +309,8 @@ async def sincronizar_pago_spv(
 ) -> PagoSupervielleOut:
     """«Ya pagué»: la Suite consulta la publicación al banco y registra sus pagos."""
     pago = await supervielle_service.sincronizar(session, ctx, principal, pago_id)
-    return pago_spv_out(pago, interno=service.es_tesoreria(principal))
+    cuotas = await supervielle_service.cuotas_cobradas(session, [pago])
+    return pago_spv_out(pago, interno=service.es_tesoreria(principal), cuota=cuotas.get(pago.id))
 
 
 @router.get("/supervielle", response_model=Page[PagoSupervielleOut])
@@ -311,8 +318,9 @@ async def registro_pagos_spv(
     _: CanVerify, session: SessionDep, page: PageParamsDep
 ) -> Page[PagoSupervielleOut]:
     items, total = await supervielle_service.registro(session, page)
+    cuotas = await supervielle_service.cuotas_cobradas(session, items)
     return Page(
-        items=[pago_spv_out(p, interno=True) for p in items],
+        items=[pago_spv_out(p, interno=True, cuota=cuotas.get(p.id)) for p in items],
         total=total,
         page=page.page,
         page_size=page.page_size,

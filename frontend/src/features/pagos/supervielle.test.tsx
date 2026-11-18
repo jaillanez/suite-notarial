@@ -78,6 +78,7 @@ const DDJJ = {
 const PUBLICADO: pagosApi.PagoSupervielle = {
   id: 'spv1',
   boleta_id: 'b1',
+  cuota: null,
   id_publicacion: 1000,
   estado: 'CREADO',
   medio_pago: null,
@@ -88,6 +89,7 @@ const PUBLICADO: pagosApi.PagoSupervielle = {
   vence: '2099-12-31',
   pagado_en: null,
   comprobante_id: null,
+  confirmado_en: null,
   created_at: '2026-10-23T13:00:00Z',
 }
 

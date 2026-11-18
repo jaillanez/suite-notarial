@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ESCRIBANO, renderWithProviders } from '../../test/render'
+import * as pagosApi from '../pagos/api'
 import * as apiModule from './api'
 import { PlanCuotas, ResumenEvaluacion } from './componentes'
 import { importe, requisitosLinea, textoMeses } from './labels'
@@ -10,6 +11,7 @@ import { PrestamoPage } from './PrestamoPage'
 import { PrestamosPage } from './PrestamosPage'
 
 vi.mock('./api')
+vi.mock('../pagos/api')
 
 const CUOTA: apiModule.Cuota = {
   numero: 1,
@@ -204,6 +206,8 @@ describe('ficha del préstamo', () => {
     puede_resolver: false,
     cobros_mp: [],
     puede_pagar_mp: false,
+    cobros_spv: [],
+    puede_pagar_spv: false,
     documentos: [],
     documentacion_requerida: [],
     puede_cargar_documentos: false,
@@ -330,6 +334,129 @@ describe('ficha del préstamo', () => {
     await waitFor(() => {
       expect(apiModule.confirmarCobroMP).toHaveBeenCalledWith('p1', 'mp1')
     })
+  })
+
+  const LINK_SPV: apiModule.CobroCuotaSPV = {
+    id: 'spv1',
+    cuota: 1,
+    estado: 'CREADO',
+    medio_pago: null,
+    importe_pagado: null,
+    pagado_en: null,
+    vence: '2026-11-23',
+    created_at: '2026-10-23T13:00:00Z',
+    confirmado_en: null,
+    a_confirmar: false,
+  }
+  const PAGO_SPV: apiModule.CobroCuotaSPV = {
+    ...LINK_SPV,
+    estado: 'APROBADO',
+    medio_pago: 'Qr Modo',
+    importe_pagado: '8884.88',
+    pagado_en: '2026-10-23T13:15:00Z',
+    a_confirmar: true,
+  }
+
+  it('el escribano paga la próxima cuota con Supervielle en otra pestaña', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({
+      ...OTORGADO,
+      puede_pagar_spv: true,
+      puede_pagar_mp: true,
+    })
+    vi.mocked(apiModule.pagarCuotaConSupervielle).mockResolvedValue({
+      pago_id: 'spv1',
+      url_pago: 'https://recaudaciones.test/publicacion/1',
+    })
+    const pestana = { opener: {}, location: { href: '' }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(pestana as unknown as Window)
+    renderFicha(['prestamos:read_own'])
+
+    expect(
+      await screen.findByRole('button', { name: 'Pagar cuota 1 con Mercado Pago' }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Pagar cuota 1 con Supervielle' }))
+    await waitFor(() => {
+      expect(pestana.location.href).toBe('https://recaudaciones.test/publicacion/1')
+    })
+    expect(pestana.opener).toBeNull()
+    expect(apiModule.pagarCuotaConSupervielle).toHaveBeenCalledWith('p1')
+    open.mockRestore()
+  })
+
+  it('si el banco no publica la cuota, cierra la pestaña y muestra el motivo', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({ ...OTORGADO, puede_pagar_spv: true })
+    vi.mocked(apiModule.pagarCuotaConSupervielle).mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 503,
+        data: { title: 'Service Unavailable', status: 503, detail: 'Supervielle no responde.' },
+      },
+    })
+    const pestana = { opener: {}, location: { href: '' }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(pestana as unknown as Window)
+    renderFicha(['prestamos:read_own'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pagar cuota 1 con Supervielle' }))
+    await waitFor(() => {
+      expect(pestana.close).toHaveBeenCalled()
+    })
+    open.mockRestore()
+  })
+
+  it('al volver del banco, el escribano verifica el pago de la cuota', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({
+      ...OTORGADO,
+      puede_pagar_spv: true,
+      cobros_spv: [LINK_SPV],
+    })
+    vi.mocked(pagosApi.sincronizarPagoSPV).mockResolvedValue({
+      id: 'spv1',
+      boleta_id: null,
+      cuota: { prestamo_id: 'p1', prestamo_numero: 7, numero: 1 },
+      id_publicacion: 1000,
+      estado: 'CREADO',
+      medio_pago: null,
+      importe_boleta: '8884.88',
+      importe_pagado: null,
+      comision_estimada: null,
+      importe_neto_estimado: null,
+      vence: '2026-11-23',
+      pagado_en: null,
+      comprobante_id: null,
+      confirmado_en: null,
+      created_at: '2026-10-23T13:00:00Z',
+    })
+    renderFicha(['prestamos:read_own'])
+
+    expect(
+      await screen.findByText('Link de pago de Supervielle generado · cuota 1'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ya pagué: verificar' }))
+    expect(
+      await screen.findByText(/El banco todavía no informa un pago para esta cuota/),
+    ).toBeInTheDocument()
+    expect(pagosApi.sincronizarPagoSPV).toHaveBeenCalledWith('spv1')
+  })
+
+  it('con el pago de Supervielle aprobado, Tesorería lo confirma', async () => {
+    vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({ ...OTORGADO, cobros_spv: [PAGO_SPV] })
+    vi.mocked(apiModule.confirmarCobroSPV).mockResolvedValue(OTORGADO)
+    const { unmount } = renderFicha(['prestamos:read_own'])
+    expect(await screen.findByText('Pagaste la cuota 1 con Supervielle')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Supervielle/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Aprobado · a confirmar')).toBeInTheDocument()
+    unmount()
+
+    renderFicha(['prestamos:read_all', 'prestamos:cobrar'])
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar cobro de la cuota 1' }))
+    expect(
+      screen.queryByRole('button', { name: 'Registrar pago de la cuota 1' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cobro' }))
+    await waitFor(() => {
+      expect(apiModule.confirmarCobroSPV).toHaveBeenCalledWith('p1', 'spv1')
+    })
+    expect(apiModule.confirmarCobroMP).not.toHaveBeenCalled()
   })
 
   const DOC: apiModule.DocumentoPrestamo = {

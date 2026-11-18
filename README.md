@@ -344,6 +344,13 @@ Ya aplicadas:
     no viene firmado: solo dispara la consulta a la API, nunca se toma como cierto.
   - Cada deuda queda en `pagos_supervielle` (sin borrado). Un pago aprobado entra a la mesa como
     comprobante «Supervielle» y **Tesorería lo confirma** contra la rendición del banco.
+  - **Cuotas de préstamos en pesos** (decisión de la Caja del 17/11/2026): el titular ve «Pagar
+    cuota N con Supervielle» en la ficha del préstamo. Se publica la próxima cuota por su
+    **importe exacto** (la comisión la absorbe la Caja) con el vencimiento de la cuota, o mañana
+    si vence hoy o ya venció. El pago aprobado queda «a confirmar» en el préstamo (la mesa es de
+    boletas, igual que con Mercado Pago): Tesorería confirma desde la ficha, la Suite vuelve a
+    consultar el pago al banco y recién ahí la cuota pasa a pagada. Las cuotas en dólares se
+    rechazan: el botón cobra en pesos. La transferencia con comprobante sigue disponible.
   - **Comisiones como parámetros**: tipo de concepto «Comisión de un medio de pago»
     (`COMISION_SPV_*`), más el IVA sobre la comisión (`IVA_COMISION_SPV`, 21 %: los porcentajes
     del banco no lo incluyen). La Suite estima la comisión con IVA y el neto de cada pago con las
@@ -423,7 +430,9 @@ Ya aplicadas:
   aportes con la Caja.
 - **Cuatro ojos:** la Caja carga la solicitud y la otorga otra persona (Administración), que no
   puede ser titular ni garante; al otorgar se reevalúa y se genera el plan inmutable. Tesorería
-  cobra las cuotas en orden y el préstamo se cancela con la última.
+  cobra las cuotas en orden y el préstamo se cancela con la última. El titular también puede
+  pagar la próxima cuota en pesos con Mercado Pago o con el botón Supervielle: el pago queda a
+  confirmar por Tesorería y recién al confirmarlo la cuota pasa a pagada (regla PAGO).
 - **Documentación de la solicitud:** el titular o la Caja cargan los archivos (PDF, PNG o JPG,
   validados como los comprobantes) mientras la solicitud está abierta. Los certificados que exige
   la línea tienen que estar cargados para otorgar. Nada se borra: uno cargado por error se anula

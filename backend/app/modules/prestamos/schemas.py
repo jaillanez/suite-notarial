@@ -182,6 +182,24 @@ class CobroCuotaMPOut(BaseModel):
     a_confirmar: bool
 
 
+class CobroCuotaSPVOut(BaseModel):
+    """Deuda de una cuota publicada en el botón Supervielle y lo que informó el banco del pago."""
+
+    id: uuid.UUID
+    cuota: int
+    # Estado según el banco (catalog.EstadoPagoSPV de pagos); CREADO si todavía no informó nada.
+    estado: str
+    medio_pago: str | None
+    importe_pagado: Money | None
+    pagado_en: datetime | None
+    vence: date
+    created_at: datetime
+    # Tesorería lo confirmó: la cuota quedó pagada con este cobro.
+    confirmado_en: datetime | None
+    # Hecho según el banco (aprobado o acreditado) y todavía sin confirmar por Tesorería.
+    a_confirmar: bool
+
+
 class DocumentoOut(BaseModel):
     id: uuid.UUID
     tipo: TipoDocumento
@@ -240,6 +258,11 @@ class PrestamoDetalle(PrestamoOut):
     cobros_mp: list[CobroCuotaMPOut] = []
     # Quien mira tomó el préstamo y puede pagar la próxima cuota con Mercado Pago.
     puede_pagar_mp: bool = False
+    # Deudas publicadas en el botón Supervielle (incluidas las todavía sin pagar, para que el
+    # escribano pueda verificar el pago al volver del banco), las últimas primero.
+    cobros_spv: list[CobroCuotaSPVOut] = []
+    # Quien mira tomó el préstamo y puede pagar la próxima cuota (en pesos) con Supervielle.
+    puede_pagar_spv: bool = False
     # Documentación de la solicitud: vacía para el garante.
     documentos: list[DocumentoOut] = []
     documentacion_requerida: list[RequisitoOut] = []

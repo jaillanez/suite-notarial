@@ -11,6 +11,13 @@
    importe y la fecha que informó el banco. La boleta pasa a PAGADA recién cuando Tesorería lo
    confirma, como cualquier comprobante.
 
+Las cuotas de préstamo en pesos siguen el mismo camino hasta el paso 3 (decisión de la Caja del
+17/11/2026): se publica la próxima cuota por su importe exacto (la comisión la absorbe la Caja) y
+un pago hecho queda a confirmar por Tesorería desde el préstamo, sin comprobante en la mesa (la
+mesa es de boletas), igual que con Mercado Pago. Recién al confirmarlo la cuota pasa a pagada
+(`prestamos.service.confirmar_cobro_spv`). Las cuotas en dólares no se publican: el botón cobra
+en pesos.
+
 Todo cambio de estado queda en la auditoría.
 """
 
@@ -18,6 +25,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from http import HTTPStatus
 from zoneinfo import ZoneInfo
 
@@ -39,10 +47,20 @@ from app.modules.pagos.catalog import (
     ESTADOS_SPV_EFECTIVOS,
     ESTADOS_SPV_REVERTIDOS,
     EstadoComprobante,
+    EstadoPagoMP,
     EstadoPagoSPV,
     OrigenComprobante,
 )
-from app.modules.pagos.models import SECUENCIA_PUBLICACION_SPV, Comprobante, PagoSupervielle
+from app.modules.pagos.models import (
+    SECUENCIA_PUBLICACION_SPV,
+    Comprobante,
+    PagoMercadoPago,
+    PagoSupervielle,
+)
+from app.modules.pagos.schemas import CuotaCobradaOut
+from app.modules.prestamos import service as prestamos_service
+from app.modules.prestamos.catalog import EstadoPrestamo, Moneda
+from app.modules.prestamos.models import CuotaPrestamo, Prestamo
 
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 logger = logging.getLogger(__name__)
@@ -55,12 +73,17 @@ PENDIENTE = EstadoComprobante.PENDIENTE_REVISION.value
 EFECTIVOS = {e.value for e in ESTADOS_SPV_EFECTIVOS}
 
 
-def _no_disponible() -> ProblemError:
+def _no_disponible(
+    alternativa: str = "pagá por transferencia y adjuntá el comprobante",
+) -> ProblemError:
     return ProblemError(
         HTTPStatus.SERVICE_UNAVAILABLE,
-        "El botón de pagos Supervielle no está disponible en este momento: probá más tarde o "
-        "pagá por transferencia y adjuntá el comprobante.",
+        f"El botón de pagos Supervielle no está disponible en este momento: probá más tarde o "
+        f"{alternativa}.",
     )
+
+
+CUOTA_POR_TESORERIA = "pagale la cuota a Tesorería"
 
 
 # --------------------------------------------------------------------------- inicio del pago
@@ -180,6 +203,129 @@ async def iniciar(
     return item
 
 
+async def _vigente_cuota(
+    session: AsyncSession, cuota: CuotaPrestamo, hoy: date
+) -> PagoSupervielle | None:
+    """Deuda ya publicada de la cuota que todavía se puede pagar con su link."""
+    return await session.scalar(
+        select(PagoSupervielle)
+        .where(
+            PagoSupervielle.cuota_id == cuota.id,
+            PagoSupervielle.estado == EstadoPagoSPV.CREADO.value,
+            PagoSupervielle.vence >= hoy,
+            PagoSupervielle.importe_boleta == cuota.cuota,
+        )
+        .order_by(PagoSupervielle.created_at.desc())
+        .limit(1)
+    )
+
+
+async def iniciar_cuota(
+    session: AsyncSession, ctx: RequestContext, principal: Principal, prestamo_id: uuid.UUID
+) -> PagoSupervielle:
+    """Publica la próxima cuota del préstamo (en pesos). La paga solo el escribano que lo tomó,
+    por el importe exacto de la cuota: la comisión la absorbe la Caja."""
+    if not supervielle.configurado():
+        raise _no_disponible(CUOTA_POR_TESORERIA)
+    prestamo = await prestamos_service.get_prestamo(session, principal, prestamo_id, lock=True)
+    propio = await prestamos_service.escribano_de(session, principal.user)
+    if propio is None or propio.id != prestamo.escribano_id:
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN,
+            "La cuota la paga con el botón Supervielle quien tomó el préstamo.",
+        )
+    if prestamo.estado != EstadoPrestamo.OTORGADO.value:
+        raise ProblemError(HTTPStatus.CONFLICT, "El préstamo no tiene cuotas para pagar.")
+    if prestamo.moneda != Moneda.ARS.value:
+        # TODO(negocio): cobro de cuotas en dólares (el botón cobra en pesos).
+        raise ProblemError(
+            HTTPStatus.CONFLICT,
+            "El botón Supervielle cobra en pesos: las cuotas en dólares no se pueden pagar con "
+            "él. Consultá a Tesorería.",
+        )
+    plan = await prestamos_service.plan_guardado(session, prestamo.id)
+    cuota = next((c for c in plan if c.estado == prestamos_service.PENDIENTE), None)
+    if cuota is None:
+        raise ProblemError(HTTPStatus.CONFLICT, "El préstamo no tiene cuotas pendientes.")
+    if (medio := await prestamos_service.cobro_a_confirmar(session, cuota.id)) is not None:
+        raise ProblemError(
+            HTTPStatus.CONFLICT,
+            f"La cuota N° {cuota.numero} ya está pagada con {medio} y Tesorería la está "
+            "confirmando.",
+        )
+    en_proceso = await session.scalar(
+        select(func.count()).where(
+            PagoSupervielle.cuota_id == cuota.id,
+            PagoSupervielle.estado == EstadoPagoSPV.PENDIENTE.value,
+        )
+    )
+    if en_proceso:
+        raise ProblemError(
+            HTTPStatus.CONFLICT,
+            "Esta cuota tiene un pago con Supervielle en proceso: esperá a que el banco lo "
+            "acredite.",
+        )
+    hoy = today_local()
+    vigente = await _vigente_cuota(session, cuota, hoy)
+    if vigente is not None:
+        await session.commit()
+        return vigente
+
+    # El banco exige que el vencimiento sea posterior al día de la publicación: una cuota que
+    # vence hoy o ya venció se publica con vencimiento mañana.
+    # TODO(banco): confirmar si acepta un vencimiento en el mismo día.
+    # TODO(negocio): interés punitorio por pago fuera de término. Mientras no esté definido se
+    # cobra la cuota del plan.
+    vence = max(cuota.vencimiento, hoy + timedelta(days=1))
+    pago_id = uuid.uuid4()
+    id_publicacion = int(
+        (await session.execute(text(f"SELECT nextval('{SECUENCIA_PUBLICACION_SPV}')"))).scalar_one()
+    )
+    try:
+        publicacion = await supervielle.publicar(
+            id_publicacion=id_publicacion,
+            importe=cuota.cuota,
+            vence=vence,
+            nombre=f"Préstamo N° {prestamo.numero}",
+            descripcion=(
+                f"Caja Notarial · Préstamo N° {prestamo.numero} · Cuota {cuota.numero} de "
+                f"{prestamo.cuotas}"
+            ),
+            identificadores=[str(pago_id), f"prestamo-{prestamo.numero}-cuota-{cuota.numero}"],
+        )
+    except supervielle.SupervielleError as exc:
+        raise _no_disponible(CUOTA_POR_TESORERIA) from exc
+    item = PagoSupervielle(
+        id=pago_id,
+        cuota_id=cuota.id,
+        id_publicacion=id_publicacion,
+        hash=publicacion.hash,
+        link_pago=publicacion.link_pago,
+        importe_boleta=cuota.cuota,
+        vence=vence,
+        iniciado_por_user_id=principal.user.id,
+        estado=EstadoPagoSPV.CREADO.value,
+    )
+    session.add(item)
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PAGO_SPV_INICIADO,
+        actor_user_id=principal.user.id,
+        details={
+            "pago_spv_id": str(pago_id),
+            "id_publicacion": id_publicacion,
+            "hash": publicacion.hash,
+            "prestamo": prestamo.numero,
+            "cuota": cuota.numero,
+            "importe": f"{cuota.cuota:.2f}",
+            "vence": vence.isoformat(),
+        },
+    )
+    await session.commit()
+    return item
+
+
 # --------------------------------------------------------------------------- registro del pago
 
 
@@ -249,22 +395,31 @@ async def registrar(
     item.importe_pagado = elegido.importe
     item.pagado_en = elegido.fecha.replace(tzinfo=ZONA) if elegido.fecha else None
     item.updated_at = datetime.now(UTC)
-    if item.estado == estado_anterior and item.comprobante_id is not None:
+    if item.estado == estado_anterior and (
+        item.comprobante_id is not None or item.cuota_id is not None
+    ):
         await session.commit()
         return item
 
-    boleta = await session.get(Boleta, item.boleta_id)
-    assert boleta is not None  # noqa: S101 - FK RESTRICT
     detalles: dict[str, object] = {
         "pago_spv_id": str(item.id),
         "spv_pago_id": elegido.id,
         "estado": item.estado,
         "medio_pago": elegido.medio_pago,
         "importe_pagado": f"{elegido.importe:.2f}" if elegido.importe is not None else None,
-        "boleta": boleta.numero,
     }
-    if elegido.estado in ESTADOS_SPV_EFECTIVOS and item.comprobante_id is None:
+    boleta: Boleta | None = None
+    if item.boleta_id is not None:
+        boleta = await session.get(Boleta, item.boleta_id)
+        assert boleta is not None  # noqa: S101 - FK RESTRICT
+        detalles["boleta"] = boleta.numero
+    else:
+        detalles.update(await _datos_cuota(session, item))
+    efectivo = elegido.estado in ESTADOS_SPV_EFECTIVOS
+    if efectivo and boleta is not None and item.comprobante_id is None:
         await _comprobante_para_tesoreria(session, ctx, item, boleta, elegido, detalles)
+    elif efectivo and boleta is None and estado_anterior not in EFECTIVOS:
+        await _cuota_a_confirmar(session, ctx, item, elegido, detalles)
     elif elegido.estado in ESTADOS_SPV_REVERTIDOS and estado_anterior in EFECTIVOS:
         # TODO(negocio): procedimiento ante un pago reversado o anulado después de aprobado.
         record_audit(
@@ -329,13 +484,7 @@ async def _comprobante_para_tesoreria(
     session.add(comprobante)
     await session.flush()
     item.comprobante_id = comprobante.id
-    if pago.importe is not None:
-        estimacion = await comisiones_spv.estimar(session, pago.importe, pago.id_medio, fecha)
-        if estimacion is not None:
-            item.comision_estimada = estimacion.comision
-            item.vigencia_comision_boton_id = estimacion.vigencia_boton_id
-            item.vigencia_comision_medio_id = estimacion.vigencia_medio_id
-            item.vigencia_comision_iva_id = estimacion.vigencia_iva_id
+    await _estimar_comision(session, item, pago, fecha)
     record_audit(
         session,
         ctx,
@@ -349,6 +498,69 @@ async def _comprobante_para_tesoreria(
             "importe_coincide": coincide,
             "total_boleta": format_pesos(boleta.total_a_pagar),
         },
+    )
+
+
+async def _estimar_comision(
+    session: AsyncSession, item: PagoSupervielle, pago: supervielle.Pago, fecha: date
+) -> None:
+    """Comisión que absorbe la Caja, estimada con los parámetros vigentes a la fecha del pago;
+    guarda las vigencias usadas (regla SNAP). Vacía si falta el importe o algún parámetro."""
+    if pago.importe is None:
+        return
+    estimacion = await comisiones_spv.estimar(session, pago.importe, pago.id_medio, fecha)
+    if estimacion is not None:
+        item.comision_estimada = estimacion.comision
+        item.vigencia_comision_boton_id = estimacion.vigencia_boton_id
+        item.vigencia_comision_medio_id = estimacion.vigencia_medio_id
+        item.vigencia_comision_iva_id = estimacion.vigencia_iva_id
+
+
+async def _datos_cuota(session: AsyncSession, item: PagoSupervielle) -> dict[str, object]:
+    fila = (
+        await session.execute(
+            select(Prestamo.numero, CuotaPrestamo.numero, CuotaPrestamo.cuota)
+            .join(Prestamo, Prestamo.id == CuotaPrestamo.prestamo_id)
+            .where(CuotaPrestamo.id == item.cuota_id)
+        )
+    ).one()
+    return {"prestamo": fila[0], "cuota": fila[1], "importe_cuota": f"{fila[2]:.2f}"}
+
+
+async def _cuota_a_confirmar(
+    session: AsyncSession,
+    ctx: RequestContext,
+    item: PagoSupervielle,
+    pago: supervielle.Pago,
+    detalles: dict[str, object],
+) -> None:
+    """Pago hecho de una cuota: queda a confirmar por Tesorería desde el préstamo."""
+    coincide = pago.importe is not None and pago.importe == Decimal(str(detalles["importe_cuota"]))
+    fecha = pago.fecha.date() if pago.fecha else today_local()
+    await _estimar_comision(session, item, pago, fecha)
+    otro_spv = await session.scalar(
+        select(func.count()).where(
+            PagoSupervielle.cuota_id == item.cuota_id,
+            PagoSupervielle.id != item.id,
+            PagoSupervielle.estado.in_(EFECTIVOS),
+        )
+    )
+    otro_mp = await session.scalar(
+        select(func.count()).where(
+            PagoMercadoPago.cuota_id == item.cuota_id,
+            PagoMercadoPago.estado == EstadoPagoMP.APPROVED.value,
+        )
+    )
+    otro = bool(otro_spv or otro_mp)
+    record_audit(
+        session,
+        ctx,
+        # Dos pagos hechos de la misma cuota: uno sobra y Tesorería tiene que verlo.
+        AuditEvent.PAGO_SPV_DUPLICADO if otro else AuditEvent.PAGO_SPV_ACREDITADO,
+        severity=Severity.CRITICAL if otro else (Severity.INFO if coincide else Severity.WARNING),
+        target_user_id=item.iniciado_por_user_id,
+        new_value={"estado": item.estado, "a_confirmar_por": "TESORERIA"},
+        details={**detalles, "importe_coincide": coincide},
     )
 
 
@@ -408,8 +620,8 @@ async def sincronizar(
     item = await session.get(PagoSupervielle, pago_spv_id)
     if item is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "El pago no existe.")
-    # Solo quien puede ver la boleta (el mismo control que para verla).
-    await ddjj_service.get_boleta(session, principal, item.boleta_id)
+    # Solo quien puede ver la boleta o el préstamo (el mismo control que para verlos).
+    await _exigir_acceso(session, principal, item)
     await session.commit()
     if not supervielle.configurado():
         raise _no_disponible()
@@ -664,7 +876,83 @@ async def conciliar(
     return resultado
 
 
+async def confirmar_cuota(
+    session: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    prestamo_id: uuid.UUID,
+    pago_spv_id: uuid.UUID,
+) -> Prestamo:
+    """Tesorería confirma el pago de una cuota. Antes se vuelve a consultar el pago al banco: una
+    reversión cuyo aviso todavía no llegó tiene que bloquear la confirmación. Si el banco no
+    responde, no se confirma (503)."""
+    await prestamos_service.get_prestamo(session, principal, prestamo_id)
+    item = await session.get(PagoSupervielle, pago_spv_id)
+    es_del_prestamo = (
+        item is not None
+        and item.cuota_id is not None
+        and (
+            await session.scalar(
+                select(CuotaPrestamo.prestamo_id).where(CuotaPrestamo.id == item.cuota_id)
+            )
+            == prestamo_id
+        )
+    )
+    await session.commit()
+    if item is not None and es_del_prestamo and item.confirmado_en is None:
+        if not supervielle.configurado():
+            raise _no_disponible(CUOTA_POR_TESORERIA)
+        await _consultar_y_registrar(session, ctx, item)
+    return await prestamos_service.confirmar_cobro_spv(
+        session, ctx, principal, prestamo_id, pago_spv_id
+    )
+
+
 # --------------------------------------------------------------------------- consulta
+
+
+async def _exigir_acceso(
+    session: AsyncSession, principal: Principal, item: PagoSupervielle
+) -> None:
+    if item.boleta_id is not None:
+        await ddjj_service.get_boleta(session, principal, item.boleta_id)
+        return
+    prestamo_id = await session.scalar(
+        select(CuotaPrestamo.prestamo_id).where(CuotaPrestamo.id == item.cuota_id)
+    )
+    assert prestamo_id is not None  # noqa: S101 - FK RESTRICT
+    await prestamos_service.get_prestamo(session, principal, prestamo_id)
+
+
+async def cuotas_cobradas(
+    session: AsyncSession, pagos: list[PagoSupervielle]
+) -> dict[uuid.UUID, CuotaCobradaOut]:
+    """La cuota de cada deuda de préstamo, por id de la deuda (las de boletas no figuran)."""
+    ids = {p.cuota_id for p in pagos if p.cuota_id is not None}
+    if not ids:
+        return {}
+    filas = (
+        await session.execute(
+            select(CuotaPrestamo.id, CuotaPrestamo.numero, Prestamo.id, Prestamo.numero)
+            .join(Prestamo, Prestamo.id == CuotaPrestamo.prestamo_id)
+            .where(CuotaPrestamo.id.in_(ids))
+        )
+    ).all()
+    por_cuota = {
+        f[0]: CuotaCobradaOut(prestamo_id=f[2], prestamo_numero=f[3], numero=f[1]) for f in filas
+    }
+    return {p.id: por_cuota[p.cuota_id] for p in pagos if p.cuota_id in por_cuota}
+
+
+async def de_prestamo(session: AsyncSession, prestamo_id: uuid.UUID) -> list[PagoSupervielle]:
+    """Deudas publicadas de las cuotas de un préstamo (el acceso ya se controló)."""
+    resultado = await session.scalars(
+        select(PagoSupervielle)
+        .join(CuotaPrestamo, CuotaPrestamo.id == PagoSupervielle.cuota_id)
+        .where(CuotaPrestamo.prestamo_id == prestamo_id)
+        .order_by(PagoSupervielle.created_at.desc())
+    )
+    return list(resultado.all())
 
 
 async def de_boleta(

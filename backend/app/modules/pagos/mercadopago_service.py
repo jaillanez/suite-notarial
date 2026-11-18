@@ -173,10 +173,10 @@ async def iniciar_cuota(
     cuota = next((c for c in plan if c.estado == prestamos_service.PENDIENTE), None)
     if cuota is None:
         raise ProblemError(HTTPStatus.CONFLICT, "El préstamo no tiene cuotas pendientes.")
-    if await prestamos_service.cobro_mp_a_confirmar(session, cuota.id) is not None:
+    if (medio := await prestamos_service.cobro_a_confirmar(session, cuota.id)) is not None:
         raise ProblemError(
             HTTPStatus.CONFLICT,
-            f"La cuota N° {cuota.numero} ya está pagada con Mercado Pago y Tesorería la está "
+            f"La cuota N° {cuota.numero} ya está pagada con {medio} y Tesorería la está "
             "confirmando.",
         )
     pago_id = uuid.uuid4()

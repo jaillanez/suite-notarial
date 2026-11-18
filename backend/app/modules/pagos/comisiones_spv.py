@@ -7,8 +7,9 @@ banco cambia un valor, la Caja carga una vigencia nueva desde Parámetros (con l
 una segunda persona); el código no cambia. Cada pago guarda las vigencias con que se estimó
 (regla SNAP): un cambio posterior no altera las estimaciones ya hechas.
 
-La comisión la absorbe la Caja: al escribano se le cobra el total exacto de la boleta.
-TODO(negocio): confirmar con la Caja, como se definió para Mercado Pago el 27/10/2026.
+La comisión la absorbe la Caja: al escribano se le cobra el importe exacto de la boleta o de la
+cuota del préstamo. Lo decidió la Caja (Horacio Quiroga) el 17/11/2026, como ya se había
+definido para Mercado Pago el 27/10/2026.
 Los porcentajes del banco no incluyen IVA (lo confirmó el banco el 18/11/2026: «a los costos
 debe sumarse el IVA»). La estimación suma el IVA sobre la comisión con su propio parámetro
 (`IVA_COMISION_SPV`), así un cambio de alícuota es una vigencia nueva y no toca el código.

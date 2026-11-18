@@ -42,8 +42,8 @@ from app.modules.migracion.catalog import EstadoBoletaHistorica
 from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
 from app.modules.padron.catalog import EstadoMatricula
 from app.modules.padron.models import Adscripcion, Escribano
-from app.modules.pagos.catalog import EstadoPagoMP
-from app.modules.pagos.models import PagoMercadoPago
+from app.modules.pagos.catalog import ESTADOS_SPV_EFECTIVOS, EstadoPagoMP
+from app.modules.pagos.models import PagoMercadoPago, PagoSupervielle
 from app.modules.prestamos import motor
 from app.modules.prestamos.catalog import (
     AVISO_TIPO_CAMBIO,
@@ -65,6 +65,7 @@ ESTADOS_TOMADOR = frozenset({EstadoMatricula.ACTIVO.value, EstadoMatricula.JUBIL
 VIGENTE = EstadoPrestamo.OTORGADO.value
 PENDIENTE = EstadoCuota.PENDIENTE.value
 MP_APROBADO = EstadoPagoMP.APPROVED.value
+SPV_EFECTIVOS = tuple(e.value for e in ESTADOS_SPV_EFECTIVOS)
 ZONA = ZoneInfo("America/Argentina/San_Juan")
 
 
@@ -877,6 +878,32 @@ async def cobro_mp_a_confirmar(
     )
 
 
+async def cobro_spv_a_confirmar(
+    session: AsyncSession, cuota_id: uuid.UUID
+) -> PagoSupervielle | None:
+    """Pago con el botón Supervielle hecho (aprobado o acreditado) de la cuota que Tesorería
+    todavía no confirmó."""
+    return await session.scalar(
+        select(PagoSupervielle)
+        .where(
+            PagoSupervielle.cuota_id == cuota_id,
+            PagoSupervielle.estado.in_(SPV_EFECTIVOS),
+            PagoSupervielle.confirmado_en.is_(None),
+        )
+        .order_by(PagoSupervielle.created_at)
+        .limit(1)
+    )
+
+
+async def cobro_a_confirmar(session: AsyncSession, cuota_id: uuid.UUID) -> str | None:
+    """Medio con que la cuota ya está pagada y espera la confirmación de Tesorería, si lo hay."""
+    if await cobro_mp_a_confirmar(session, cuota_id) is not None:
+        return "Mercado Pago"
+    if await cobro_spv_a_confirmar(session, cuota_id) is not None:
+        return "el botón Supervielle"
+    return None
+
+
 async def _marcar_pagada(
     session: AsyncSession,
     ctx: RequestContext,
@@ -937,10 +964,10 @@ async def registrar_pago(
     if prestamo.estado != VIGENTE:
         raise _conflict("El préstamo no está vigente.")
     cuota, quedan = _proxima(await plan_guardado(session, prestamo.id), numero)
-    if await cobro_mp_a_confirmar(session, cuota.id) is not None:
+    if (medio := await cobro_a_confirmar(session, cuota.id)) is not None:
         # Registrarla a mano la cobraría dos veces.
         raise _conflict(
-            f"La cuota N° {cuota.numero} ya se pagó con Mercado Pago: confirmá ese cobro en lugar "
+            f"La cuota N° {cuota.numero} ya se pagó con {medio}: confirmá ese cobro en lugar "
             "de registrar otro pago."
         )
     assert prestamo.fecha_otorgamiento is not None  # noqa: S101 - vigente
@@ -1020,6 +1047,66 @@ async def confirmar_cobro_mp(
             "origen": "MERCADO_PAGO",
             "pago_mp_id": str(pago.id),
             "mp_payment_id": pago.mp_payment_id,
+        },
+    )
+    await session.commit()
+    await session.refresh(prestamo)
+    return prestamo
+
+
+async def confirmar_cobro_spv(
+    session: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    prestamo_id: uuid.UUID,
+    pago_spv_id: uuid.UUID,
+) -> Prestamo:
+    """Tesorería confirma un pago con el botón Supervielle hecho: recién ahí la cuota queda
+    pagada (regla PAGO), con la fecha y el importe que informó el banco. Antes de llamar a esta
+    función se vuelve a consultar el pago al banco (`supervielle_service.confirmar_cuota`)."""
+    prestamo = await get_prestamo(session, principal, prestamo_id, lock=True)
+    pago = await session.get(PagoSupervielle, pago_spv_id, with_for_update=True)
+    cuotas = await plan_guardado(session, prestamo.id)
+    cuota = next((c for c in cuotas if pago is not None and c.id == pago.cuota_id), None)
+    if pago is None or cuota is None:
+        raise _not_found("El pago con el botón Supervielle")
+    if pago.confirmado_en is not None:
+        raise _conflict("Este cobro ya está confirmado.")
+    if pago.estado not in SPV_EFECTIVOS:
+        raise _conflict("El banco no informó este pago como hecho: no hay nada que confirmar.")
+    if prestamo.estado != VIGENTE:
+        raise _conflict("El préstamo no está vigente.")
+    if cuota.estado != PENDIENTE:
+        # TODO(negocio): procedimiento para devolver un pago de una cuota que ya estaba pagada.
+        raise _conflict(
+            f"La cuota N° {cuota.numero} ya está pagada: este pago con el botón Supervielle no se "
+            "puede aplicar y hay que devolverlo."
+        )
+    cuota, quedan = _proxima(cuotas, cuota.numero)
+    # El botón cobra solo en pesos (la deuda se publica en pesos).
+    if prestamo.moneda != Moneda.ARS.value or pago.importe_pagado != cuota.cuota:
+        # TODO(negocio): procedimiento ante un pago con un importe distinto al de la cuota.
+        raise _conflict(
+            f"El banco informó {format_importe(pago.importe_pagado or CERO, '$')} y la cuota es "
+            f"de {con_moneda(cuota.cuota, prestamo.moneda)}: no se puede confirmar."
+        )
+    hoy = today_local()
+    fecha_pago = min(pago.pagado_en.astimezone(ZONA).date(), hoy) if pago.pagado_en else hoy
+    pago.confirmado_por_user_id = principal.user.id
+    pago.confirmado_en = datetime.now(UTC)
+    await _marcar_pagada(
+        session,
+        ctx,
+        principal.user,
+        prestamo,
+        cuota,
+        quedan=quedan,
+        fecha_pago=fecha_pago,
+        importe=cuota.cuota,
+        detalles={
+            "origen": "SUPERVIELLE",
+            "pago_spv_id": str(pago.id),
+            "spv_pago_id": pago.spv_pago_id,
         },
     )
     await session.commit()
