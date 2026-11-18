@@ -343,21 +343,23 @@ async def test_el_garante_no_ve_los_pagos_del_titular(
             CuotaPrestamo.prestamo_id == uuid.UUID(p["id"]), CuotaPrestamo.numero == 1
         )
     )
-    db_session.add(
-        PagoMercadoPago(
-            cuota_id=cuota_id,
-            preference_id="pref-garante",
-            importe_boleta=D("8884.88"),
-            iniciado_por_user_id=escenario.titular_user.id,
-            estado="approved",
-            mp_payment_id="555",
-            medio_pago="visa",
-            importe_pagado=D("8884.88"),
-            moneda="ARS",
-        )
+    item = PagoMercadoPago(
+        cuota_id=cuota_id,
+        preference_id="pref-garante",
+        importe_boleta=D("8884.88"),
+        iniciado_por_user_id=escenario.titular_user.id,
+        estado="approved",
+        mp_payment_id="555",
+        medio_pago="visa",
+        importe_pagado=D("8884.88"),
+        moneda="ARS",
     )
+    db_session.add(item)
     await db_session.flush()
 
+    # El garante no consulta el pago del titular (ni sabe si existe).
+    r = await notario.post(f"/api/v1/pagos/mercadopago/{item.id}/sincronizar")
+    assert r.status_code == 404
     visto = (await notario.get(f"/api/v1/prestamos/{p['id']}")).json()
     assert visto["cobros_mp"] == []
     assert visto["puede_pagar_mp"] is False
