@@ -1,4 +1,5 @@
-"""Comandos de consola del padrón. Todo queda auditado a nombre de `--operador`.
+"""Comandos de consola del padrón. Todo queda auditado a nombre de `--operador`, que tiene que
+tener permiso de escritura del padrón (`escribanos:write`; la baja, también `escribanos:status`).
 
 python -m app.modules.padron.cli registro-prueba --email ... --operador ... [--desde AAAA-MM-DD]
 python -m app.modules.padron.cli baja-registro-prueba --operador ... [--numero 9999]
@@ -33,8 +34,6 @@ def _out(message: str) -> None:
 async def _operador(email: str, session_email: str | None = None) -> User:
     async with get_sessionmaker()() as session:
         operador = await prueba.cuenta_por_email(session, email)
-    if not operador.is_active:
-        raise prueba.PruebaError(f"La cuenta del operador {email} está suspendida.")
     if session_email is not None and operador.email == session_email.strip().lower():
         raise prueba.PruebaError("El operador no puede ser la misma cuenta que se vincula.")
     return operador

@@ -231,3 +231,32 @@ async def test_vincular_rechaza_escribano_con_otra_cuenta(
 
     with pytest.raises(prueba.PruebaError, match="ya tiene otra cuenta"):
         await prueba.vincular_cuenta(db_session, CTX, operador, cuenta, persona.cuit)
+
+
+async def test_el_operador_necesita_permiso_del_padron(
+    db_session: AsyncSession, escenario: Escenario
+) -> None:
+    """La auditoría no puede quedar a nombre de alguien sin facultad para hacerlo."""
+    sin_permiso = await make_user(db_session)  # escribano: no escribe el padrón
+    cuenta = await make_user(db_session)
+    persona = await db_session.get(Persona, escenario.adscripto.persona_id)
+    assert persona is not None and persona.cuit is not None
+    cuenta.cuit = persona.cuit
+    await db_session.flush()
+
+    with pytest.raises(prueba.PruebaError, match="no tiene permiso"):
+        await prueba.crear_registro_prueba(
+            db_session, CTX, sin_permiso, cuenta, entorno=Environment.STAGING, desde=DESDE
+        )
+    with pytest.raises(prueba.PruebaError, match="no tiene permiso"):
+        await prueba.vincular_cuenta(db_session, CTX, sin_permiso, cuenta, persona.cuit)
+    with pytest.raises(prueba.PruebaError, match="no tiene permiso"):
+        await prueba.baja_registro_prueba(
+            db_session, CTX, sin_permiso, entorno=Environment.STAGING, hoy=HOY
+        )
+    assert await _eventos(db_session, actor_user_id=sin_permiso.id) == []
+
+    sin_permiso.is_active = False
+    await db_session.flush()
+    with pytest.raises(prueba.PruebaError, match="suspendida"):
+        await prueba.vincular_cuenta(db_session, CTX, sin_permiso, cuenta, persona.cuit)
