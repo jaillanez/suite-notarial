@@ -406,3 +406,53 @@ async def test_la_base_exige_boleta_o_cuota(
         with pytest.raises(DBAPIError):
             async with db_session.begin_nested():
                 await db_session.execute(text(sentencia))
+
+
+async def test_el_garante_no_consulta_el_pago_del_titular(
+    app: FastAPI,
+    notario: AsyncClient,
+    staff: AsyncClient,
+    admin: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    hoy_banco: BancoFalso,
+    reloj: Callable[[date], None],
+    db_session: AsyncSession,
+) -> None:
+    """Préstamo del adscripto con el titular (usuario `notario`) como garante: el garante ve el
+    préstamo pero no consulta ni ve el pago con Supervielle del titular."""
+    p = await _otorgado(
+        staff,
+        admin,
+        solicitud(
+            escenario,
+            await crear_linea(requiere_garante=True),
+            escribano_id=str(escenario.adscripto.id),
+            garante_escribano_id=str(escenario.titular.id),
+        ),
+    )
+    cuota_id = await db_session.scalar(
+        text("SELECT id FROM prestamos_cuotas WHERE prestamo_id = :p AND numero = 1"),
+        {"p": uuid.UUID(p["id"])},
+    )
+    item = PagoSupervielle(
+        cuota_id=cuota_id,
+        id_publicacion=987654,
+        hash=str(uuid.uuid4()),
+        link_pago="https://recaudaciones.test/publicacion/x",
+        importe_boleta=CUOTA,
+        vence=date(2026, 11, 23),
+        iniciado_por_user_id=escenario.titular_user.id,
+        estado="CREADO",
+    )
+    db_session.add(item)
+    await db_session.flush()
+    r = await notario.post(f"/api/v1/pagos/supervielle/{item.id}/sincronizar")
+    assert r.status_code == 404
+    assert (await _pagar(notario, p["id"])).status_code == 403
+    visto = (await notario.get(f"/api/v1/prestamos/{p['id']}")).json()
+    assert visto["cobros_spv"] == []
+    assert visto["puede_pagar_spv"] is False
+    # El personal sí lo ve.
+    completo = (await staff.get(f"/api/v1/prestamos/{p['id']}")).json()
+    assert [c["id"] for c in completo["cobros_spv"]] == [str(item.id)]

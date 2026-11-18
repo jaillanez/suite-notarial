@@ -921,7 +921,12 @@ async def _exigir_acceso(
         select(CuotaPrestamo.prestamo_id).where(CuotaPrestamo.id == item.cuota_id)
     )
     assert prestamo_id is not None  # noqa: S101 - FK RESTRICT
-    await prestamos_service.get_prestamo(session, principal, prestamo_id)
+    prestamo = await prestamos_service.get_prestamo(session, principal, prestamo_id)
+    # Los pagos de la cuota son del titular: el garante ve el préstamo, no sus pagos.
+    if not prestamos_service.ve_todo(principal):
+        propio = await prestamos_service.escribano_de(session, principal.user)
+        if propio is None or propio.id != prestamo.escribano_id:
+            raise ProblemError(HTTPStatus.NOT_FOUND, "El pago no existe.")
 
 
 async def cuotas_cobradas(
