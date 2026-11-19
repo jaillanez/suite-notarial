@@ -39,5 +39,16 @@ $COMPOSE up -d --no-deps web
 
 echo "== 5/5  estado =="
 $COMPOSE ps
-curl -s -o /dev/null -w "web local: %{http_code}\n" "http://127.0.0.1:$PUERTO/" || true
+# nginx tarda unos segundos en atender después de levantar: se reintenta hasta 30 s antes de
+# dar el deploy por fallido (un primer intento inmediato daba un falso «000»).
+codigo=000
+for _ in $(seq 1 15); do
+  codigo=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PUERTO/" || true)
+  [[ "$codigo" == 200 ]] && break
+  sleep 2
+done
+echo "web local: $codigo"
+if [[ "$codigo" != 200 ]]; then
+  echo "La web no respondió en 30 s: revisá '$COMPOSE logs web'."; exit 1
+fi
 curl -s "http://127.0.0.1:$PUERTO/api/health" || true; echo
