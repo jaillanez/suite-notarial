@@ -105,7 +105,16 @@ function Grupo({ nombre, boletas }: { nombre: string; boletas: BoletaSinRegistro
 export function BoletasSinRegistro() {
   const query = useQuery({ queryKey: CLAVE, queryFn: fetchBoletasSinRegistro })
   const boletas = query.data ?? []
-  if (query.isPending || (query.isSuccess && boletas.length === 0)) return null
+  if (query.isPending) return null
+  if (query.isSuccess && boletas.length === 0) {
+    return (
+      <Panel title="Boletas sin registro">
+        <p className="px-5 py-8 text-center text-ink-muted sm:px-6">
+          No quedan boletas migradas sin registro.
+        </p>
+      </Panel>
+    )
+  }
   const grupos = new Map<string, BoletaSinRegistro[]>()
   for (const b of boletas) {
     const nombre = b.escribano_origen ?? 'Sin nombre en el origen'
@@ -113,7 +122,6 @@ export function BoletasSinRegistro() {
   }
   return (
     <Panel
-      className="mt-6"
       title="Boletas sin registro"
       description="El sistema anterior las trae pagadas pero sin el registro. Se migraron con el nombre de quien pagó; asignales el registro (si cambió de registro, elegí los meses de cada uno). Se asigna una sola vez y queda auditado."
     >
