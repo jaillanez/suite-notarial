@@ -47,10 +47,13 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/requirements-dev.lock
 
       - name: Librerías nativas (python-magic, weasyprint)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1 libpango-1.0-0 libpangoft2-1.0-0 tesseract-ocr
+
+      - name: Versiones fijas al día con pyproject.toml
+        run: python -m pip install uv==0.12.9 && make lock-check
 
       - name: Instalar backend
         run: make install-backend PYTHON=python

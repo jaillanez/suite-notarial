@@ -17,7 +17,7 @@ export WEB_PORT ?= 5173
 
 .PHONY: help install install-backend install-frontend db mailpit backend frontend dev \
         migrate revision test test-backend test-frontend lint lint-backend lint-frontend fmt hooks \
-        create-admin seed-dev reset-dev e2e
+        create-admin seed-dev reset-dev e2e lock lock-upgrade lock-check
 
 help: ## Lista los comandos disponibles
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -27,8 +27,22 @@ install: install-backend install-frontend hooks ## Instala dependencias de backe
 install-backend: ## Crea el venv e instala el backend con extras de desarrollo
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(VENV)/bin/pip install -U pip
-	$(VENV)/bin/pip install -e "$(BACKEND)[dev]"
+	$(VENV)/bin/pip install --require-hashes -r $(BACKEND)/requirements-dev.lock
+	$(VENV)/bin/pip install --no-deps -e "$(BACKEND)"
 	test -f $(BACKEND)/.env || cp $(BACKEND)/.env.example $(BACKEND)/.env
+
+# Versiones fijas del backend (requirements.lock para la imagen, requirements-dev.lock para
+# desarrollo y CI), con hash. Se regeneran con uv a partir de pyproject.toml.
+UV_COMPILE = uv pip compile pyproject.toml --universal --python-version 3.12 --generate-hashes --no-header -q
+
+lock: ## Regenera los .lock del backend tras cambiar pyproject.toml (respeta las versiones ya fijadas)
+	cd $(BACKEND) && $(UV_COMPILE) -o requirements.lock && $(UV_COMPILE) --extra dev -o requirements-dev.lock
+
+lock-upgrade: ## Actualiza todas las dependencias del backend a su última versión compatible
+	cd $(BACKEND) && $(UV_COMPILE) --upgrade -o requirements.lock && $(UV_COMPILE) --extra dev --upgrade -o requirements-dev.lock
+
+lock-check: ## Falla si los .lock no corresponden a pyproject.toml
+	@./scripts/lock_check.sh
 
 install-frontend: ## Instala dependencias del frontend
 	cd $(FRONTEND) && npm ci
