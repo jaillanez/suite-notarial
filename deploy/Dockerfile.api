@@ -34,9 +34,12 @@ RUN apt-get update \
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 
-COPY backend/pyproject.toml ./
+# Dependencias con versión y hash fijos (backend/requirements.lock): la imagen instala
+# exactamente lo que probó el CI. El paquete propio va después y sin dependencias.
+COPY backend/pyproject.toml backend/requirements.lock ./
+RUN pip install --require-hashes -r requirements.lock
 COPY backend/app ./app
-RUN pip install .
+RUN pip install --no-deps .
 COPY backend/alembic.ini ./
 COPY backend/alembic ./alembic
 

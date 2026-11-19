@@ -75,6 +75,17 @@ make seed-dev   # usuarios de demostración (solo development)
 make dev        # Mailpit + API + frontend
 ```
 
+**Versiones fijas del backend.** `backend/requirements.lock` (imagen del servidor) y
+`backend/requirements-dev.lock` (desarrollo y CI) fijan la versión y el hash de cada dependencia:
+el servidor instala exactamente lo que probó el CI. Se generan con [uv](https://docs.astral.sh/uv/)
+a partir de `pyproject.toml`:
+
+- `make lock`: después de agregar o cambiar una dependencia en `pyproject.toml`. Respeta las
+  versiones ya fijadas.
+- `make lock-upgrade`: actualiza todo a la última versión compatible, en un PR propio para que el
+  CI lo pruebe.
+- `make lock-check`: lo corre el CI; falla si los `.lock` no corresponden a `pyproject.toml`.
+
 Después de `make install`, completá en `backend/.env` los secretos propios:
 
 ```bash
