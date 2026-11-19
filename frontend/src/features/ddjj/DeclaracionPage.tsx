@@ -9,6 +9,7 @@ import {
   ReceiptText,
   ScanText,
   Send,
+  Sheet,
   Trash2,
   Wallet,
 } from 'lucide-react'
@@ -59,6 +60,7 @@ import {
 } from './api'
 import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
+import { CargaPlanilla } from './CargaPlanilla'
 import { PlanillaActos } from './PlanillaActos'
 import { useVerificacionActo } from './verificacion'
 import { ResultadoVerificacion } from './VerificacionActo'
@@ -611,6 +613,8 @@ function ActosPanel({
   const editable = ddjj.estado === 'BORRADOR' && ddjj.puede_operar
   const [agregando, setAgregando] = useState<TipoProtocolo | null>(null)
   const [quitando, setQuitando] = useState<Acto | null>(null)
+  // Una DDJJ vacía abre directamente la carga en planilla.
+  const [enPlanilla, setEnPlanilla] = useState(() => editable && ddjj.actos.length === 0)
   // La misma planilla que imprime el PDF: los importes vienen del servidor.
   const planilla = useQuery({
     queryKey: ['ddjj', 'declaracion', ddjj.id, 'planilla', ddjj.estado, ddjj.actos.length],
@@ -661,6 +665,17 @@ function ActosPanel({
           >
             {estimado ? 'Borrador en PDF' : 'DDJJ en PDF'}
           </Button>
+          {editable && !enPlanilla && (
+            <Button
+              icon={Sheet}
+              disabled={ddjj.escribanos.length === 0}
+              onClick={() => {
+                setEnPlanilla(true)
+              }}
+            >
+              Cargar en planilla
+            </Button>
+          )}
           {editable && (
             <Button
               icon={Plus}
@@ -679,6 +694,14 @@ function ActosPanel({
         <div className="border-b border-line px-5 py-4 sm:px-6">
           <Alert tone="danger">{toProblem(pdf.error).detail}</Alert>
         </div>
+      )}
+      {editable && enPlanilla && ddjj.escribanos.length > 0 && (
+        <CargaPlanilla
+          ddjj={ddjj}
+          onCerrar={() => {
+            setEnPlanilla(false)
+          }}
+        />
       )}
       <Huecos ddjj={ddjj} />
       {hayIncluidos && criterio && (

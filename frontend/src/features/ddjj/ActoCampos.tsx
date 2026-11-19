@@ -5,62 +5,12 @@ import { Select } from '../../components/ui/Select'
 import type { Problem } from '../../lib/api'
 import { CARGO, matriculaTexto, todayIso } from '../padron/labels'
 import { naturalezasSugeridas, type ActoForm } from './acto'
-import type {
-  CategoriaActo,
-  DeclaracionDetalle,
-  MotivoExencion,
-  TipoProtocolo,
-  VademecumActo,
-} from './api'
+import type { CategoriaActo, DeclaracionDetalle, MotivoExencion, TipoProtocolo } from './api'
 import { CATEGORIA, MOTIVO_EXENCION, PROTOCOLO, rangoPeriodo } from './labels'
 import { VademecumBuscador } from './VademecumBuscador'
-import { useVademecumDelPeriodo, type EleccionVademecum } from './vademecum'
+import { alElegir, eleccionDe, useVademecumDelPeriodo } from './vademecum'
 
 type Clave = keyof ActoForm
-
-/** Qué eligió quien carga, según el formulario. */
-function eleccionDe(form: ActoForm, actos: VademecumActo[]): EleccionVademecum | null {
-  const acto = actos.find((a) => a.id === form.vademecum_id)
-  if (acto) return { tipo: 'vademecum', acto }
-  if (form.categoria === 'SIN_EFECTO') return { tipo: 'sin_efecto' }
-  return form.fuera_de_vademecum ? { tipo: 'fuera' } : null
-}
-
-/** Cambios del formulario al elegir en el buscador. La naturaleza toma el nombre del acto si
- * estaba vacía o era el nombre del acto anterior (no pisa lo que se escribió a mano). */
-function alElegir(
-  eleccion: EleccionVademecum,
-  form: ActoForm,
-  actos: VademecumActo[],
-): Partial<ActoForm> {
-  const anterior = actos.find((a) => a.id === form.vademecum_id)
-  const naturalezaLibre = !form.naturaleza.trim() || form.naturaleza === anterior?.nombre
-  if (eleccion.tipo === 'vademecum') {
-    const { acto } = eleccion
-    return {
-      vademecum_id: acto.id,
-      fuera_de_vademecum: false,
-      categoria: acto.categoria,
-      motivo_exencion: acto.motivo_exencion ?? '',
-      detalle_exencion: '',
-      ...(naturalezaLibre && { naturaleza: acto.nombre }),
-    }
-  }
-  const limpio = {
-    vademecum_id: '',
-    motivo_exencion: '' as const,
-    detalle_exencion: '',
-    ...(naturalezaLibre && anterior && { naturaleza: '' }),
-  }
-  if (eleccion.tipo === 'sin_efecto') {
-    return { ...limpio, fuera_de_vademecum: false, categoria: 'SIN_EFECTO' }
-  }
-  return {
-    ...limpio,
-    fuera_de_vademecum: true,
-    categoria: form.categoria === 'SIN_EFECTO' ? 'OTRO_ACTO' : form.categoria,
-  }
-}
 
 /** Campos de un acto de la DDJJ (carga manual o revisión de una sugerencia). */
 export function ActoCampos({
