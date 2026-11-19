@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowLeft, FilePlus2 } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -10,6 +10,7 @@ import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
+import { useSession } from '../auth/session'
 import { normalizeDecimalInput } from '../../lib/decimal'
 import { crearSolicitud, fetchLineas, simular } from './api'
 import {
@@ -25,12 +26,16 @@ const DECIMAL = /^\d+(\.\d{1,2})?$/
 
 export function SolicitudPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
+  // El personal carga la solicitud de cualquier escribano; el escribano, la suya.
+  const personal = can('prestamos:manage')
+  const [params] = useSearchParams()
   const lineas = useQuery({ queryKey: ['prestamos', 'lineas'], queryFn: fetchLineas })
   const activas = (lineas.data ?? []).filter((l) => l.is_active)
   const [form, setForm] = useState({
     escribano: '',
     garante: '',
-    linea: '',
+    linea: params.get('linea') ?? '',
     capital: '',
     cuotas: '',
     ingreso: '',
@@ -48,7 +53,7 @@ export function SolicitudPage() {
   })
   const completo =
     Boolean(linea) &&
-    Boolean(datos.escribano) &&
+    (!personal || Boolean(datos.escribano)) &&
     DECIMAL.test(datos.capital) &&
     datos.cuotas > 0 &&
     DECIMAL.test(datos.ingreso)
@@ -60,7 +65,7 @@ export function SolicitudPage() {
         capital: datos.capital,
         cuotas: datos.cuotas,
         ingreso_neto: datos.ingreso,
-        escribano_id: datos.escribano,
+        escribano_id: personal ? datos.escribano : null,
         garante_escribano_id: datos.garante || null,
       }),
     enabled: completo,
@@ -70,7 +75,7 @@ export function SolicitudPage() {
   const guardar = useMutation({
     mutationFn: () =>
       crearSolicitud({
-        escribano_id: form.escribano,
+        escribano_id: personal ? form.escribano : null,
         linea_id: linea?.id ?? '',
         capital: datos.capital,
         cuotas: datos.cuotas,
@@ -97,13 +102,23 @@ export function SolicitudPage() {
         Préstamos
       </Link>
       <PageHeader
-        title="Nueva solicitud de préstamo"
-        description="Se evalúa mientras completás los datos. La solicitud la resuelve otra persona con permiso para otorgar."
+        title={personal ? 'Nueva solicitud de préstamo' : 'Solicitar un préstamo'}
+        description={
+          personal
+            ? 'Se evalúa mientras completás los datos. La solicitud la resuelve otra persona con permiso para otorgar.'
+            : 'Se evalúa mientras completás los datos. La Caja revisa la solicitud y te avisa si la otorga.'
+        }
       />
       <div className="grid items-start gap-6 lg:grid-cols-[24rem_minmax(0,1fr)]">
         <Panel title="Solicitud">
           <div className="grid gap-5 px-5 py-4 sm:px-6">
-            <EscribanoPicker label="Escribano" value={form.escribano} onChange={set('escribano')} />
+            {personal && (
+              <EscribanoPicker
+                label="Escribano"
+                value={form.escribano}
+                onChange={set('escribano')}
+              />
+            )}
             <Select
               label="Línea de crédito"
               value={linea?.id ?? ''}
@@ -160,6 +175,7 @@ export function SolicitudPage() {
               value={form.garante}
               excluir={form.escribano}
               opcional={!linea?.requiere_garante}
+              soloGarantes={!personal}
               onChange={set('garante')}
             />
             <TextArea

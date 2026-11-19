@@ -3,6 +3,7 @@
 import uuid
 from datetime import date
 from decimal import Decimal
+from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Path, Response, UploadFile
@@ -46,6 +47,7 @@ from app.modules.prestamos.schemas import (
     CuotaOut,
     DocumentoOut,
     EvaluacionOut,
+    GaranteOut,
     LineaIn,
     LineaOut,
     PagoIn,
@@ -469,11 +471,45 @@ async def list_prestamos(
 
 @router.post("", response_model=PrestamoDetalle, status_code=201)
 async def crear_solicitud(
-    body: SolicitudIn, principal: CanManage, session: SessionDep, ctx: RequestContextDep
+    body: SolicitudIn, principal: CanRead, session: SessionDep, ctx: RequestContextDep
 ) -> PrestamoDetalle:
-    """Carga la solicitud evaluada. La otorga o rechaza otra persona (cuatro ojos)."""
-    p = await service.crear_solicitud(session, ctx, principal.user, body)
+    """Carga la solicitud evaluada. La otorga o rechaza otra persona (cuatro ojos).
+
+    El personal la carga para cualquier escribano; el escribano, solo a su nombre."""
+    if Perm.PRESTAMOS_MANAGE.value in principal.permissions:
+        if body.escribano_id is None:
+            raise ProblemError(
+                HTTPStatus.UNPROCESSABLE_ENTITY, "Elegí el escribano que solicita el préstamo."
+            )
+    else:
+        propio = await service.escribano_de(session, principal.user)
+        if propio is None or (body.escribano_id is not None and body.escribano_id != propio.id):
+            raise ProblemError(
+                HTTPStatus.FORBIDDEN, "Solo podés solicitar un préstamo a tu nombre."
+            )
+        body = body.model_copy(update={"escribano_id": propio.id})
+    p = await service.crear_solicitud(
+        session,
+        ctx,
+        principal.user,
+        body,
+        por_el_titular=Perm.PRESTAMOS_MANAGE.value not in principal.permissions,
+    )
     return await prestamo_detalle(session, principal, p)
+
+
+@router.get("/garantes", response_model=list[GaranteOut])
+async def buscar_garantes(
+    principal: CanRead,
+    session: SessionDep,
+    q: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=80)],
+) -> list[GaranteOut]:
+    """Escribanos activos para proponer como garante (apellido, nombre o matrícula). Solo
+    devuelve lo necesario para elegirlo: sirve también al escribano, que no ve el padrón."""
+    return [
+        GaranteOut(id=e.id, apellido_nombre=nombre, matricula_numero=e.matricula_numero)
+        for e, nombre in await service.buscar_garantes(session, principal.user, q)
+    ]
 
 
 @router.get("/saldo", response_model=SaldoConjuntoOut)

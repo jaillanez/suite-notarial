@@ -9,7 +9,14 @@ import { Select } from '../../components/ui/Select'
 import { compararDecimal, formatPercent } from '../../lib/decimal'
 import { fetchEscribanos } from '../padron/api'
 import { formatDate, matriculaTexto } from '../padron/labels'
-import type { Cuota, Evaluacion, Linea, Moneda, Totales } from './api'
+import {
+  fetchGarantes,
+  type Cuota,
+  type Evaluacion,
+  type Linea,
+  type Moneda,
+  type Totales,
+} from './api'
 import { MONEDA, SISTEMA, estadoCuota, importe, requisitosLinea } from './labels'
 
 /** Cuadro de amortización: tabla en escritorio, lista apilada en celular, totales al pie. */
@@ -266,29 +273,36 @@ export function EscribanoPicker({
   onChange,
   excluir,
   opcional = false,
+  soloGarantes = false,
 }: {
   label: string
   value: string
   onChange: (id: string) => void
   excluir?: string
   opcional?: boolean
+  /** El escribano no ve el padrón: busca solo entre escribanos activos, sin sus datos. */
+  soloGarantes?: boolean
 }) {
   const [q, setQ] = useState('')
   const busqueda = useDeferredValue(q)
   const query = useQuery({
-    queryKey: ['padron', 'escribanos', 'picker', busqueda],
-    queryFn: () =>
-      fetchEscribanos({
-        page: 1,
-        pageSize: 10,
-        q: busqueda,
-        estado: '',
-        registroNumero: '',
-        departamento: '',
-      }),
+    queryKey: ['padron', 'escribanos', 'picker', soloGarantes, busqueda],
+    queryFn: async () =>
+      soloGarantes
+        ? (await fetchGarantes(busqueda.trim())).map((g) => ({ ...g, estado_matricula: 'ACTIVO' }))
+        : (
+            await fetchEscribanos({
+              page: 1,
+              pageSize: 10,
+              q: busqueda,
+              estado: '',
+              registroNumero: '',
+              departamento: '',
+            })
+          ).items,
     enabled: busqueda.trim().length >= 2,
   })
-  const opciones = (query.data?.items ?? []).filter((e) => e.id !== excluir)
+  const opciones = (query.data ?? []).filter((e) => e.id !== excluir)
   return (
     <fieldset className="grid gap-2">
       <legend className="text-sm font-medium text-ink">{label}</legend>

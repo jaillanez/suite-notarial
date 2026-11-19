@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.common.audit import AuditEvent, RequestContext, Severity, record_audit
 from app.common.dates import today_local
@@ -41,7 +42,7 @@ from app.modules.iam.models import User
 from app.modules.migracion.catalog import EstadoBoletaHistorica
 from app.modules.migracion.models import HistoricoBoleta, HistoricoPago
 from app.modules.padron.catalog import EstadoMatricula
-from app.modules.padron.models import Adscripcion, Escribano
+from app.modules.padron.models import Adscripcion, Escribano, Persona
 from app.modules.pagos.catalog import ESTADOS_SPV_EFECTIVOS, EstadoPagoMP
 from app.modules.pagos.models import PagoMercadoPago, PagoSupervielle
 from app.modules.prestamos import motor
@@ -234,6 +235,33 @@ async def guardar_linea(
 
 async def escribano_de(session: AsyncSession, user: User) -> Escribano | None:
     return await session.scalar(select(Escribano).where(Escribano.user_id == user.id))
+
+
+async def buscar_garantes(
+    session: AsyncSession, user: User, consulta: str
+) -> list[tuple[Escribano, str]]:
+    """Hasta 10 escribanos activos que coinciden por apellido, nombre o matrícula, sin el
+    propio (nadie es garante de sí mismo)."""
+    nombre = func.concat(Persona.apellido, ", ", Persona.nombre)
+    stmt = (
+        select(Escribano, nombre)
+        .join(Persona, Persona.id == Escribano.persona_id)
+        .where(Escribano.estado_matricula == EstadoMatricula.ACTIVO.value)
+        .order_by(Persona.apellido, Persona.nombre)
+        .limit(10)
+    )
+    texto = f"%{consulta.lower()}%"
+    condiciones: list[ColumnElement[bool]] = [
+        func.lower(Persona.apellido).like(texto),
+        func.lower(Persona.nombre).like(texto),
+    ]
+    if consulta.isdigit():
+        condiciones.append(Escribano.matricula_numero == int(consulta))
+    stmt = stmt.where(or_(*condiciones))
+    propio = await escribano_de(session, user)
+    if propio is not None:
+        stmt = stmt.where(Escribano.id != propio.id)
+    return [(e, n) for e, n in (await session.execute(stmt)).all()]
 
 
 async def get_escribano(session: AsyncSession, escribano_id: uuid.UUID) -> Escribano:
@@ -577,9 +605,18 @@ def ve_todo(principal: Principal) -> bool:
 
 
 async def crear_solicitud(
-    session: AsyncSession, ctx: RequestContext, actor: User, data: SolicitudIn
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    data: SolicitudIn,
+    *,
+    por_el_titular: bool = False,
 ) -> Prestamo:
+    """`por_el_titular`: la carga el propio escribano; si el garante no es hábil, no se le
+    revela por qué (es la situación de un tercero)."""
     linea = await get_linea(session, data.linea_id)
+    # El router completa el escribano (el propio, si solicita un escribano).
+    assert data.escribano_id is not None  # noqa: S101
     escribano = await get_escribano(session, data.escribano_id)
     ev = await evaluar(
         session,
@@ -591,7 +628,10 @@ async def crear_solicitud(
         ingreso_neto=data.ingreso_neto,
         garante_id=data.garante_escribano_id,
     )
-    _rechazar_si_hay(ev.impedimentos, status=HTTPStatus.UNPROCESSABLE_ENTITY)
+    _rechazar_si_hay(
+        ev.impedimentos_para_titular() if por_el_titular else ev.impedimentos,
+        status=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
     assert ev.afectacion is not None  # noqa: S101 - hay ingreso neto
     prestamo = Prestamo(
         id=uuid.uuid4(),

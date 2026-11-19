@@ -70,13 +70,22 @@ class SimulacionIn(BaseModel):
 
 
 class SolicitudIn(BaseModel):
-    escribano_id: uuid.UUID
+    # Personal: para quién es. El escribano solicita siempre a su nombre (puede omitirlo).
+    escribano_id: uuid.UUID | None = None
     linea_id: uuid.UUID
     capital: Annotated[Money, Field(gt=0)]
     cuotas: Plazo
     ingreso_neto: Annotated[Money, Field(gt=0)]
     garante_escribano_id: uuid.UUID | None = None
     observaciones: Texto | None = None
+
+
+class GaranteOut(BaseModel):
+    """Escribano que se puede proponer como garante: lo mínimo para elegirlo."""
+
+    id: uuid.UUID
+    apellido_nombre: str
+    matricula_numero: int | None
 
 
 class RechazoIn(BaseModel):

@@ -267,9 +267,9 @@ async def test_permisos(
     otro = await make_user(db_session)
     await login(client, otro)
 
-    assert (
-        await notario.post("/api/v1/prestamos", json=solicitud(escenario, linea))
-    ).status_code == 403
+    # El escribano solicita solo a su nombre.
+    ajena = solicitud(escenario, linea, escribano_id=str(escenario.adscripto.id))
+    assert (await notario.post("/api/v1/prestamos", json=ajena)).status_code == 403
     assert (await notario.post("/api/v1/prestamos/lineas", json=linea)).status_code == 403
     # El préstamo es del adscripto: el titular (sin cargo de garante) no lo ve.
     assert (await notario.get(f"/api/v1/prestamos/{otorgado['id']}")).status_code == 404
@@ -437,3 +437,51 @@ async def test_titular_no_ve_la_situacion_del_garante(
     assert titular == [
         "El garante propuesto no reúne las condiciones exigidas: consultá con la Caja."
     ]
+
+
+async def test_el_escribano_solicita_a_su_nombre(
+    notario: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+) -> None:
+    linea = await crear_linea()
+    cuerpo = solicitud(escenario, linea)
+    del cuerpo["escribano_id"]
+    creado = await notario.post("/api/v1/prestamos", json=cuerpo)
+    assert creado.status_code == 201, creado.text
+    assert creado.json()["estado"] == "SOLICITADO"
+    # Las líneas se pueden consultar para ver condiciones y requisitos.
+    lineas = await notario.get("/api/v1/prestamos/lineas")
+    assert lineas.status_code == 200 and lineas.json()
+
+
+async def test_el_escribano_busca_garantes_sin_ver_el_padron(
+    notario: AsyncClient, escenario: Escenario
+) -> None:
+    r = await notario.get("/api/v1/prestamos/garantes", params={"q": "adscripto"})
+    assert r.status_code == 200, r.text
+    (garante,) = r.json()
+    assert garante["id"] == str(escenario.adscripto.id)
+    # Solo lo necesario para elegirlo: ni CUIT ni contacto.
+    assert set(garante) == {"id", "apellido_nombre", "matricula_numero"}
+    # Nunca se propone a sí mismo.
+    propio = await notario.get("/api/v1/prestamos/garantes", params={"q": "titular"})
+    assert all(g["id"] != str(escenario.titular.id) for g in propio.json())
+
+
+async def test_la_solicitud_del_escribano_no_revela_al_garante(
+    notario: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+    reloj: Callable[[date], None],
+    boleta: dict[str, Any],  # noqa: F811 - el registro del titular tiene una boleta pendiente
+) -> None:
+    linea = await crear_linea(requiere_garante=True)
+    reloj(date(2026, 11, 5))  # el adscripto, del mismo registro, debe aportes
+    r = await notario.post(
+        "/api/v1/prestamos",
+        json=solicitud(escenario, linea, garante_escribano_id=str(escenario.adscripto.id)),
+    )
+    assert r.status_code == 422
+    assert "deuda" not in r.text and "consultá con la Caja" in r.json()["detail"]
