@@ -8,25 +8,21 @@ import {
   Plus,
   Save,
   Trash2,
+  TriangleAlert,
 } from 'lucide-react'
-import { useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { toProblem, type Problem } from '../../lib/api'
+import { formatMoney } from '../../lib/decimal'
 import { CARGO, matriculaTexto, todayIso } from '../padron/labels'
-import {
-  actoCompleto,
-  actoInput,
-  actoSiguiente,
-  actoSugerido,
-  naturalezasSugeridas,
-  type ActoForm,
-} from './acto'
+import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
-import { agregarActo, type DeclaracionDetalle, type VademecumActo } from './api'
-import { PROTOCOLO, rangoPeriodo } from './labels'
+import { agregarActo, type CategoriaActo, type DeclaracionDetalle, type VademecumActo } from './api'
+import { rangoPeriodo } from './labels'
+import { useVerificacionActo } from './verificacion'
 import {
   FUERA,
   SIN_EFECTO,
@@ -50,15 +46,45 @@ interface Renglon {
 }
 
 /** Columnas editables, en el orden en que se recorren con Enter. */
-const COLUMNAS = ['protocolo', 'numero', 'folio', 'fecha', 'acto', 'precio', 'avaluo'] as const
+const COLUMNAS = [
+  'protocolo',
+  'numero',
+  'folio',
+  'fecha',
+  'acto',
+  'tipo',
+  'precio',
+  'avaluo',
+  'base',
+] as const
 type Columna = (typeof COLUMNAS)[number]
 
 const CELDA =
   'block min-h-11 w-full min-w-0 rounded-control border bg-surface px-2.5 text-base text-ink tabular-nums placeholder:text-ink-subtle transition-colors duration-150 ease-out-quint focus-visible:border-action-600 disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-subtle'
 
-/** Columnas de la grilla desde 640px; bajo ese ancho cada renglón se apila con sus etiquetas. */
-const GRILLA =
-  'sm:grid sm:grid-cols-[1.5rem_6.75rem_4.75rem_4rem_9.75rem_minmax(9rem,1fr)_6.5rem_6.5rem_5.25rem] sm:items-start sm:gap-2'
+/** Columnas de la grilla desde 640px; bajo ese ancho cada renglón se apila con sus etiquetas.
+ * Con vademécum van precio y avalúo; sin él, una sola base imponible y más lugar para el acto. */
+const GRILLA_VADEMECUM =
+  'sm:grid sm:grid-cols-[1.25rem_5rem_4.25rem_3.5rem_9.5rem_minmax(7rem,1fr)_7.5rem_6rem_6rem_5.75rem] sm:items-start sm:gap-x-1.5'
+const GRILLA_BASE =
+  'sm:grid sm:grid-cols-[1.25rem_5rem_4.25rem_3.5rem_9.5rem_minmax(9rem,1fr)_7.5rem_8rem_5.75rem] sm:items-start sm:gap-x-1.5'
+
+/** Tipo de aporte, con los nombres de la planilla de la Caja. */
+const TIPOS: { value: CategoriaActo; label: string }[] = [
+  { value: 'ESCRITURA_CON_VALOR', label: 'Variable' },
+  { value: 'OTRO_ACTO', label: 'Fijo mayor' },
+  { value: 'ACTA_O_PODER', label: 'Fijo menor' },
+  { value: 'EXENTO', label: 'Exento' },
+  { value: 'SIN_EFECTO', label: 'Sin efecto' },
+]
+
+/** Protocolo abreviado: la columna es angosta y el nombre completo va en el lector. */
+const PROTOCOLO_CORTO = { GENERAL: 'Gral.', AUXILIAR: 'Aux.' } as const
+
+/** Con vademécum, el tipo lo fija el acto elegido; a mano solo para uno que no está en él. */
+function eligeTipo(form: ActoForm, conVademecum: boolean): boolean {
+  return !conVademecum || form.fuera_de_vademecum
+}
 
 /** Qué elige la celda «Acto» según lo escrito: un acto del vademécum o una de las salidas. */
 function eleccionPorTexto(texto: string, actos: VademecumActo[]): EleccionVademecum | null {
@@ -91,7 +117,9 @@ function faltante(form: ActoForm, conVademecum: boolean): string | null {
   if (!/^\d+$/.test(form.numero_escritura)) return 'Falta el número de escritura.'
   if (!form.fecha_acto) return 'Falta la fecha.'
   if (form.naturaleza.trim().length < 3) return 'Falta la naturaleza del acto: abrí «Más».'
-  if (form.categoria === 'ESCRITURA_CON_VALOR') return 'Falta el precio o el avalúo.'
+  if (form.categoria === 'ESCRITURA_CON_VALOR') {
+    return conVademecum ? 'Falta el precio o el avalúo.' : 'Falta la base imponible.'
+  }
   if (form.categoria === 'EXENTO') return 'Falta el motivo de la exención: abrí «Más».'
   return 'Falta completar el acto: abrí «Más».'
 }
@@ -117,6 +145,61 @@ function EstadoRenglon({
       <Icono aria-hidden="true" className={`size-5 ${clase}`} strokeWidth={2.25} />
       <span className="sr-only">{texto}</span>
     </span>
+  )
+}
+
+/** Aporte estimado y avisos del libro de protocolo de un renglón, como en el alta de a uno:
+ * el servidor lo calcula con los parámetros del período tras una breve pausa al tipear. */
+function AporteRenglon({
+  ddjjId,
+  form,
+  clave,
+  onBloqueo,
+}: {
+  ddjjId: string
+  form: ActoForm
+  clave: number
+  onBloqueo: (clave: number, bloqueado: boolean) => void
+}) {
+  const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjjId, form)
+  useEffect(() => {
+    onBloqueo(clave, bloqueado)
+  }, [clave, bloqueado, onBloqueo])
+  if (!verificacion) return null
+  const { aporte, controles } = verificacion
+  if (aporte === null && controles.length === 0) return null
+  return (
+    <div
+      className="mt-2 flex flex-col gap-1 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:pl-8"
+      aria-live="polite"
+      aria-busy={actualizando}
+    >
+      <ul className="grid gap-1">
+        {controles.map((c) => {
+          const bloquea = c.nivel === 'BLOQUEANTE'
+          const Icono = bloquea ? CircleX : TriangleAlert
+          return (
+            <li
+              key={c.codigo}
+              className={`flex items-start gap-1.5 ${bloquea ? 'text-danger-700' : 'text-warning-700'}`}
+            >
+              <Icono aria-hidden="true" className="mt-0.5 size-4 shrink-0" strokeWidth={2.25} />
+              {c.mensaje}
+            </li>
+          )
+        })}
+      </ul>
+      {aporte !== null && (
+        <p className="flex shrink-0 items-baseline gap-2 sm:justify-end">
+          <span className="text-ink-muted">Aporte estimado</span>
+          <span
+            className={`font-semibold text-ink tabular-nums transition-opacity duration-150 ${actualizando ? 'opacity-60' : ''}`}
+          >
+            {formatMoney(aporte)}
+          </span>
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -158,6 +241,17 @@ export function CargaPlanilla({
   const [escribanoLote, setEscribanoLote] = useState(() => renglones[0]?.form.escribano_id ?? '')
   const [guardando, setGuardando] = useState<number | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
+  // Renglones con un aviso del libro que impide guardar (p. ej. número repetido).
+  const [bloqueados, setBloqueados] = useState<ReadonlySet<number>>(() => new Set())
+  const marcarBloqueo = useCallback((clave: number, bloqueado: boolean) => {
+    setBloqueados((actual) => {
+      if (actual.has(clave) === bloqueado) return actual
+      const nuevo = new Set(actual)
+      if (bloqueado) nuevo.add(clave)
+      else nuevo.delete(clave)
+      return nuevo
+    })
+  }, [])
 
   const id = (clave: number, columna: Columna) => `${idBase}-${String(clave)}-${columna}`
   const enfocar = (clave: number, columna: Columna) => {
@@ -206,10 +300,13 @@ export function CargaPlanilla({
     e.preventDefault()
     const indice = renglones.findIndex((r) => r.clave === clave)
     const renglon = renglones[indice]
-    const habilitadas = COLUMNAS.filter(
-      (c) =>
-        (c !== 'precio' && c !== 'avaluo') || renglon?.form.categoria === 'ESCRITURA_CON_VALOR',
-    )
+    const habilitadas = COLUMNAS.filter((c) => {
+      if (!renglon) return false
+      const conValor = renglon.form.categoria === 'ESCRITURA_CON_VALOR'
+      if (c === 'precio' || c === 'avaluo') return conValor && conVademecum
+      if (c === 'base') return conValor && !conVademecum
+      return c !== 'tipo' || eligeTipo(renglon.form, conVademecum)
+    })
     const siguiente = habilitadas[habilitadas.indexOf(columna) + 1]
     if (siguiente) {
       enfocar(clave, siguiente)
@@ -259,7 +356,8 @@ export function CargaPlanilla({
   }
 
   const completos = renglones.filter(
-    (r) => faltante(conNaturaleza(r.form, vademecum), conVademecum) === null,
+    (r) =>
+      faltante(conNaturaleza(r.form, vademecum), conVademecum) === null && !bloqueados.has(r.clave),
   )
   const pendientes = renglones.length
 
@@ -299,17 +397,19 @@ export function CargaPlanilla({
   }
 
   const ocupado = guardando !== null
+  const grilla = conVademecum ? GRILLA_VADEMECUM : GRILLA_BASE
 
   return (
     <section aria-label="Carga en planilla" className="border-b border-line">
-      <datalist id={listaActos}>
-        {(conVademecum
-          ? [...vademecum.map((a) => a.nombre), SIN_EFECTO, FUERA]
-          : naturalezasSugeridas(ddjj)
-        ).map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
+      {/* Sin vademécum, la naturaleza se escribe libre: una lista sugeriría un tipo de aporte
+          que la naturaleza no fija. */}
+      {conVademecum && (
+        <datalist id={listaActos}>
+          {[...vademecum.map((a) => a.nombre), SIN_EFECTO, FUERA].map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+      )}
 
       <div className="flex flex-col gap-3 px-5 pt-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
         <p className="max-w-prose text-sm text-ink-muted">
@@ -336,7 +436,7 @@ export function CargaPlanilla({
       <div className="px-5 py-4 sm:px-6">
         <div
           aria-hidden="true"
-          className={`hidden border-b border-line pb-2 text-xs font-semibold text-ink-muted ${GRILLA}`}
+          className={`hidden border-b border-line pb-2 text-xs font-semibold text-ink-muted ${grilla}`}
         >
           <span />
           <span>Protocolo</span>
@@ -344,8 +444,15 @@ export function CargaPlanilla({
           <span>Folio</span>
           <span>Fecha</span>
           <span>Acto</span>
-          <span className="text-right">Precio</span>
-          <span className="text-right">Avalúo</span>
+          <span>Tipo</span>
+          {conVademecum ? (
+            <>
+              <span className="text-right">Precio</span>
+              <span className="text-right">Avalúo</span>
+            </>
+          ) : (
+            <span className="text-right">Base imponible</span>
+          )}
           <span />
         </div>
 
@@ -353,7 +460,9 @@ export function CargaPlanilla({
           {renglones.map((renglon, i) => {
             const { form } = renglon
             const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
-            const falta = faltante(conNaturaleza(form, vademecum), conVademecum)
+            const falta =
+              faltante(conNaturaleza(form, vademecum), conVademecum) ??
+              (bloqueados.has(renglon.clave) ? 'Revisá el aviso del protocolo.' : null)
             const textoActo = conVademecum
               ? renglon.consulta || textoDeEleccion(eleccionDe(form, vademecum))
               : form.naturaleza
@@ -373,7 +482,7 @@ export function CargaPlanilla({
             return (
               <li key={renglon.clave} className="py-3">
                 <div
-                  className={`grid grid-cols-2 gap-x-3 gap-y-3 ${GRILLA}`}
+                  className={`grid grid-cols-2 gap-x-3 gap-y-3 ${grilla}`}
                   aria-label={`Renglón ${n}`}
                   role="group"
                 >
@@ -403,7 +512,7 @@ export function CargaPlanilla({
                       >
                         {(['GENERAL', 'AUXILIAR'] as const).map((t) => (
                           <option key={t} value={t}>
-                            {PROTOCOLO[t]}
+                            {PROTOCOLO_CORTO[t]}
                           </option>
                         ))}
                       </select>
@@ -462,9 +571,9 @@ export function CargaPlanilla({
                     <Etiqueta htmlFor={id(renglon.clave, 'acto')}>Acto</Etiqueta>
                     <input
                       {...celda('acto')}
-                      list={listaActos}
+                      list={conVademecum ? listaActos : undefined}
                       autoComplete="off"
-                      placeholder={conVademecum ? 'Buscá en el vademécum' : 'Compraventa'}
+                      placeholder={conVademecum ? 'Buscá en el vademécum' : 'Naturaleza del acto'}
                       value={textoActo}
                       onChange={(e) => {
                         elegirActo(renglon, e.target.value)
@@ -473,38 +582,110 @@ export function CargaPlanilla({
                       className={`${CELDA} ${renglon.consulta ? 'border-warning-700' : 'border-line-strong'}`}
                     />
                   </div>
-                  <div>
-                    <Etiqueta htmlFor={id(renglon.clave, 'precio')}>Precio</Etiqueta>
-                    <input
-                      {...celda('precio')}
-                      disabled={ocupado || !conValor}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      placeholder={conValor ? '0,00' : '—'}
-                      value={conValor ? form.precio : ''}
-                      onChange={(e) => {
-                        cambiarForm(renglon.clave, { precio: e.target.value })
-                      }}
-                      aria-label={`Precio, renglón ${n}`}
-                      className={`${CELDA} border-line-strong text-right`}
-                    />
+                  <div className="col-span-2 sm:col-span-1">
+                    <Etiqueta htmlFor={id(renglon.clave, 'tipo')}>Tipo</Etiqueta>
+                    <div className="relative">
+                      <select
+                        {...celda('tipo')}
+                        disabled={ocupado || !eligeTipo(form, conVademecum)}
+                        value={form.categoria}
+                        onChange={(e) => {
+                          const categoria = e.target.value as CategoriaActo
+                          setRenglones((rs) =>
+                            rs.map((r) =>
+                              r.clave === renglon.clave
+                                ? {
+                                    ...r,
+                                    // Un exento necesita el motivo: se abre el editor completo.
+                                    abierto: r.abierto || categoria === 'EXENTO',
+                                    form: {
+                                      ...r.form,
+                                      categoria,
+                                      ...(categoria === 'SIN_EFECTO' &&
+                                        !r.form.naturaleza.trim() && {
+                                          naturaleza: SIN_EFECTO,
+                                        }),
+                                    },
+                                    error: null,
+                                  }
+                                : r,
+                            ),
+                          )
+                        }}
+                        aria-label={`Tipo de aporte, renglón ${n}`}
+                        title={
+                          eligeTipo(form, conVademecum)
+                            ? undefined
+                            : 'Lo fija el acto elegido del vademécum'
+                        }
+                        className={`${CELDA} cursor-pointer appearance-none border-line-strong pr-7`}
+                      >
+                        {TIPOS.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-ink-muted"
+                        strokeWidth={2.25}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Etiqueta htmlFor={id(renglon.clave, 'avaluo')}>Avalúo</Etiqueta>
-                    <input
-                      {...celda('avaluo')}
-                      disabled={ocupado || !conValor}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      placeholder={conValor ? '0,00' : '—'}
-                      value={conValor ? form.avaluo : ''}
-                      onChange={(e) => {
-                        cambiarForm(renglon.clave, { avaluo: e.target.value })
-                      }}
-                      aria-label={`Avalúo, renglón ${n}`}
-                      className={`${CELDA} border-line-strong text-right`}
-                    />
-                  </div>
+                  {conVademecum ? (
+                    <>
+                      <div>
+                        <Etiqueta htmlFor={id(renglon.clave, 'precio')}>Precio</Etiqueta>
+                        <input
+                          {...celda('precio')}
+                          disabled={ocupado || !conValor}
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder={conValor ? '0,00' : '—'}
+                          value={conValor ? form.precio : ''}
+                          onChange={(e) => {
+                            cambiarForm(renglon.clave, { precio: e.target.value })
+                          }}
+                          aria-label={`Precio, renglón ${n}`}
+                          className={`${CELDA} border-line-strong text-right`}
+                        />
+                      </div>
+                      <div>
+                        <Etiqueta htmlFor={id(renglon.clave, 'avaluo')}>Avalúo</Etiqueta>
+                        <input
+                          {...celda('avaluo')}
+                          disabled={ocupado || !conValor}
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder={conValor ? '0,00' : '—'}
+                          value={conValor ? form.avaluo : ''}
+                          onChange={(e) => {
+                            cambiarForm(renglon.clave, { avaluo: e.target.value })
+                          }}
+                          aria-label={`Avalúo, renglón ${n}`}
+                          className={`${CELDA} border-line-strong text-right`}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="col-span-2 sm:col-span-1">
+                      <Etiqueta htmlFor={id(renglon.clave, 'base')}>Base imponible</Etiqueta>
+                      <input
+                        {...celda('base')}
+                        disabled={ocupado || !conValor}
+                        inputMode="decimal"
+                        autoComplete="off"
+                        placeholder={conValor ? '0,00' : '—'}
+                        value={conValor ? form.base_imponible : ''}
+                        onChange={(e) => {
+                          cambiarForm(renglon.clave, { base_imponible: e.target.value })
+                        }}
+                        aria-label={`Base imponible, renglón ${n}`}
+                        className={`${CELDA} border-line-strong text-right`}
+                      />
+                    </div>
+                  )}
                   <div className="col-span-2 flex gap-1 sm:col-span-1">
                     <button
                       type="button"
@@ -517,7 +698,7 @@ export function CargaPlanilla({
                       }}
                       className="inline-flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1 rounded-control px-2 text-sm font-semibold text-brand-800 transition-colors duration-150 ease-out-quint hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Más
+                      <span className="sm:sr-only">Más</span>
                       <ChevronDown
                         aria-hidden="true"
                         className={`size-4 transition-transform duration-150 ${renglon.abierto ? 'rotate-180' : ''}`}
@@ -537,6 +718,13 @@ export function CargaPlanilla({
                     </button>
                   </div>
                 </div>
+
+                <AporteRenglon
+                  ddjjId={ddjj.id}
+                  form={conNaturaleza(form, vademecum)}
+                  clave={renglon.clave}
+                  onBloqueo={marcarBloqueo}
+                />
 
                 {(renglon.error ??
                   (renglon.consulta || otroEscribano || (falta && i < pendientes - 1))) && (

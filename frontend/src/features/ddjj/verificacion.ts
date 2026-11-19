@@ -63,3 +63,12 @@ export function useVerificacionActo(ddjjId: string, form: ActoForm, excluir?: st
     actualizando: query.isFetching || enviado !== datos,
   }
 }
+
+/** Campo del acto al que apunta cada aviso del libro de protocolo: el aviso se muestra como un
+ * globo junto a ese campo, no al pie del formulario. */
+export const CAMPO_DEL_CONTROL: Record<string, 'numero_escritura' | 'folio' | 'fecha_acto'> = {
+  NUMERO_REPETIDO: 'numero_escritura',
+  FOLIO_REPETIDO: 'folio',
+  FOLIO_FUERA_DE_ORDEN: 'folio',
+  FECHA_FUERA_DE_ORDEN: 'fecha_acto',
+}

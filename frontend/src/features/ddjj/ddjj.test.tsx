@@ -914,6 +914,78 @@ describe('carga en planilla', () => {
     )
   })
 
+  it('sin vademécum, el tipo de aporte se elige en la grilla', async () => {
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue([])
+    vi.mocked(apiModule.agregarActo).mockResolvedValue(ACTO)
+    renderFicha()
+    const tipo = await screen.findByLabelText('Tipo de aporte, renglón 1')
+    expect(tipo).toHaveValue('ESCRITURA_CON_VALOR')
+    fireEvent.change(screen.getByLabelText('Acto, renglón 1'), {
+      target: { value: 'Poder general' },
+    })
+    fireEvent.change(tipo, { target: { value: 'ACTA_O_PODER' } })
+    // Sin vademécum, la base imponible va en una sola celda; un fijo no la lleva.
+    expect(screen.getByLabelText('Base imponible, renglón 1')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => {
+      expect(apiModule.agregarActo).toHaveBeenCalledWith(
+        'd1',
+        expect.objectContaining({ categoria: 'ACTA_O_PODER', naturaleza: 'Poder general' }),
+      )
+    })
+    // Un exento abre el editor completo para el motivo.
+    const tipo2 = await screen.findByLabelText('Tipo de aporte, renglón 1')
+    fireEvent.change(tipo2, { target: { value: 'EXENTO' } })
+    expect(screen.getByRole('button', { name: 'Más datos del renglón 1' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+  })
+
+  it('cada renglón muestra el aporte estimado y un aviso que bloquea impide guardar', async () => {
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue([])
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: '57289.00', controles: [] })
+    renderFicha()
+    fireEvent.change(await screen.findByLabelText('Acto, renglón 1'), {
+      target: { value: 'Compraventa' },
+    })
+    fireEvent.change(screen.getByLabelText('Base imponible, renglón 1'), {
+      target: { value: '100.000' },
+    })
+    expect(await screen.findByText('$ 57.289,00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled()
+
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({
+      aporte: '57289.00',
+      controles: [
+        {
+          codigo: 'NUMERO_REPETIDO',
+          nivel: 'BLOQUEANTE',
+          mensaje: 'La escritura N° 1 ya está declarada.',
+        },
+      ],
+    })
+    fireEvent.change(screen.getByLabelText('Base imponible, renglón 1'), {
+      target: { value: '200.000' },
+    })
+    expect(await screen.findByText('La escritura N° 1 ya está declarada.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    })
+  })
+
+  it('con vademécum, el tipo lo fija el acto elegido', async () => {
+    renderFicha()
+    const acto = await screen.findByLabelText('Acto, renglón 1')
+    await waitFor(() => {
+      expect(acto).toHaveAttribute('placeholder', 'Buscá en el vademécum')
+    })
+    fireEvent.change(acto, { target: { value: 'Cesión' } })
+    const tipo = screen.getByLabelText('Tipo de aporte, renglón 1')
+    expect(tipo).toHaveValue('OTRO_ACTO')
+    expect(tipo).toBeDisabled()
+  })
+
   it('un texto que no está en el vademécum no se guarda', async () => {
     renderFicha()
     const acto1 = await screen.findByLabelText('Acto, renglón 1')

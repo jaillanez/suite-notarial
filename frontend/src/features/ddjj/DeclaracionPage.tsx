@@ -490,6 +490,7 @@ function ActoDialog({
           ddjj={ddjj}
           form={form}
           problem={problem}
+          controles={verificacion?.controles}
           onChange={(cambio) => {
             setForm((f) => {
               const nuevo = { ...f, ...cambio }
@@ -505,7 +506,11 @@ function ActoDialog({
             })
           }}
         />
-        <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
+        <ResultadoVerificacion
+          verificacion={verificacion}
+          actualizando={actualizando}
+          avisosEnCampos
+        />
       </div>
     </Dialog>
   )
