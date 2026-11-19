@@ -372,17 +372,21 @@ describe('ficha de la DDJJ', () => {
 
     renderFicha()
     fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
-    fireEvent.change(screen.getByLabelText('N° de escritura'), { target: { value: '101' } })
-    fireEvent.change(screen.getByLabelText('Naturaleza del acto'), {
+    // La planilla también está abierta: se mira solo el diálogo del alta.
+    const dialogo = await screen.findByRole('dialog')
+    fireEvent.change(within(dialogo).getByLabelText('N° de escritura'), {
+      target: { value: '101' },
+    })
+    fireEvent.change(within(dialogo).getByLabelText('Naturaleza del acto'), {
       target: { value: 'Compraventa' },
     })
-    fireEvent.change(screen.getByLabelText('Base imponible ($)'), {
+    fireEvent.change(within(dialogo).getByLabelText('Base imponible ($)'), {
       target: { value: '1.000.000' },
     })
 
-    expect(await screen.findByText('$ 21.600,00')).toBeInTheDocument()
-    expect(screen.getByText(/ya está declarada en la DDJJ 08\/2026/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Agregar' })).toBeDisabled()
+    expect(await within(dialogo).findByText('$ 21.600,00')).toBeInTheDocument()
+    expect(within(dialogo).getByText(/ya está declarada en la DDJJ 08\/2026/)).toBeInTheDocument()
+    expect(within(dialogo).getByRole('button', { name: 'Agregar' })).toBeDisabled()
   })
 
   it('carga rápida: viene completado con el último acto y sigue con el próximo número', async () => {
@@ -396,30 +400,32 @@ describe('ficha de la DDJJ', () => {
 
     renderFicha()
     fireEvent.click(await screen.findByRole('button', { name: 'Agregar acto' }))
+    // La planilla también está abierta: se mira solo el diálogo del alta.
+    const dialogo = await screen.findByRole('dialog')
     // Número que sigue y la fecha del último acto, sin tipear.
-    expect(screen.getByLabelText('N° de escritura')).toHaveValue('102')
-    expect(screen.getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
-    fireEvent.change(screen.getByLabelText('Naturaleza del acto'), {
+    expect(within(dialogo).getByLabelText('N° de escritura')).toHaveValue('102')
+    expect(within(dialogo).getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
+    fireEvent.change(within(dialogo).getByLabelText('Naturaleza del acto'), {
       target: { value: 'Hipoteca' },
     })
-    fireEvent.change(screen.getByLabelText('Base imponible ($)'), {
+    fireEvent.change(within(dialogo).getByLabelText('Base imponible ($)'), {
       target: { value: '1.000.000' },
     })
-    const otro = screen.getByRole('button', { name: 'Agregar y cargar otro' })
+    const otro = within(dialogo).getByRole('button', { name: 'Agregar y cargar otro' })
     await waitFor(() => {
       expect(otro).toBeEnabled()
     })
     fireEvent.click(otro)
 
-    expect(await screen.findByText(/Escritura N° 102 agregada/)).toBeInTheDocument()
+    expect(await within(dialogo).findByText(/Escritura N° 102 agregada/)).toBeInTheDocument()
     expect(apiModule.agregarActo).toHaveBeenCalledWith(
       'd1',
       expect.objectContaining({ numero_escritura: 102, fecha_acto: '2026-09-15' }),
     )
     // Sigue abierto, con el número siguiente y los campos del acto en blanco.
-    expect(screen.getByLabelText('N° de escritura')).toHaveValue('103')
-    expect(screen.getByLabelText('Naturaleza del acto')).toHaveValue('')
-    expect(screen.getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
+    expect(within(dialogo).getByLabelText('N° de escritura')).toHaveValue('103')
+    expect(within(dialogo).getByLabelText('Naturaleza del acto')).toHaveValue('')
+    expect(within(dialogo).getByLabelText('Fecha del acto')).toHaveValue('2026-09-15')
   })
 
   it('liquida una boleta por escribano y avisa lo que hay que revisar', async () => {
@@ -779,11 +785,14 @@ describe('planilla de la DDJJ', () => {
     vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
   })
 
-  it('muestra una pestaña por protocolo y el resumen, y descarga el PDF', async () => {
+  it('muestra una pestaña por protocolo y el resumen, y el PDF se ve antes de descargarlo', async () => {
     const auxiliar = { ...ACTO, id: 'a3', tipo_protocolo: 'AUXILIAR' as const, numero_escritura: 7 }
     vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [ACTO, auxiliar] })
     vi.mocked(apiModule.fetchPlanilla).mockResolvedValue(planillaDe([ACTO, auxiliar]))
-    vi.mocked(apiModule.descargarDeclaracion).mockResolvedValue()
+    vi.mocked(apiModule.fetchDeclaracionPdf).mockResolvedValue(new Blob(['%PDF']))
+    vi.mocked(apiModule.nombreDeclaracionPdf).mockReturnValue('ddjj-registro-51-2026-09.pdf')
+    URL.createObjectURL = vi.fn(() => 'blob:vista-previa')
+    URL.revokeObjectURL = vi.fn()
     renderFicha()
 
     const general = await screen.findByRole('tab', { name: /Protocolo General/ })
@@ -803,9 +812,15 @@ describe('planilla de la DDJJ', () => {
     expect(within(resumen).getAllByText('$ 800.000,00').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'Borrador en PDF' }))
-    await waitFor(() => {
-      expect(apiModule.descargarDeclaracion).toHaveBeenCalled()
-    })
+    // Primero la vista previa; descargar es un paso aparte.
+    expect(await screen.findByTitle('Borrador de la DDJJ 09/2026')).toHaveAttribute(
+      'src',
+      'blob:vista-previa',
+    )
+    expect(screen.getByRole('link', { name: 'Descargar' })).toHaveAttribute(
+      'download',
+      'ddjj-registro-51-2026-09.pdf',
+    )
   })
 
   it('un acto exento muestra su motivo', async () => {
@@ -984,6 +999,20 @@ describe('carga en planilla', () => {
     const tipo = screen.getByLabelText('Tipo de aporte, renglón 1')
     expect(tipo).toHaveValue('OTRO_ACTO')
     expect(tipo).toBeDisabled()
+  })
+
+  it('bloquea un folio repetido entre los renglones sin guardar', async () => {
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue([])
+    renderWithProviders(
+      <Routes>
+        <Route path="/ddjj/:id" element={<DeclaracionPage />} />
+      </Routes>,
+      { path: '/ddjj/d1', user: NOTARIO, raw: true },
+    )
+    fireEvent.change(await screen.findByLabelText('Folio, renglón 1'), { target: { value: '100' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar renglón' }))
+    fireEvent.change(await screen.findByLabelText('Folio, renglón 2'), { target: { value: '100' } })
+    expect(await screen.findByText(/El folio 100 ya está en el renglón 1/)).toBeInTheDocument()
   })
 
   it('un texto que no está en el vademécum no se guarda', async () => {

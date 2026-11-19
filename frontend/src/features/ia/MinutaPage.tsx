@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { Alert } from '../../components/ui/Alert'
+import { Dialog } from '../../components/ui/Dialog'
 import { Button } from '../../components/ui/Button'
 import { FileField } from '../../components/ui/FileField'
 import { PageHeader, Panel } from '../../components/ui/Panel'
@@ -171,10 +172,13 @@ function RevisionMinuta({
   ddjj,
   sugerencia,
   onDescartada,
+  onAgregado,
 }: {
   ddjj: DeclaracionDetalle
   sugerencia: Sugerencia
   onDescartada: () => void
+  /** Abierta como ventana sobre la DDJJ: se cierra en lugar de navegar. */
+  onAgregado?: () => void
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -186,7 +190,8 @@ function RevisionMinuta({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['ddjj', 'declaracion', ddjj.id] })
       await queryClient.invalidateQueries({ queryKey: ['ddjj', 'declaraciones'] })
-      void navigate(`/ddjj/${ddjj.id}`)
+      if (onAgregado) onAgregado()
+      else void navigate(`/ddjj/${ddjj.id}`)
     },
   })
   const descartar = useMutation({
@@ -376,5 +381,46 @@ export function MinutaPage() {
           <EntradaMinuta ddjj={d} onSugerencia={setSugerencia} />
         ))}
     </>
+  )
+}
+
+/** La misma carga desde la minuta, como ventana sobre la DDJJ (sin salir de la declaración). */
+export function MinutaDialog({
+  ddjj,
+  open,
+  onClose,
+}: {
+  ddjj: DeclaracionDetalle
+  open: boolean
+  onClose: () => void
+}) {
+  const [sugerencia, setSugerencia] = useState<Sugerencia | null>(null)
+  const cerrar = () => {
+    setSugerencia(null)
+    onClose()
+  }
+  return (
+    <Dialog
+      open={open}
+      size="ancho"
+      title="Cargar un acto desde la minuta"
+      description={`${registroLabel(ddjj.registro)} · ${formatPeriodo(ddjj.periodo)}. La Suite propone los datos; vos los revisás y confirmás.`}
+      onClose={cerrar}
+    >
+      {open &&
+        (sugerencia ? (
+          <RevisionMinuta
+            key={sugerencia.id}
+            ddjj={ddjj}
+            sugerencia={sugerencia}
+            onDescartada={() => {
+              setSugerencia(null)
+            }}
+            onAgregado={cerrar}
+          />
+        ) : (
+          <EntradaMinuta ddjj={ddjj} onSugerencia={setSugerencia} />
+        ))}
+    </Dialog>
   )
 }
