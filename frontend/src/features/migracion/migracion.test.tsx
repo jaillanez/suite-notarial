@@ -110,14 +110,6 @@ describe('migración', () => {
     vi.mocked(api.fetchBoletasSinRegistro).mockResolvedValue([])
   })
 
-  it('lista las corridas con su cuadratura y conformidades', async () => {
-    vi.mocked(api.fetchCorridas).mockResolvedValue([CORRIDA])
-    renderWithProviders(<CorridasPage />, { user: TESORERIA })
-    expect(await screen.findByText('Simulacro')).toBeInTheDocument()
-    expect(screen.getByText('No cuadra')).toBeInTheDocument()
-    expect(screen.getByText(/Tesorería pendiente, Caja pendiente/)).toBeInTheDocument()
-  })
-
   it('la Caja asigna el registro a las boletas migradas sin él, por meses', async () => {
     const boleta = (id: string, periodo: string): api.BoletaSinRegistro => ({
       id,

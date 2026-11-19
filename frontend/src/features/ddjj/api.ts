@@ -517,3 +517,74 @@ export async function verificarBoleta(codigo: string): Promise<Verificacion> {
 export async function fetchBoleta(id: string): Promise<Boleta> {
   return (await api.get<Boleta>(`/v1/ddjj/boletas/${encodeURIComponent(id)}`)).data
 }
+
+// --------------------------------------------------------------------------- sistema anterior
+
+/** DDJJ del sistema anterior (histórico migrado, de solo lectura) de un registro y mes. */
+export interface DDJJAnterior {
+  registro_id: string
+  numero_registro: number
+  periodo: string
+  cantidad_actos: number
+  total_aportes: string
+  total_boletas: string
+  total_pagado: string
+}
+
+export interface ActoAnterior {
+  id: string
+  tipo_protocolo: string | null
+  numero_escritura: number
+  folio: number | null
+  fecha_acto: string | null
+  naturaleza: string
+  escribano: string | null
+  cargo: string | null
+  exento: boolean
+  base_imponible: string | null
+  aporte_variable: string | null
+  aporte_fijo: string | null
+  aporte: string
+}
+
+export interface BoletaAnterior {
+  id: string
+  numero: string | null
+  fecha_emision: string
+  fecha_vencimiento: string
+  importe: string
+  estado: 'IMPAGA' | 'PAGADA' | 'ANULADA'
+  pagado: string
+  fecha_pago: string | null
+}
+
+export interface DDJJAnteriorDetalle {
+  resumen: DDJJAnterior
+  actos: ActoAnterior[]
+  boletas: BoletaAnterior[]
+}
+
+export async function fetchAnteriores(params: {
+  page: number
+  pageSize: number
+  registro: string
+  periodo: string
+}): Promise<Page<DDJJAnterior>> {
+  return (
+    await api.get<Page<DDJJAnterior>>(`${P}/anteriores`, {
+      params: {
+        page: params.page,
+        page_size: params.pageSize,
+        registro: params.registro || undefined,
+        periodo: params.periodo || undefined,
+      },
+    })
+  ).data
+}
+
+export async function fetchAnterior(
+  registroId: string,
+  periodo: string,
+): Promise<DDJJAnteriorDetalle> {
+  return (await api.get<DDJJAnteriorDetalle>(`${P}/anteriores/${registroId}/${periodo}`)).data
+}

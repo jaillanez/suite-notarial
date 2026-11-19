@@ -248,8 +248,18 @@ function Editor({
         </p>
       )}
       <AlertasSugerencia alertas={renglon.sugerencia.alertas} />
-      <ActoCampos ddjj={ddjj} form={renglon.form} problem={null} onChange={onChange} />
-      <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
+      <ActoCampos
+        ddjj={ddjj}
+        form={renglon.form}
+        problem={null}
+        controles={verificacion?.controles}
+        onChange={onChange}
+      />
+      <ResultadoVerificacion
+        verificacion={verificacion}
+        actualizando={actualizando}
+        avisosEnCampos
+      />
     </div>
   )
 }

@@ -276,12 +276,17 @@ function RevisionMinuta({
                 form={form}
                 problem={problem}
                 pistas={pistas}
+                controles={verificacion?.controles}
                 onChange={(cambio) => {
                   setForm((f) => ({ ...f, ...cambio }))
                   setRevisado(false)
                 }}
               />
-              <ResultadoVerificacion verificacion={verificacion} actualizando={actualizando} />
+              <ResultadoVerificacion
+                verificacion={verificacion}
+                actualizando={actualizando}
+                avisosEnCampos
+              />
             </div>
           </Panel>
           <ConfirmacionHumana checked={revisado} onChange={setRevisado}>

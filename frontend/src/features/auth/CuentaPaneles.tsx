@@ -27,25 +27,17 @@ function Dato({ label, children }: { label: string; children: string }) {
 function FormPerfil({ perfil }: { perfil: Perfil }) {
   const { user } = useSession()
   const queryClient = useQueryClient()
-  const [nombre, setNombre] = useState(perfil.full_name)
   const [telefono, setTelefono] = useState(perfil.phone_number ?? '')
   const [guardado, setGuardado] = useState(false)
   const guardar = useMutation({
-    mutationFn: () =>
-      actualizarPerfil({
-        ...(perfil.nombre_editable ? { full_name: nombre.trim() } : {}),
-        phone_number: telefono.trim(),
-      }),
+    mutationFn: () => actualizarPerfil({ phone_number: telefono.trim() }),
     onSuccess: async (nuevo) => {
       queryClient.setQueryData(PERFIL_KEY, nuevo)
-      // El nombre también se ve en el encabezado.
       await queryClient.invalidateQueries({ queryKey: SESSION_KEY })
       setGuardado(true)
     },
   })
-  const cambios =
-    (perfil.nombre_editable && nombre.trim() !== perfil.full_name) ||
-    telefono.trim() !== (perfil.phone_number ?? '')
+  const cambios = telefono.trim() !== (perfil.phone_number ?? '')
   const problem = guardar.isError ? toProblem(guardar.error) : null
   const enviar = (e: SyntheticEvent) => {
     e.preventDefault()
@@ -57,23 +49,16 @@ function FormPerfil({ perfil }: { perfil: Perfil }) {
     <form onSubmit={enviar} className="grid gap-5 px-5 py-5 sm:px-6" noValidate>
       {problem && <Alert tone="danger">{problem.detail}</Alert>}
       {guardado && !cambios && <Alert tone="success">Tus datos se guardaron.</Alert>}
+      <dl className="grid gap-4 sm:grid-cols-2">
+        <Dato label="Nombre y apellido">{perfil.full_name}</Dato>
+        <Dato label="Correo electrónico">{perfil.email}</Dato>
+        <Dato label="CUIT">{perfil.cuit}</Dato>
+        <Dato label="Roles">{user?.roles.map(roleLabel).join(', ') || 'Sin roles asignados'}</Dato>
+      </dl>
+      <p className="text-sm text-ink-muted">
+        El nombre, el correo y el CUIT identifican tu cuenta: para cambiarlos pedíselo a la Caja.
+      </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Nombre y apellido"
-          value={nombre}
-          disabled={!perfil.nombre_editable}
-          maxLength={200}
-          autoComplete="name"
-          hint={
-            perfil.nombre_editable
-              ? undefined
-              : 'Figura en el padrón de escribanos: lo actualiza la Caja.'
-          }
-          error={problem?.fieldErrors.full_name}
-          onChange={(e) => {
-            setNombre(e.target.value)
-          }}
-        />
         <Field
           label="Teléfono (opcional)"
           type="tel"
@@ -86,14 +71,6 @@ function FormPerfil({ perfil }: { perfil: Perfil }) {
           }}
         />
       </div>
-      <dl className="grid gap-4 sm:grid-cols-3">
-        <Dato label="Correo electrónico">{perfil.email}</Dato>
-        <Dato label="CUIT">{perfil.cuit}</Dato>
-        <Dato label="Roles">{user?.roles.map(roleLabel).join(', ') || 'Sin roles asignados'}</Dato>
-      </dl>
-      <p className="text-sm text-ink-muted">
-        El correo y el CUIT identifican tu cuenta: para cambiarlos pedíselo a la Caja.
-      </p>
       <div>
         <Button
           type="submit"
@@ -101,7 +78,7 @@ function FormPerfil({ perfil }: { perfil: Perfil }) {
           icon={Save}
           busy={guardar.isPending}
           busyLabel="Guardando…"
-          disabled={!cambios || (perfil.nombre_editable && nombre.trim().length < 3)}
+          disabled={!cambios}
         >
           Guardar cambios
         </Button>

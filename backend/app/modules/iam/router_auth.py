@@ -4,7 +4,6 @@ from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
-from sqlalchemy import select
 
 from app.common.cuit import format_cuit
 from app.common.deps import SessionDep, SettingsDep
@@ -52,7 +51,6 @@ from app.modules.iam.tokens import (
     create_mfa_pending_token,
     decode_mfa_pending_token,
 )
-from app.modules.padron.models import Escribano
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -274,39 +272,34 @@ async def password_change(
     )
 
 
-async def _nombre_editable(session: SessionDep, user: User) -> bool:
-    return await session.scalar(select(Escribano.id).where(Escribano.user_id == user.id)) is None
-
-
-def _perfil(user: User, nombre_editable: bool) -> PerfilOut:
+def _perfil(user: User) -> PerfilOut:
     return PerfilOut(
         email=user.email,
         full_name=user.full_name,
         cuit=format_cuit(user.cuit),
         phone_number=user.phone_number,
-        nombre_editable=nombre_editable,
+        # El nombre lo administra la Caja, para todas las cuentas: no se edita desde la cuenta.
+        nombre_editable=False,
     )
 
 
 @router.get("/perfil", response_model=PerfilOut)
 async def ver_perfil(principal: PrincipalDep, session: SessionDep) -> PerfilOut:
-    return _perfil(principal.user, await _nombre_editable(session, principal.user))
+    return _perfil(principal.user)
 
 
 @router.patch("/perfil", response_model=PerfilOut)
 async def editar_perfil(
     body: PerfilIn, principal: PrincipalDep, session: SessionDep, ctx: RequestContextDep
 ) -> PerfilOut:
-    editable = await _nombre_editable(session, principal.user)
     user = await service.update_profile(
         session,
         ctx,
         principal.user,
         full_name=body.full_name,
         phone_number=body.phone_number,
-        nombre_editable=editable,
     )
-    return _perfil(user, editable)
+    return _perfil(user)
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)

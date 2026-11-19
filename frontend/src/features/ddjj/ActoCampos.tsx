@@ -4,10 +4,18 @@ import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import type { Problem } from '../../lib/api'
 import { CARGO, matriculaTexto, todayIso } from '../padron/labels'
-import { naturalezasSugeridas, type ActoForm } from './acto'
-import type { CategoriaActo, DeclaracionDetalle, MotivoExencion, TipoProtocolo } from './api'
+import type { ActoForm } from './acto'
+import type {
+  CategoriaActo,
+  ControlProtocolo,
+  DeclaracionDetalle,
+  MotivoExencion,
+  TipoProtocolo,
+} from './api'
 import { CATEGORIA, MOTIVO_EXENCION, PROTOCOLO, rangoPeriodo } from './labels'
 import { VademecumBuscador } from './VademecumBuscador'
+import { CAMPO_DEL_CONTROL } from './verificacion'
+import { GloboControl } from './VerificacionActo'
 import { alElegir, eleccionDe, useVademecumDelPeriodo } from './vademecum'
 
 type Clave = keyof ActoForm
@@ -19,6 +27,7 @@ export function ActoCampos({
   onChange,
   problem,
   pistas = {},
+  controles = [],
 }: {
   ddjj: DeclaracionDetalle
   form: ActoForm
@@ -26,10 +35,14 @@ export function ActoCampos({
   problem: Problem | null
   /** Ayuda adicional por campo (p. ej. de dónde salió un valor sugerido). */
   pistas?: Partial<Record<Clave, ReactNode>>
+  /** Avisos del libro de protocolo: cada uno va en un globo junto a su campo. */
+  controles?: ControlProtocolo[]
 }) {
+  const globo = (campo: 'numero_escritura' | 'folio' | 'fecha_acto') => (
+    <GloboControl controles={controles.filter((c) => CAMPO_DEL_CONTROL[c.codigo] === campo)} />
+  )
   const { desde, hasta } = rangoPeriodo(ddjj.periodo)
   const hoy = todayIso()
-  const listaNaturalezas = useId()
   const partesId = useId()
   const { actos: vademecum } = useVademecumDelPeriodo(ddjj.periodo)
   const conVademecum = vademecum.length > 0
@@ -153,29 +166,38 @@ export function ActoCampos({
           <p className="mt-1.5 text-sm text-ink-muted">{pistas.tipo_protocolo}</p>
         )}
       </div>
-      <Field
-        label="Fecha del acto"
-        type="date"
-        min={desde}
-        max={hasta < hoy ? hasta : hoy}
-        className="[&_input]:tabular-nums"
-        hint={pistas.fecha_acto}
-        {...bind('fecha_acto')}
-      />
-      <Field
-        label="N° de escritura"
-        inputMode="numeric"
-        className="[&_input]:tabular-nums"
-        hint={pistas.numero_escritura}
-        {...bind('numero_escritura')}
-      />
-      <Field
-        label="Folio (opcional)"
-        inputMode="numeric"
-        className="[&_input]:tabular-nums"
-        hint={pistas.folio}
-        {...bind('folio')}
-      />
+      <div>
+        <Field
+          label="Fecha del acto"
+          type="date"
+          min={desde}
+          max={hasta < hoy ? hasta : hoy}
+          className="[&_input]:tabular-nums"
+          hint={pistas.fecha_acto}
+          {...bind('fecha_acto')}
+        />
+        {globo('fecha_acto')}
+      </div>
+      <div>
+        <Field
+          label="N° de escritura"
+          inputMode="numeric"
+          className="[&_input]:tabular-nums"
+          hint={pistas.numero_escritura}
+          {...bind('numero_escritura')}
+        />
+        {globo('numero_escritura')}
+      </div>
+      <div>
+        <Field
+          label="Folio (opcional)"
+          inputMode="numeric"
+          className="[&_input]:tabular-nums"
+          hint={pistas.folio}
+          {...bind('folio')}
+        />
+        {globo('folio')}
+      </div>
       <label className="flex min-h-11 cursor-pointer items-start gap-3 sm:col-span-2">
         <input
           type="checkbox"
@@ -236,16 +258,10 @@ export function ActoCampos({
         label="Naturaleza del acto"
         placeholder="Compraventa, hipoteca, poder general…"
         maxLength={300}
-        list={listaNaturalezas}
         autoComplete="off"
         hint={pistas.naturaleza}
         {...bind('naturaleza')}
       />
-      <datalist id={listaNaturalezas}>
-        {naturalezasSugeridas(ddjj).map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
       {conValor && conVademecum && (
         <>
           <Field

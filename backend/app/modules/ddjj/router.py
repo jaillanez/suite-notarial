@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from app.common.dates import today_local
 from app.common.deps import SessionDep, SettingsDep
 from app.common.pagination import Page, PageParamsDep
-from app.modules.ddjj import pdf, planilla, protocolo, service, vademecum
+from app.modules.ddjj import anteriores, pdf, planilla, protocolo, service, vademecum
 from app.modules.ddjj.catalog import (
     CategoriaActo,
     EstadoBoleta,
@@ -28,6 +28,8 @@ from app.modules.ddjj.schemas import (
     BoletaOut,
     ComprobanteResumen,
     ControlOut,
+    DDJJAnteriorDetalleOut,
+    DDJJAnteriorOut,
     DeclaracionDetalle,
     DeclaracionIn,
     DeclaracionOut,
@@ -452,6 +454,38 @@ async def list_declaraciones(
         page=page.page,
         page_size=page.page_size,
     )
+
+
+@router.get("/anteriores", response_model=Page[DDJJAnteriorOut])
+async def list_anteriores(
+    principal: CanRead,
+    session: SessionDep,
+    page: PageParamsDep,
+    registro: Annotated[int | None, Query(ge=1)] = None,
+    periodo: Annotated[Periodo | None, Query()] = None,
+) -> Page[DDJJAnteriorOut]:
+    """DDJJ del sistema anterior (histórico migrado, de solo lectura), con el mismo alcance que
+    las de la Suite."""
+    items, total = await anteriores.listar(
+        session, principal, page, registro=registro, periodo=periodo
+    )
+    return Page(
+        items=[DDJJAnteriorOut.model_validate(i, from_attributes=True) for i in items],
+        total=total,
+        page=page.page,
+        page_size=page.page_size,
+    )
+
+
+@router.get("/anteriores/{registro_id}/{periodo}", response_model=DDJJAnteriorDetalleOut)
+async def get_anterior(
+    registro_id: uuid.UUID,
+    periodo: Annotated[Periodo, Path()],
+    principal: CanRead,
+    session: SessionDep,
+) -> DDJJAnteriorDetalleOut:
+    detalle = await anteriores.detalle(session, principal, registro_id, periodo)
+    return DDJJAnteriorDetalleOut.model_validate(detalle, from_attributes=True)
 
 
 @router.post("/declaraciones", response_model=DeclaracionDetalle)

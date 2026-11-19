@@ -23,13 +23,15 @@ export function Panel({
     >
       {(title || actions) && (
         <div className="flex flex-col gap-4 border-b border-line px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
-          <div className="min-w-0">
+          {/* El título conserva un ancho mínimo: con muchas acciones, son ellas las que pasan a
+              otra línea, no el título el que se aplasta. */}
+          <div className="min-w-0 sm:min-w-48 sm:flex-1">
             {title && <h2 className="text-lg font-semibold text-ink">{title}</h2>}
             {description && (
               <div className="mt-1 max-w-[65ch] text-sm text-ink-muted">{description}</div>
             )}
           </div>
-          {actions && <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>}
+          {actions && <div className="flex flex-wrap gap-3 sm:justify-end">{actions}</div>}
         </div>
       )}
       {children}
