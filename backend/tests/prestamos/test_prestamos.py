@@ -434,9 +434,9 @@ async def test_titular_no_ve_la_situacion_del_garante(
     personal = (await staff.get(f"/api/v1/prestamos/{pid}")).json()["impedimentos_actuales"]
     titular = (await notario.get(f"/api/v1/prestamos/{pid}")).json()["impedimentos_actuales"]
     assert "El garante no tiene la matrícula activa." in personal
-    assert titular == [
-        "El garante propuesto no reúne las condiciones exigidas: consultá con la Caja."
-    ]
+    # Ni siquiera un aviso genérico: el titular no puede usar su solicitud para saber si otro
+    # escribano está habilitado. Lo controla el personal al otorgar.
+    assert titular == []
 
 
 async def test_el_escribano_solicita_a_su_nombre(
@@ -491,3 +491,6 @@ async def test_la_solicitud_del_escribano_no_revela_al_garante(
     assert r.status_code == 201, r.text
     assert "deuda" not in r.text and "mora" not in r.text
     assert r.json()["estado"] == "SOLICITADO"
+    # Tampoco al volver a mirarla: ningún rastro de la habilidad del garante.
+    visto = (await notario.get(f"/api/v1/prestamos/{r.json()['id']}")).json()
+    assert visto["impedimentos_actuales"] == []

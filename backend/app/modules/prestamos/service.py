@@ -457,9 +457,6 @@ async def inhabilidades_garante(session: AsyncSession, garante: Escribano, hoy: 
 # --------------------------------------------------------------------------- evaluación
 
 
-GARANTE_NO_HABIL = "El garante propuesto no reúne las condiciones exigidas: consultá con la Caja."
-
-
 @dataclass
 class Evaluacion:
     moneda: Moneda
@@ -480,10 +477,10 @@ class Evaluacion:
     # Subconjunto de `impedimentos` que describe la situación del garante (un tercero).
     impedimentos_garante: list[str] = field(default_factory=list)
 
-    def impedimentos_para_titular(self) -> list[str]:
-        """Lo que puede ver el titular: los motivos del garante sin revelar su situación."""
-        propios = [i for i in self.impedimentos if i not in self.impedimentos_garante]
-        return propios + ([GARANTE_NO_HABIL] if self.impedimentos_garante else [])
+    def impedimentos_propios(self) -> list[str]:
+        """Lo que puede ver el titular: sus propios impedimentos. La habilidad del garante (un
+        tercero) no se le muestra ni siquiera como aviso genérico: la controla el personal."""
+        return [i for i in self.impedimentos if i not in self.impedimentos_garante]
 
 
 async def evaluar(
@@ -633,9 +630,7 @@ async def crear_solicitud(
         garante_id=data.garante_escribano_id,
     )
     _rechazar_si_hay(
-        [i for i in ev.impedimentos if i not in ev.impedimentos_garante]
-        if por_el_titular
-        else ev.impedimentos,
+        ev.impedimentos_propios() if por_el_titular else ev.impedimentos,
         status=HTTPStatus.UNPROCESSABLE_ENTITY,
     )
     assert ev.afectacion is not None  # noqa: S101 - hay ingreso neto
