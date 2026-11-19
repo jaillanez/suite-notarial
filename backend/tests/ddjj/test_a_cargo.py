@@ -440,3 +440,22 @@ async def test_no_se_cierra_al_titular_si_deja_actos_a_cargo_sin_respaldo(
     assert (await staff.get(f"/api/v1/a-cargo/{creada['id']}")).json()["fecha_hasta"] == (
         "2026-10-18"
     )
+
+
+async def test_designa_adscripto_con_fecha_anterior_aunque_falte_el_juramento(
+    notario: AsyncClient, escenario: Escenario, db_session: AsyncSession
+) -> None:
+    """Pedido de la Caja (19/11/2026): un adscripto también queda a cargo, se puede cargar un
+    período ya pasado y un escribano migrado sin fecha de juramento no bloquea la designación."""
+    escenario.adscripto.fecha_matriculacion = None
+    await db_session.commit()
+    pasada = {
+        "registro_id": str(escenario.registro.id),
+        "escribano_id": str(escenario.adscripto.id),
+        "fecha_desde": "2025-09-01",
+        "fecha_hasta": "2025-09-30",
+        "motivo": "Licencia del titular",
+    }
+    creada = await _designar(notario, pasada)
+    assert creada.status_code == 201, creada.text
+    assert creada.json()["estado"] == "APROBADA"
