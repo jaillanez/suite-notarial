@@ -813,20 +813,17 @@ async def update_profile(
     *,
     full_name: str | None,
     phone_number: str | None,
-    nombre_editable: bool,
 ) -> User:
-    """Datos de contacto propios. El nombre de un escribano lo lleva el padrón (lo actualiza la
-    Caja): no se edita desde la cuenta."""
-    antes = {"full_name": user.full_name, "phone_number": user.phone_number}
+    """Datos de contacto propios: solo el teléfono. El nombre lo administra la Caja (el de un
+    escribano, desde el padrón; el del personal, desde Usuarios) y no se edita desde la cuenta."""
+    antes = {"phone_number": user.phone_number}
     if full_name is not None and full_name != user.full_name:
-        if not nombre_editable:
-            raise ProblemError(
-                HTTPStatus.FORBIDDEN,
-                "Tu nombre figura en el padrón de escribanos: lo actualiza la Caja.",
-            )
-        user.full_name = full_name
+        raise ProblemError(
+            HTTPStatus.FORBIDDEN,
+            "Tu nombre lo actualiza la Caja: pedíselo a la administración.",
+        )
     user.phone_number = phone_number or None
-    despues = {"full_name": user.full_name, "phone_number": user.phone_number}
+    despues = {"phone_number": user.phone_number}
     if despues != antes:
         record_audit(
             session,

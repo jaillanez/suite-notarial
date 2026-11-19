@@ -12,7 +12,7 @@ const PERFIL: authApi.Perfil = {
   full_name: 'Caja Demo',
   cuit: '20-00000500-3',
   phone_number: null,
-  nombre_editable: true,
+  nombre_editable: false,
 }
 
 describe('perfil', () => {
@@ -20,52 +20,30 @@ describe('perfil', () => {
     vi.resetAllMocks()
   })
 
-  it('guarda nombre y teléfono; correo y CUIT no se editan', async () => {
+  it('solo se edita el teléfono: nombre, correo y CUIT los administra la Caja', async () => {
     vi.mocked(authApi.fetchPerfil).mockResolvedValue(PERFIL)
     vi.mocked(authApi.actualizarPerfil).mockResolvedValue({
       ...PERFIL,
-      full_name: 'Caja Corregida',
       phone_number: '264 555-0101',
     })
     renderWithProviders(<PerfilPanel />, { user: ESCRIBANO })
 
     const guardar = await screen.findByRole('button', { name: 'Guardar cambios' })
     expect(guardar).toBeDisabled()
+    expect(screen.getByText(PERFIL.full_name)).toBeInTheDocument()
     expect(screen.getByText(PERFIL.email)).toBeInTheDocument()
+    // Sin campo para el nombre ni para el correo.
+    expect(screen.queryByRole('textbox', { name: 'Nombre y apellido' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Correo electrónico')).not.toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Nombre y apellido'), {
-      target: { value: 'Caja Corregida' },
-    })
     fireEvent.change(screen.getByLabelText('Teléfono (opcional)'), {
       target: { value: '264 555-0101' },
     })
     fireEvent.click(guardar)
 
     await waitFor(() => {
-      expect(authApi.actualizarPerfil).toHaveBeenCalledWith({
-        full_name: 'Caja Corregida',
-        phone_number: '264 555-0101',
-      })
+      expect(authApi.actualizarPerfil).toHaveBeenCalledWith({ phone_number: '264 555-0101' })
     })
     expect(await screen.findByText('Tus datos se guardaron.')).toBeInTheDocument()
-  })
-
-  it('el nombre de un escribano no se edita: solo el teléfono', async () => {
-    vi.mocked(authApi.fetchPerfil).mockResolvedValue({ ...PERFIL, nombre_editable: false })
-    vi.mocked(authApi.actualizarPerfil).mockResolvedValue({
-      ...PERFIL,
-      nombre_editable: false,
-      phone_number: '264',
-    })
-    renderWithProviders(<PerfilPanel />, { user: ESCRIBANO })
-
-    expect(await screen.findByLabelText('Nombre y apellido')).toBeDisabled()
-    expect(screen.getByText(/lo actualiza la Caja/)).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Teléfono (opcional)'), { target: { value: '264' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
-    await waitFor(() => {
-      expect(authApi.actualizarPerfil).toHaveBeenCalledWith({ phone_number: '264' })
-    })
   })
 })
 

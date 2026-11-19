@@ -118,17 +118,23 @@ async def test_perfil_del_personal(client: AsyncClient, db_session: AsyncSession
     await login(client, user, secret)
 
     perfil = (await client.get("/api/v1/auth/perfil")).json()
-    assert perfil["nombre_editable"] is True
+    # El nombre lo administra la Caja, también el del personal.
+    assert perfil["nombre_editable"] is False
     assert perfil["email"] == user.email
 
+    nombre = await client.patch(
+        "/api/v1/auth/perfil",
+        json={"full_name": "Nombre Corregido", "phone_number": "264"},
+    )
+    assert nombre.status_code == 403
+    assert (await client.get("/api/v1/auth/me")).json()["full_name"] == user.full_name
+    # Mandar el mismo nombre no es un cambio: el teléfono se guarda.
     cambio = await client.patch(
         "/api/v1/auth/perfil",
-        json={"full_name": "Nombre Corregido", "phone_number": " 264 555-0101 "},
+        json={"full_name": user.full_name, "phone_number": " 264 555-0101 "},
     )
     assert cambio.status_code == 200, cambio.text
-    assert cambio.json()["full_name"] == "Nombre Corregido"
     assert cambio.json()["phone_number"] == "264 555-0101"
-    assert (await client.get("/api/v1/auth/me")).json()["full_name"] == "Nombre Corregido"
     assert await _eventos(db_session, user, "USER_PROFILE_UPDATED") == 1
     # Vaciar el teléfono lo borra.
     vacio = await client.patch("/api/v1/auth/perfil", json={"phone_number": ""})
