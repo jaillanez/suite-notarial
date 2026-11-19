@@ -60,7 +60,7 @@ const COLUMNAS = [
 type Columna = (typeof COLUMNAS)[number]
 
 const CELDA =
-  'block min-h-11 w-full min-w-0 rounded-control border bg-surface px-2.5 text-base text-ink tabular-nums placeholder:text-ink-subtle transition-colors duration-150 ease-out-quint focus-visible:border-action-600 disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-subtle'
+  'block min-h-11 w-full min-w-0 rounded-control border bg-surface px-2 text-sm text-ink tabular-nums placeholder:text-ink-subtle transition-colors duration-150 ease-out-quint focus-visible:border-action-600 disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-subtle'
 
 /** Columnas de la grilla desde 640px; bajo ese ancho cada renglón se apila con sus etiquetas.
  * Con vademécum van precio y avalúo; sin él, una sola base imponible y más lugar para el acto. */
@@ -201,6 +201,29 @@ function AporteRenglon({
       )}
     </div>
   )
+}
+
+/** Número o folio repetido entre los renglones que todavía no se guardaron: el libro de
+ * protocolo no admite dos escrituras con el mismo número ni dos escrituras en el mismo folio
+ * (solo los actos de una misma escritura lo comparten). */
+function repetidoEnPlanilla(renglones: Renglon[], indice: number): string | null {
+  const actual = renglones[indice]
+  if (!actual) return null
+  const { form } = actual
+  for (let j = 0; j < indice; j += 1) {
+    const otro = renglones[j]?.form
+    if (!otro || otro.tipo_protocolo !== form.tipo_protocolo) continue
+    const mismaEscritura =
+      form.numero_escritura.trim() !== '' &&
+      otro.numero_escritura.trim() === form.numero_escritura.trim()
+    if (mismaEscritura && !form.acto_multiple) {
+      return `La escritura N° ${form.numero_escritura} ya está en el renglón ${String(j + 1)}: si es otro acto de la misma escritura, marcalo en «Más».`
+    }
+    if (!mismaEscritura && form.folio.trim() !== '' && otro.folio.trim() === form.folio.trim()) {
+      return `El folio ${form.folio} ya está en el renglón ${String(j + 1)}: corregí el folio.`
+    }
+  }
+  return null
 }
 
 /** Etiqueta visible solo en celular, donde no hay cabecera de columnas. */
@@ -356,8 +379,10 @@ export function CargaPlanilla({
   }
 
   const completos = renglones.filter(
-    (r) =>
-      faltante(conNaturaleza(r.form, vademecum), conVademecum) === null && !bloqueados.has(r.clave),
+    (r, i) =>
+      faltante(conNaturaleza(r.form, vademecum), conVademecum) === null &&
+      !bloqueados.has(r.clave) &&
+      repetidoEnPlanilla(renglones, i) === null,
   )
   const pendientes = renglones.length
 
@@ -413,9 +438,8 @@ export function CargaPlanilla({
 
       <div className="flex flex-col gap-3 px-5 pt-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
         <p className="max-w-prose text-sm text-ink-muted">
-          Un renglón por acto, como en la planilla de la Caja. Enter pasa a la celda siguiente y, al
-          final del renglón, abre otro con el número que sigue. Para un exento, un acto sin efecto u
-          otro acto de la misma escritura, abrí «Más».
+          Un renglón por acto. Enter pasa a la celda siguiente y, al final, abre otro renglón. Para
+          un exento u otro acto de la misma escritura, abrí la flecha del renglón.
         </p>
         {ddjj.escribanos.length > 1 && (
           <Select
@@ -460,7 +484,9 @@ export function CargaPlanilla({
           {renglones.map((renglon, i) => {
             const { form } = renglon
             const conValor = form.categoria === 'ESCRITURA_CON_VALOR'
+            const repetido = repetidoEnPlanilla(renglones, i)
             const falta =
+              repetido ??
               faltante(conNaturaleza(form, vademecum), conVademecum) ??
               (bloqueados.has(renglon.clave) ? 'Revisá el aviso del protocolo.' : null)
             const textoActo = conVademecum
@@ -727,7 +753,10 @@ export function CargaPlanilla({
                 />
 
                 {(renglon.error ??
-                  (renglon.consulta || otroEscribano || (falta && i < pendientes - 1))) && (
+                  (renglon.consulta ||
+                    otroEscribano ||
+                    repetido ||
+                    (falta && i < pendientes - 1))) && (
                   <div className="mt-2 grid gap-1 text-sm sm:pl-8">
                     {renglon.error && (
                       <p className="flex items-start gap-1.5 text-danger-700" role="alert">
@@ -745,9 +774,21 @@ export function CargaPlanilla({
                         {FUERA}».
                       </p>
                     )}
-                    {!renglon.error && !renglon.consulta && falta && i < pendientes - 1 && (
-                      <p className="text-ink-muted">{falta}</p>
+                    {!renglon.error && repetido && (
+                      <p className="flex items-start gap-1.5 text-danger-700" role="alert">
+                        <CircleX
+                          aria-hidden="true"
+                          className="mt-0.5 size-4 shrink-0"
+                          strokeWidth={2.25}
+                        />
+                        {repetido}
+                      </p>
                     )}
+                    {!renglon.error &&
+                      !renglon.consulta &&
+                      !repetido &&
+                      falta &&
+                      i < pendientes - 1 && <p className="text-ink-muted">{falta}</p>}
                     {otroEscribano && (
                       <p className="text-ink-muted">Escribano: {otroEscribano.apellido_nombre}.</p>
                     )}

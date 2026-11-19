@@ -8,13 +8,23 @@ interface DialogProps {
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
+  /** Ancho: «normal» para formularios; «ancho» para contenido que lo necesita (vista previa). */
+  size?: 'normal' | 'ancho'
 }
 
 /**
  * Diálogo modal nativo (`<dialog>` + `showModal`): foco atrapado, Escape y `inert` del fondo
  * los resuelve el navegador.
  */
-export function Dialog({ open, title, description, onClose, children, footer }: DialogProps) {
+export function Dialog({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+  size = 'normal',
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -43,7 +53,7 @@ export function Dialog({ open, title, description, onClose, children, footer }: 
         event.preventDefault()
         onClose()
       }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg flex-col overflow-hidden rounded-panel border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-brand-950/40 open:flex"
+      className={`m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] ${size === 'ancho' ? 'max-w-5xl' : 'max-w-xl'} flex-col overflow-hidden rounded-panel border border-line bg-surface p-0 text-ink shadow-panel backdrop:bg-brand-950/40 open:flex`}
     >
       <div className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-5 py-4 sm:px-6">
         <div>

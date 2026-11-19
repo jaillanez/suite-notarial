@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Camera,
   Download,
+  FileText,
   FilePenLine,
   Paperclip,
   Plus,
@@ -39,7 +40,6 @@ import { PERIODO_TASA } from '../parametros/labels'
 import {
   agregarActo,
   bajaActo,
-  descargarDeclaracion,
   fetchPlanilla,
   descargarBoleta,
   emitirBoleta,
@@ -61,7 +61,9 @@ import {
 import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
 import { CargaPlanilla } from './CargaPlanilla'
+import { MinutaDialog } from '../ia/MinutaPage'
 import { PlanillaActos } from './PlanillaActos'
+import { VistaPreviaPdf } from './VistaPreviaPdf'
 import { useVerificacionActo } from './verificacion'
 import { ResultadoVerificacion } from './VerificacionActo'
 import { useVademecumDelPeriodo } from './vademecum'
@@ -127,7 +129,7 @@ function Row({
         )}
       </dt>
       <dd
-        className={`shrink-0 whitespace-nowrap text-ink tabular-nums ${strong ? 'font-semibold' : ''}`}
+        className={`min-w-0 text-right text-ink tabular-nums [overflow-wrap:anywhere] ${strong ? 'font-semibold' : ''}`}
       >
         {value}
       </dd>
@@ -618,8 +620,8 @@ function ActosPanel({
   const editable = ddjj.estado === 'BORRADOR' && ddjj.puede_operar
   const [agregando, setAgregando] = useState<TipoProtocolo | null>(null)
   const [quitando, setQuitando] = useState<Acto | null>(null)
-  // Una DDJJ vacía abre directamente la carga en planilla.
-  const [enPlanilla, setEnPlanilla] = useState(() => editable && ddjj.actos.length === 0)
+  // La planilla de carga está abierta siempre que la DDJJ se pueda editar (nueva o con actos).
+  const [enPlanilla, setEnPlanilla] = useState(editable)
   // La misma planilla que imprime el PDF: los importes vienen del servidor.
   const planilla = useQuery({
     queryKey: ['ddjj', 'declaracion', ddjj.id, 'planilla', ddjj.estado, ddjj.actos.length],
@@ -627,7 +629,8 @@ function ActosPanel({
     placeholderData: keepPreviousData,
     enabled: ddjj.actos.length > 0,
   })
-  const pdf = useMutation({ mutationFn: () => descargarDeclaracion(ddjj) })
+  const [verPdf, setVerPdf] = useState(false)
+  const [minuta, setMinuta] = useState(false)
   const estimado = ddjj.estado === 'BORRADOR'
   const hayIncluidos =
     planilla.data?.protocolos.some((p) => p.renglones.some((r) => r.incluido_en_otro)) ?? false
@@ -652,20 +655,19 @@ function ActosPanel({
             </Link>
           )}
           {editable && ddjj.escribanos.length > 0 && (
-            <Link
-              to={`/ddjj/${ddjj.id}/minuta`}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
+            <Button
+              icon={ScanText}
+              onClick={() => {
+                setMinuta(true)
+              }}
             >
-              <ScanText aria-hidden="true" className="size-4" strokeWidth={2.25} />
               Cargar desde la minuta
-            </Link>
+            </Button>
           )}
           <Button
-            icon={Download}
-            busy={pdf.isPending}
-            busyLabel="Generando…"
+            icon={FileText}
             onClick={() => {
-              pdf.mutate()
+              setVerPdf(true)
             }}
           >
             {estimado ? 'Borrador en PDF' : 'DDJJ en PDF'}
@@ -695,11 +697,21 @@ function ActosPanel({
         </div>
       }
     >
-      {pdf.isError && (
-        <div className="border-b border-line px-5 py-4 sm:px-6">
-          <Alert tone="danger">{toProblem(pdf.error).detail}</Alert>
-        </div>
-      )}
+      <MinutaDialog
+        ddjj={ddjj}
+        open={minuta}
+        onClose={() => {
+          setMinuta(false)
+        }}
+      />
+      <VistaPreviaPdf
+        ddjj={ddjj}
+        titulo={`${estimado ? 'Borrador de la DDJJ' : 'DDJJ'} ${formatPeriodo(ddjj.periodo)}`}
+        open={verPdf}
+        onClose={() => {
+          setVerPdf(false)
+        }}
+      />
       {editable && enPlanilla && ddjj.escribanos.length > 0 && (
         <CargaPlanilla
           ddjj={ddjj}

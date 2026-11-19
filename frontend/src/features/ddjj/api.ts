@@ -476,6 +476,20 @@ export async function fetchPlanilla(id: string): Promise<Planilla> {
 }
 
 /** Descarga la Declaración Jurada de Aportes en PDF (formato de la planilla, con el juramento). */
+/** PDF de la DDJJ (borrador o presentada), para verlo antes de descargarlo. */
+export async function fetchDeclaracionPdf(id: string): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${P}/declaraciones/${id}/pdf`, { responseType: 'blob', timeout: 60_000 })
+  ).data
+}
+
+export function nombreDeclaracionPdf(ddjj: {
+  periodo: string
+  registro: { numero_registro: number }
+}): string {
+  return `ddjj-registro-${String(ddjj.registro.numero_registro)}-${ddjj.periodo}.pdf`
+}
+
 export async function descargarDeclaracion(ddjj: {
   id: string
   periodo: string
