@@ -201,7 +201,33 @@ def revisar(vista: Vista, c: Candidato) -> list[Control]:
                 "declaración. Si es otro acto de la misma escritura, marcalo como acto múltiple.",
             )
         )
-    # Folio y fecha: solo contra lo que quien consulta puede ver.
+    # Folio repetido: como el número, se controla contra todo el año (protege el libro de
+    # protocolo sea quien sea quien consulta); fuera de su alcance, el mensaje no dice cuál.
+    # Solo comparten folio los actos de una misma escritura (pedido de la Caja, 19/11/2026).
+    if c.folio is not None and completo is not None:
+        otro = next(
+            (
+                a
+                for a in completo.por_folio.get(c.folio, [])
+                if a.id != c.excluir and a.numero != c.numero
+            ),
+            None,
+        )
+        if otro is not None:
+            controles.append(
+                Control(
+                    "FOLIO_REPETIDO",
+                    NivelControl.BLOQUEANTE,
+                    f"El folio {c.folio} ya está en "
+                    + (
+                        f"la escritura N° {otro.numero}"
+                        if vista.visible(otro.periodo)
+                        else "otra escritura del año"
+                    )
+                    + ": corregí el folio.",
+                )
+            )
+    # Folio y fecha fuera de orden: solo contra lo que quien consulta puede ver.
     p = vista.propio.protocolos.get(c.tipo_protocolo)
     if p is None:
         return controles
@@ -209,22 +235,6 @@ def revisar(vista: Vista, c: Candidato) -> list[Control]:
     menores = bisect.bisect_left(p.numeros, c.numero)
     mayores = bisect.bisect_right(p.numeros, c.numero)
     if c.folio is not None:
-        # Otros actos de la misma escritura comparten el folio sin aviso (distancia 0).
-        mismo_folio = [
-            a for a in p.por_folio.get(c.folio, []) if a.id != c.excluir and a.numero != c.numero
-        ]
-        if mismo_folio:
-            # Pedido de la Caja (19/11/2026): un folio ya usado por otra escritura no se carga,
-            # aunque sea la consecutiva.
-            otro = mismo_folio[0]
-            controles.append(
-                Control(
-                    "FOLIO_REPETIDO",
-                    NivelControl.BLOQUEANTE,
-                    f"El folio {c.folio} ya está en la escritura N° {otro.numero}: corregí el "
-                    "folio.",
-                )
-            )
         antes = p.max_folio[menores - 1] if menores > 0 else None
         despues = p.min_folio[mayores] if mayores < len(p.numeros) else None
         fuera: ActoDeclarado | None = None
