@@ -840,3 +840,88 @@ describe('planilla de la DDJJ', () => {
     expect(within(dialogo).getByLabelText('N° de escritura')).toHaveValue('8')
   })
 })
+
+describe('carga en planilla', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(apiModule.verificarActo).mockResolvedValue({ aporte: null, controles: [] })
+    vi.mocked(apiModule.fetchVademecum).mockResolvedValue(VADEMECUM)
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({ ...DDJJ, actos: [] })
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
+  })
+
+  it('una DDJJ vacía abre la planilla: Enter avanza y guarda los renglones en orden', async () => {
+    vi.mocked(apiModule.agregarActo).mockResolvedValue(ACTO)
+    renderFicha()
+    const numero1 = await screen.findByLabelText('N° de escritura, renglón 1')
+    expect(numero1).toHaveValue('1')
+    // Por sinónimo, sin tildes: elige «Venta» del vademécum.
+    const acto1 = screen.getByLabelText('Acto, renglón 1')
+    await waitFor(() => {
+      expect(acto1).toHaveAttribute('placeholder', 'Buscá en el vademécum')
+    })
+    fireEvent.change(acto1, { target: { value: 'compraventa' } })
+    expect(acto1).toHaveValue('Venta')
+    const precio1 = screen.getByLabelText('Precio, renglón 1')
+    fireEvent.change(precio1, { target: { value: '1.000.000,00' } })
+    // Enter en la última celda abre otro renglón con el número que sigue.
+    fireEvent.keyDown(screen.getByLabelText('Avalúo, renglón 1'), { key: 'Enter' })
+    const numero2 = await screen.findByLabelText('N° de escritura, renglón 2')
+    expect(numero2).toHaveValue('2')
+    expect(screen.getByLabelText('Fecha del acto, renglón 2')).toHaveValue(
+      screen.getByLabelText<HTMLInputElement>('Fecha del acto, renglón 1').value,
+    )
+    // Un acto fijo no lleva precio ni avalúo.
+    fireEvent.change(screen.getByLabelText('Acto, renglón 2'), { target: { value: 'Cesión' } })
+    expect(screen.getByLabelText('Precio, renglón 2')).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar 2 actos' }))
+    expect(await screen.findByText('Se guardaron 2 actos.')).toBeInTheDocument()
+    expect(vi.mocked(apiModule.agregarActo).mock.calls.map(([, datos]) => datos)).toEqual([
+      expect.objectContaining({
+        numero_escritura: 1,
+        vademecum_id: 'v-venta',
+        naturaleza: 'Venta',
+        precio: '1000000.00',
+      }),
+      expect.objectContaining({ numero_escritura: 2, vademecum_id: 'v-cesion', precio: null }),
+    ])
+    // Queda un renglón nuevo para seguir, con el número que sigue.
+    expect(await screen.findByLabelText('N° de escritura, renglón 1')).toHaveValue('3')
+  })
+
+  it('un renglón que el servidor rechaza se marca y detiene el guardado', async () => {
+    vi.mocked(apiModule.agregarActo).mockRejectedValue(new Error('número repetido'))
+    renderFicha()
+    const acto1 = await screen.findByLabelText('Acto, renglón 1')
+    await waitFor(() => {
+      expect(acto1).toHaveAttribute('placeholder', 'Buscá en el vademécum')
+    })
+    fireEvent.change(acto1, { target: { value: 'Cesión' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar renglón' }))
+    fireEvent.change(await screen.findByLabelText('Acto, renglón 2'), {
+      target: { value: 'Cesión' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar 2 actos' }))
+
+    expect(await screen.findByText('Ocurrió un error inesperado.')).toBeInTheDocument()
+    expect(apiModule.agregarActo).toHaveBeenCalledTimes(1)
+    // Los dos renglones siguen ahí, el primero con el editor abierto para corregir.
+    expect(screen.getByLabelText('N° de escritura, renglón 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Más datos del renglón 1/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+  })
+
+  it('un texto que no está en el vademécum no se guarda', async () => {
+    renderFicha()
+    const acto1 = await screen.findByLabelText('Acto, renglón 1')
+    await waitFor(() => {
+      expect(acto1).toHaveAttribute('placeholder', 'Buscá en el vademécum')
+    })
+    fireEvent.change(acto1, { target: { value: 'Permuta' } })
+    expect(screen.getByText(/«Permuta» no está en el vademécum/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+  })
+})
