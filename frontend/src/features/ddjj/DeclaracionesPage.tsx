@@ -20,6 +20,7 @@ import {
   fetchRegistrosOperables,
   type EstadoDDJJ,
 } from './api'
+import { AnterioresPanel } from './DDJJAnteriores'
 import {
   ESTADO_DDJJ,
   formatPeriodo,
@@ -245,6 +246,7 @@ export function DeclaracionesPage() {
           }}
         />
       </Panel>
+      <AnterioresPanel />
       <NuevaDeclaracionDialog
         key={`nueva-${String(creating)}`}
         open={creating}

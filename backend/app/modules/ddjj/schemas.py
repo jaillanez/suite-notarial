@@ -479,3 +479,51 @@ class PlanillaOut(BaseModel):
     sin_aportes: str | None
     # Rectificada: número de la rectificativa que la reemplazó (esta ya no vale).
     reemplazada_por: int | None
+
+
+# --------------------------------------------------------------------------- sistema anterior
+
+
+class DDJJAnteriorOut(BaseModel):
+    """DDJJ del sistema anterior (histórico migrado, de solo lectura) de un registro y mes."""
+
+    registro_id: uuid.UUID
+    numero_registro: int
+    periodo: str
+    cantidad_actos: int
+    total_aportes: Decimal
+    total_boletas: Decimal
+    total_pagado: Decimal
+
+
+class ActoAnteriorOut(BaseModel):
+    id: uuid.UUID
+    tipo_protocolo: str | None
+    numero_escritura: int
+    folio: int | None
+    fecha_acto: date | None
+    naturaleza: str
+    escribano: str | None
+    cargo: str | None
+    exento: bool
+    base_imponible: Decimal | None
+    aporte_variable: Decimal | None
+    aporte_fijo: Decimal | None
+    aporte: Decimal
+
+
+class BoletaAnteriorOut(BaseModel):
+    id: uuid.UUID
+    numero: str | None
+    fecha_emision: date
+    fecha_vencimiento: date
+    importe: Decimal
+    estado: str
+    pagado: Decimal
+    fecha_pago: date | None
+
+
+class DDJJAnteriorDetalleOut(BaseModel):
+    resumen: DDJJAnteriorOut
+    actos: list[ActoAnteriorOut]
+    boletas: list[BoletaAnteriorOut]

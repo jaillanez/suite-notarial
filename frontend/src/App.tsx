@@ -8,6 +8,7 @@ import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from './featu
 import { LoginPage } from './features/auth/LoginPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { DeclaracionesPage } from './features/ddjj/DeclaracionesPage'
+import { DDJJAnteriorPage } from './features/ddjj/DDJJAnteriores'
 import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
 import { MinutaPage } from './features/ia/MinutaPage'
 import { CorridaPage } from './features/migracion/CorridaPage'
@@ -131,6 +132,7 @@ const router = createBrowserRouter([
             ),
             children: [
               { path: '/ddjj', element: <DeclaracionesPage /> },
+              { path: '/ddjj/anterior/:registroId/:periodo', element: <DDJJAnteriorPage /> },
               { path: '/ddjj/:id', element: <DeclaracionPage /> },
               { path: '/ddjj/:id/minuta', element: <MinutaPage /> },
               { path: '/ddjj/:id/indice', element: <IndicePage /> },
