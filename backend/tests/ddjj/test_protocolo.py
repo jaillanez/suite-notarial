@@ -100,6 +100,20 @@ def test_sin_alcance_no_se_citan_datos_de_otras_escrituras() -> None:
     assert protocolo.huecos(vista) == []
 
 
+def test_folio_repetido_bloquea_aunque_este_fuera_del_alcance() -> None:
+    """El folio, como el número, se controla contra todo el año: quien no ve la otra DDJJ no
+    puede repetirlo, y el mensaje no dice en qué escritura está."""
+    vista = protocolo.Vista(DECLARADOS, lambda _periodo: False)
+    controles = protocolo.revisar(vista, Candidato("GENERAL", 13, 20, date(2026, 9, 10)))
+    assert [(x.codigo, x.nivel, x.mensaje) for x in controles] == [
+        (
+            "FOLIO_REPETIDO",
+            NivelControl.BLOQUEANTE,
+            "El folio 20 ya está en otra escritura del año: corregí el folio.",
+        )
+    ]
+
+
 def test_indice_con_muchos_actos() -> None:
     """El índice resuelve cada control sin recorrer el año (miles de escrituras)."""
     muchos = [_acto(n, n, 1 + n % 28) for n in range(1, 5001)]
