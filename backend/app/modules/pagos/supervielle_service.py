@@ -142,14 +142,8 @@ async def iniciar(
             HTTPStatus.CONFLICT,
             "La fecha de pago de la boleta ya pasó: emití una nueva con la fecha de hoy.",
         )
-    if boleta.fecha_pago == hoy:
-        # El banco exige que el vencimiento sea posterior al día de la publicación.
-        # TODO(banco): confirmar si acepta un vencimiento en el mismo día.
-        raise ProblemError(
-            HTTPStatus.CONFLICT,
-            "El botón Supervielle no acepta boletas que vencen hoy: pagá por transferencia y "
-            "adjuntá el comprobante.",
-        )
+    # Una boleta que vence hoy también se publica: el banco acepta un vencimiento el mismo día
+    # de la publicación (confirmado el 19/11/2026).
     vigente = await _vigente(session, boleta)
     if vigente is not None:
         await session.commit()
@@ -271,12 +265,11 @@ async def iniciar_cuota(
         await session.commit()
         return vigente
 
-    # El banco exige que el vencimiento sea posterior al día de la publicación: una cuota que
-    # vence hoy o ya venció se publica con vencimiento mañana.
-    # TODO(banco): confirmar si acepta un vencimiento en el mismo día.
+    # Una cuota que ya venció se publica con vencimiento hoy: el banco acepta un vencimiento el
+    # mismo día de la publicación (confirmado el 19/11/2026).
     # TODO(negocio): interés punitorio por pago fuera de término. Mientras no esté definido se
     # cobra la cuota del plan.
-    vence = max(cuota.vencimiento, hoy + timedelta(days=1))
+    vence = max(cuota.vencimiento, hoy)
     pago_id = uuid.uuid4()
     id_publicacion = int(
         (await session.execute(text(f"SELECT nextval('{SECUENCIA_PUBLICACION_SPV}')"))).scalar_one()
