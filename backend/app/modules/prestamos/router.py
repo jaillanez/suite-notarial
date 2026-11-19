@@ -255,13 +255,14 @@ async def prestamo_detalle(
     if p.estado == EstadoPrestamo.SOLICITADO.value:
         ev = await service.reevaluar(session, p, hoy)
         plan = [cuota_out(c, hoy) for c in ev.plan]
-        # Solo el personal ve la situación del garante; el titular, un aviso genérico, y el
-        # garante, nada de la evaluación del titular.
+        # Solo el personal ve la situación del garante (un tercero): el titular, ni siquiera si
+        # es hábil, para que su solicitud no sirva para sondear a otro escribano; el garante,
+        # nada de la evaluación del titular.
         if service.ve_todo(principal):
             impedimentos = ev.impedimentos
             avisos = ev.avisos
         elif not await _solo_garante(session, principal, p):
-            impedimentos = ev.impedimentos_para_titular()
+            impedimentos = ev.impedimentos_propios()
             avisos = ev.avisos
     else:
         plan = [cuota_out(c, hoy) for c in await service.plan_guardado(session, p.id)]
