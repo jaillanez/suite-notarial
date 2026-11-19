@@ -903,7 +903,7 @@ function BoletaItem({
             Descargar PDF
           </Button>
           {/* El banco exige que la deuda venza después del día en que se publica. */}
-          {puedeAdjuntar && supervielle && pagable && boleta.fecha_pago > todayIso() && (
+          {puedeAdjuntar && supervielle && pagable && (
             <BotonSupervielle boletaId={boleta.id} onError={setError} />
           )}
           {puedeAdjuntar && mercadoPago && pagable && (

@@ -316,17 +316,18 @@ async def test_pagar_registra_y_tesoreria_confirma(
     assert len(await _eventos(db_session, "PAGO_SPV_ACTUALIZADO")) == 1
 
 
-async def test_boleta_que_vence_hoy_no_se_publica(
+async def test_boleta_que_vence_hoy_se_publica_con_vencimiento_hoy(
     notario: AsyncClient,
     boleta: dict[str, Any],
     banco: BancoFalso,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """El banco acepta un vencimiento el mismo día de la publicación: se declara y se paga en el
+    día."""
     monkeypatch.setattr(supervielle_service, "today_local", lambda: HOY)
     respuesta = await _pagar(notario, boleta["id"])
-    assert respuesta.status_code == 409
-    assert "vencen hoy" in respuesta.json()["detail"]
-    assert banco.publicaciones == []
+    assert respuesta.status_code == 201, respuesta.text
+    assert [p["vence"] for p in banco.publicaciones] == [HOY]
 
 
 async def test_banco_caido(

@@ -378,16 +378,16 @@ async def test_sin_configurar_no_se_ofrece(notario: AsyncClient, prestamo: dict[
     assert detalle["puede_pagar_spv"] is False
 
 
-async def test_cuota_vencida_se_publica_hasta_manana(
+async def test_cuota_vencida_se_publica_hasta_hoy(
     notario: AsyncClient,
     hoy_banco: BancoFalso,
     prestamo: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """El banco exige un vencimiento posterior al día de la publicación."""
+    """El banco acepta un vencimiento el mismo día de la publicación."""
     monkeypatch.setattr(supervielle_service, "today_local", lambda: date(2026, 12, 5))
     assert (await _pagar(notario, prestamo["id"])).status_code == 201
-    assert hoy_banco.publicaciones[-1]["vence"] == date(2026, 12, 6)
+    assert hoy_banco.publicaciones[-1]["vence"] == date(2026, 12, 5)
     assert hoy_banco.publicaciones[-1]["importe"] == CUOTA
 
 

@@ -162,7 +162,7 @@ describe('pagar una boleta con el botón Supervielle', () => {
     open.mockRestore()
   })
 
-  it('no se ofrece si no está configurado ni para una boleta que vence hoy', async () => {
+  it('no se ofrece si no está configurado; sí para una boleta que vence hoy', async () => {
     vi.mocked(pagosApi.fetchSupervielleHabilitado).mockResolvedValue(false)
     const { unmount } = renderDeclaracion()
     expect(await screen.findByText('Boleta N° 1069')).toBeInTheDocument()
@@ -178,8 +178,7 @@ describe('pagar una boleta con el botón Supervielle', () => {
       boletas: [{ ...BOLETA, fecha_pago: hoy }],
     })
     renderDeclaracion()
-    expect(await screen.findByText('Boleta N° 1069')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Pagar con Supervielle' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Pagar con Supervielle' })).toBeInTheDocument()
   })
 
   it('un pago en proceso queda a la vista para volver a verificar', async () => {

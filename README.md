@@ -347,8 +347,8 @@ Ya aplicadas:
 - **Botón de pagos Supervielle** (APIBANK Recaudaciones), con las credenciales `SUPERVIELLE_*`
   y el convenio de la Caja en el `.env` (sin ellos, el botón no aparece):
   - «Pagar con Supervielle» publica en el banco una deuda por el **total exacto** que vence con
-    la fecha de pago de la boleta (el banco exige que venza después del día en que se publica:
-    una boleta que vence hoy se paga por transferencia). Mientras esa deuda siga vigente se
+    la fecha de pago de la boleta, aunque sea hoy (el banco acepta un vencimiento el mismo día
+    de la publicación). Mientras esa deuda siga vigente se
     reutiliza su link: el banco no permite anularla.
   - El link se abre en otra pestaña. Al volver, «Ya pagué: verificar» consulta la publicación
     al banco; el banco también avisa por `GET /api/v1/pagos/supervielle/aviso/{hash}`. El aviso
@@ -357,8 +357,8 @@ Ya aplicadas:
     comprobante «Supervielle» y **Tesorería lo confirma** contra la rendición del banco.
   - **Cuotas de préstamos en pesos** (decisión de la Caja del 17/11/2026): el titular ve «Pagar
     cuota N con Supervielle» en la ficha del préstamo. Se publica la próxima cuota por su
-    **importe exacto** (la comisión la absorbe la Caja) con el vencimiento de la cuota, o mañana
-    si vence hoy o ya venció. El pago aprobado queda «a confirmar» en el préstamo (la mesa es de
+    **importe exacto** (la comisión la absorbe la Caja) con el vencimiento de la cuota, o hoy
+    si ya venció. El pago aprobado queda «a confirmar» en el préstamo (la mesa es de
     boletas, igual que con Mercado Pago): Tesorería confirma desde la ficha, la Suite vuelve a
     consultar el pago al banco y recién ahí la cuota pasa a pagada. Las cuotas en dólares se
     rechazan: el botón cobra en pesos. La transferencia con comprobante sigue disponible.
