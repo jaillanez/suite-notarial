@@ -488,7 +488,11 @@ async def designar(
             f"{_fecha(choque.fecha_desde)} al {_fecha(choque.fecha_hasta)}"
             + (" (pendiente de aprobación)." if choque.estado != "APROBADA" else ".")
         )
-    espera = not personal and await requiere_aprobacion(session)
+    # Sin fecha de juramento no se puede controlar ese límite: la que carga el titular espera la
+    # aprobación de la Caja en lugar de regir sola.
+    espera = not personal and (
+        escribano.fecha_matriculacion is None or await requiere_aprobacion(session)
+    )
     ahora = datetime.now(UTC)
     item = DesignacionACargo(
         id=uuid.uuid4(),

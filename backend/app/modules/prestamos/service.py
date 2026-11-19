@@ -250,10 +250,12 @@ async def buscar_garantes(
         .order_by(Persona.apellido, Persona.nombre)
         .limit(10)
     )
-    texto = f"%{consulta.lower()}%"
+    # Los comodines del usuario se escapan: «%» o «_» no sirven para recorrer el padrón.
+    escapada = consulta.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    texto = f"%{escapada}%"
     condiciones: list[ColumnElement[bool]] = [
-        func.lower(Persona.apellido).like(texto),
-        func.lower(Persona.nombre).like(texto),
+        func.lower(Persona.apellido).like(texto, escape="\\"),
+        func.lower(Persona.nombre).like(texto, escape="\\"),
     ]
     if consulta.isdigit():
         condiciones.append(Escribano.matricula_numero == int(consulta))
@@ -612,8 +614,10 @@ async def crear_solicitud(
     *,
     por_el_titular: bool = False,
 ) -> Prestamo:
-    """`por_el_titular`: la carga el propio escribano; si el garante no es hábil, no se le
-    revela por qué (es la situación de un tercero)."""
+    """`por_el_titular`: la carga el propio escribano. La habilidad del garante (situación de un
+    tercero) no se evalúa ante él: ni el motivo ni un rechazo distinto que sirva para sondear a
+    otros escribanos. La solicitud queda SOLICITADA y la controla el personal al otorgar, que
+    vuelve a evaluarla completa."""
     linea = await get_linea(session, data.linea_id)
     # El router completa el escribano (el propio, si solicita un escribano).
     assert data.escribano_id is not None  # noqa: S101
@@ -629,7 +633,9 @@ async def crear_solicitud(
         garante_id=data.garante_escribano_id,
     )
     _rechazar_si_hay(
-        ev.impedimentos_para_titular() if por_el_titular else ev.impedimentos,
+        [i for i in ev.impedimentos if i not in ev.impedimentos_garante]
+        if por_el_titular
+        else ev.impedimentos,
         status=HTTPStatus.UNPROCESSABLE_ENTITY,
     )
     assert ev.afectacion is not None  # noqa: S101 - hay ingreso neto

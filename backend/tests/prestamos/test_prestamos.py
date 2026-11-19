@@ -465,6 +465,9 @@ async def test_el_escribano_busca_garantes_sin_ver_el_padron(
     assert garante["id"] == str(escenario.adscripto.id)
     # Solo lo necesario para elegirlo: ni CUIT ni contacto.
     assert set(garante) == {"id", "apellido_nombre", "matricula_numero"}
+    # Los comodines no recorren el padrón.
+    comodin = await notario.get("/api/v1/prestamos/garantes", params={"q": "%%"})
+    assert comodin.status_code == 200 and comodin.json() == []
     # Nunca se propone a sí mismo.
     propio = await notario.get("/api/v1/prestamos/garantes", params={"q": "titular"})
     assert all(g["id"] != str(escenario.titular.id) for g in propio.json())
@@ -483,5 +486,8 @@ async def test_la_solicitud_del_escribano_no_revela_al_garante(
         "/api/v1/prestamos",
         json=solicitud(escenario, linea, garante_escribano_id=str(escenario.adscripto.id)),
     )
-    assert r.status_code == 422
-    assert "deuda" not in r.text and "consultá con la Caja" in r.json()["detail"]
+    # No sirve para sondear a otro escribano: la solicitud se carga igual, sin revelar nada, y
+    # la habilidad del garante la controla el personal al otorgar.
+    assert r.status_code == 201, r.text
+    assert "deuda" not in r.text and "mora" not in r.text
+    assert r.json()["estado"] == "SOLICITADO"
