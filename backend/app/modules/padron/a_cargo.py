@@ -437,12 +437,12 @@ async def designar(
         raise ProblemError(HTTPStatus.NOT_FOUND, "El escribano no existe.")
     if escribano.estado_matricula != EstadoMatricula.ACTIVO.value:
         raise _conflict("Solo un escribano con matrícula ACTIVA puede quedar a cargo.")
-    if escribano.fecha_matriculacion is None:
-        raise _conflict(
-            "Falta la fecha de juramento: completala desde «Completar datos» antes de "
-            "esta operación."
-        )
-    if data.fecha_desde < escribano.fecha_matriculacion:
+    # Muchos escribanos migrados no traen la fecha de juramento: sin ella no se puede controlar
+    # este límite, pero no se bloquea la designación (pedido de la Caja, 19/11/2026).
+    if (
+        escribano.fecha_matriculacion is not None
+        and data.fecha_desde < escribano.fecha_matriculacion
+    ):
         raise _invalid("La designación no puede ser anterior al juramento.")
     personal = es_personal(principal)
     if not personal:
@@ -488,7 +488,11 @@ async def designar(
             f"{_fecha(choque.fecha_desde)} al {_fecha(choque.fecha_hasta)}"
             + (" (pendiente de aprobación)." if choque.estado != "APROBADA" else ".")
         )
-    espera = not personal and await requiere_aprobacion(session)
+    # Sin fecha de juramento no se puede controlar ese límite: la que carga el titular espera la
+    # aprobación de la Caja en lugar de regir sola.
+    espera = not personal and (
+        escribano.fecha_matriculacion is None or await requiere_aprobacion(session)
+    )
     ahora = datetime.now(UTC)
     item = DesignacionACargo(
         id=uuid.uuid4(),

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, FilePlus2, Pencil, Plus } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 
 import { StatusIndicator } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
@@ -12,6 +12,7 @@ import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
+import { useSession } from '../auth/session'
 import { formatDecimal, normalizeDecimalInput, normalizeTasaInput } from '../../lib/decimal'
 import { fetchLineas, guardarLinea, type Linea, type Moneda, type Sistema } from './api'
 import { CondicionesLinea, RequisitosLinea } from './componentes'
@@ -258,7 +259,12 @@ function LineaDialog({
 }
 
 export function LineasPage() {
+  const { can } = useSession()
+  const navigate = useNavigate()
+  // El personal las administra; el escribano las consulta y solicita desde acá.
+  const gestiona = can('prestamos:manage')
   const query = useQuery({ queryKey: ['prestamos', 'lineas'], queryFn: fetchLineas })
+  const lineas = (query.data ?? []).filter((l) => gestiona || l.is_active)
   const [editando, setEditando] = useState<{ open: boolean; item?: Linea }>({ open: false })
   return (
     <>
@@ -271,20 +277,26 @@ export function LineasPage() {
       </Link>
       <PageHeader
         title="Líneas de crédito"
-        description="Condiciones que fija el Directorio para cada línea. Cada cambio queda en la auditoría."
+        description={
+          gestiona
+            ? 'Condiciones que fija el Directorio para cada línea. Cada cambio queda en la auditoría.'
+            : 'Condiciones y requisitos de cada línea que ofrece la Caja. Elegí una para solicitar el préstamo.'
+        }
       />
       <Panel
         title="Líneas"
         actions={
-          <Button
-            variant="primary"
-            icon={Plus}
-            onClick={() => {
-              setEditando({ open: true })
-            }}
-          >
-            Nueva línea
-          </Button>
+          gestiona && (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => {
+                setEditando({ open: true })
+              }}
+            >
+              Nueva línea
+            </Button>
+          )
         }
       >
         {query.isError && (
@@ -293,12 +305,12 @@ export function LineasPage() {
           </div>
         )}
         <ul className="divide-y divide-line">
-          {query.data?.length === 0 && (
+          {query.isSuccess && lineas.length === 0 && (
             <li className="px-5 py-10 text-center text-ink-muted sm:px-6">
               Todavía no hay líneas de crédito.
             </li>
           )}
-          {query.data?.map((l) => (
+          {lineas.map((l) => (
             <li
               key={l.id}
               className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 sm:px-6"
@@ -317,15 +329,26 @@ export function LineasPage() {
                 {l.moneda === 'USD' && <StatusIndicator tone="unknown" label="En dólares" />}
                 {l.es_ejemplo && <StatusIndicator tone="warning" label="A confirmar" />}
                 {!l.is_active && <StatusIndicator tone="unknown" label="Deshabilitada" />}
-                <Button
-                  variant="ghost"
-                  icon={Pencil}
-                  onClick={() => {
-                    setEditando({ open: true, item: l })
-                  }}
-                >
-                  Editar
-                </Button>
+                {gestiona ? (
+                  <Button
+                    variant="ghost"
+                    icon={Pencil}
+                    onClick={() => {
+                      setEditando({ open: true, item: l })
+                    }}
+                  >
+                    Editar
+                  </Button>
+                ) : (
+                  <Button
+                    icon={FilePlus2}
+                    onClick={() => {
+                      void navigate(`/prestamos/nueva?linea=${l.id}`)
+                    }}
+                  >
+                    Solicitar
+                  </Button>
+                )}
               </div>
             </li>
           ))}

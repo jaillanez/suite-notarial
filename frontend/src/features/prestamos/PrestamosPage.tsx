@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Calculator, ChevronRight, FilePlus2, Settings2 } from 'lucide-react'
+import { Calculator, ChevronRight, FilePlus2, ListChecks, Settings2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
@@ -20,6 +20,8 @@ export function PrestamosPage() {
   const navigate = useNavigate()
   const gestiona = can('prestamos:manage')
   const personal = can('prestamos:read_all')
+  // El escribano consulta las líneas y solicita a su nombre.
+  const propios = can('prestamos:read_own')
   const [estado, setEstado] = useState<EstadoPrestamo | ''>('')
   const query = useQuery({
     queryKey: ['prestamos', 'lista', estado],
@@ -34,7 +36,7 @@ export function PrestamosPage() {
         description={
           personal
             ? 'Solicitudes, préstamos vigentes y su cobranza. Cada solicitud la carga una persona y la resuelve otra.'
-            : 'Tus préstamos y los que garantizás. Podés simular uno nuevo antes de pedirlo en la Caja.'
+            : 'Tus préstamos y los que garantizás. Consultá las líneas con sus requisitos, simulá y solicitá el préstamo desde acá.'
         }
       />
       {saldo.data && saldo.data.monedas.length > 0 && (
@@ -61,15 +63,15 @@ export function PrestamosPage() {
             >
               Simular
             </Button>
-            {gestiona && (
+            {(gestiona || propios) && (
               <>
                 <Button
-                  icon={Settings2}
+                  icon={gestiona ? Settings2 : ListChecks}
                   onClick={() => {
                     void navigate('/prestamos/lineas')
                   }}
                 >
-                  Líneas
+                  {gestiona ? 'Líneas' : 'Líneas y requisitos'}
                 </Button>
                 <Button
                   variant="primary"
@@ -78,7 +80,7 @@ export function PrestamosPage() {
                     void navigate('/prestamos/nueva')
                   }}
                 >
-                  Nueva solicitud
+                  {gestiona ? 'Nueva solicitud' : 'Solicitar préstamo'}
                 </Button>
               </>
             )}

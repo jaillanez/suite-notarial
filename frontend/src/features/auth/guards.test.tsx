@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { Route, Routes } from 'react-router'
 
@@ -44,7 +44,7 @@ describe('guards', () => {
     expect(screen.getByText('Seguridad')).toBeInTheDocument()
   })
 
-  it('donde el 2FA es solo recomendado, se ofrece y se puede «Ingresar igual»', () => {
+  it('donde el 2FA es solo recomendado, no bloquea: se entra directo a la pantalla', () => {
     sessionStorage.clear()
     const caja = { ...ESCRIBANO, id: 'u-caja', roles: ['ROLE_CAJA'], mfa_sugerido: true }
     renderWithProviders(
@@ -56,10 +56,7 @@ describe('guards', () => {
       </Routes>,
       { path: '/', user: caja, raw: true },
     )
-    expect(
-      screen.getByText('Te recomendamos activar la verificación en dos pasos'),
-    ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ingresar igual' }))
+    // La recomendación la muestra el aviso de AppShell, sin desviar a Mi cuenta.
     expect(screen.getByText('Inicio de la Suite')).toBeInTheDocument()
   })
 

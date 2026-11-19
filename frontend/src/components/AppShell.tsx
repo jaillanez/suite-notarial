@@ -1,15 +1,18 @@
 import { notifyManager, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, LogOut, Menu, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { logout } from '../features/auth/api'
 import {
   SESSION_KEY,
   clearUserData,
+  mfaSugeridoPendiente,
   needsMfaEnrollment,
+  omitirMfaSugerido,
   useSession,
 } from '../features/auth/session'
+import { Alert } from './ui/Alert'
 import { BrandLogo } from './BrandLogo'
 
 interface NavItem {
@@ -17,6 +20,8 @@ interface NavItem {
   label: string
   /** Alcanza con uno de los permisos. */
   permission?: string | string[]
+  /** Nombre para el personal de la Caja, cuando la misma pantalla cumple otra función. */
+  staffLabel?: string
 }
 
 const NAV: NavItem[] = [
@@ -24,11 +29,13 @@ const NAV: NavItem[] = [
   {
     to: '/ddjj',
     label: 'Declaraciones juradas',
+    staffLabel: 'DDJJ recibidas',
     permission: ['ddjj:read_own', 'ddjj:read_all', 'ddjj:approve'],
   },
   {
     to: '/a-cargo',
     label: 'Escribano a cargo',
+    staffLabel: 'Designaciones a cargo',
     permission: ['escribanos:read', 'ddjj:create_own'],
   },
   { to: '/tesoreria/conciliacion', label: 'Conciliación', permission: 'comprobantes:verify' },
@@ -73,6 +80,13 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const location = useLocation()
+  // Recomendación de 2FA: un aviso que no bloquea; «Ahora no» lo oculta hasta cerrar la pestaña.
+  const [, setOmitido] = useState(false)
+  const sugerir2fa =
+    user !== null && mfaSugeridoPendiente(user) && location.pathname !== '/cuenta/seguridad'
+  // El personal de la Caja ve las pantallas compartidas con su nombre de administración.
+  const personal = can('ddjj:read_all') || can('ddjj:approve')
   const signOut = useMutation({
     mutationFn: logout,
     onSettled: () => {
@@ -105,7 +119,7 @@ export function AppShell() {
         setMenuOpen(false)
       }}
     >
-      {item.label}
+      {personal && item.staffLabel ? item.staffLabel : item.label}
     </NavLink>
   ))
 
@@ -196,6 +210,37 @@ export function AppShell() {
         )}
       </header>
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
+        {sugerir2fa && (
+          <div className="mb-8">
+            <Alert
+              tone="info"
+              title="Te recomendamos activar la verificación en dos pasos"
+              action={
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    to="/cuenta/seguridad"
+                    className="inline-flex min-h-11 items-center rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline hover:border-brand-700 hover:bg-brand-50"
+                  >
+                    Activarla ahora
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      omitirMfaSugerido(user)
+                      setOmitido(true)
+                    }}
+                    className="inline-flex min-h-11 cursor-pointer items-center rounded-control px-4 text-sm font-semibold text-brand-800 hover:bg-brand-50"
+                  >
+                    Ahora no
+                  </button>
+                </div>
+              }
+            >
+              Tu rol tiene acceso a información sensible de la Caja: con este paso, aunque alguien
+              conozca tu contraseña no puede entrar sin tu teléfono.
+            </Alert>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

@@ -8,7 +8,9 @@ import * as apiModule from './api'
 import { PlanCuotas, ResumenEvaluacion } from './componentes'
 import { importe, requisitosLinea, textoMeses } from './labels'
 import { PrestamoPage } from './PrestamoPage'
+import { LineasPage } from './LineasPage'
 import { PrestamosPage } from './PrestamosPage'
+import { SolicitudPage } from './SolicitudPage'
 
 vi.mock('./api')
 vi.mock('../pagos/api')
@@ -574,5 +576,73 @@ describe('mis préstamos', () => {
     expect(screen.getByText('2 préstamos vigentes')).toBeInTheDocument()
     expect(screen.getByText('23/11/2026')).toBeInTheDocument()
     expect(screen.getAllByText('$ 8.884,88')).toHaveLength(2)
+  })
+})
+
+describe('el escribano solicita su préstamo', () => {
+  const NOTARIO = { ...ESCRIBANO, permissions: ['prestamos:read_own'] }
+  const LINEA: apiModule.Linea = {
+    id: 'l1',
+    codigo: 'PERSONAL',
+    nombre: 'Personal',
+    descripcion: null,
+    sistema: 'FRANCES',
+    plazo_minimo: 1,
+    plazo_maximo: 24,
+    monto_minimo: '1000.00',
+    monto_maximo: '500000.00',
+    tna: '40.0000',
+    afectacion_maxima: '30.0000',
+    requiere_garante: false,
+    moneda: 'ARS',
+    garantia: null,
+    requisito_conducta: null,
+    relacion_capital_hipoteca: null,
+    requiere_certificado_ingresos: true,
+    requiere_certificado_bienes: false,
+    antiguedad_minima_meses: null,
+    es_ejemplo: false,
+    is_active: true,
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(apiModule.fetchLineas).mockResolvedValue([
+      LINEA,
+      { ...LINEA, id: 'l2', nombre: 'Vieja', is_active: false },
+    ])
+  })
+
+  it('ve las líneas habilitadas con sus requisitos, sin poder editarlas', async () => {
+    renderWithProviders(<LineasPage />, { user: NOTARIO })
+    expect(await screen.findByText('Personal')).toBeInTheDocument()
+    expect(screen.getByText(/Certificado de ingresos/)).toBeInTheDocument()
+    expect(screen.queryByText('Vieja')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Nueva línea' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Solicitar' })).toBeInTheDocument()
+  })
+
+  it('solicita a su nombre, sin elegir escribano', async () => {
+    vi.mocked(apiModule.simular).mockResolvedValue(EV)
+    vi.mocked(apiModule.crearSolicitud).mockResolvedValue({ id: 'p9' } as apiModule.PrestamoDetalle)
+    renderWithProviders(
+      <Routes>
+        <Route path="/prestamos/nueva" element={<SolicitudPage />} />
+      </Routes>,
+      { user: NOTARIO, path: '/prestamos/nueva?linea=l1', raw: true },
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'Solicitar un préstamo' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Escribano', { selector: 'legend' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Capital/), { target: { value: '100000' } })
+    fireEvent.change(screen.getByLabelText(/Cuotas/), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText(/Ingreso neto/), { target: { value: '600000' } })
+    await waitFor(() => {
+      expect(apiModule.simular).toHaveBeenCalledWith(
+        expect.objectContaining({ linea_id: 'l1', escribano_id: null }),
+      )
+    })
   })
 })

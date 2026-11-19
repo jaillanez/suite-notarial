@@ -192,7 +192,8 @@ const router = createBrowserRouter([
             ],
           },
           {
-            element: <RequirePermission permission="prestamos:manage" />,
+            // El escribano también: ve las líneas con sus requisitos y solicita a su nombre.
+            element: <RequirePermission permission={['prestamos:manage', 'prestamos:read_own']} />,
             children: [
               { path: '/prestamos/nueva', element: <SolicitudPage /> },
               { path: '/prestamos/lineas', element: <LineasPage /> },

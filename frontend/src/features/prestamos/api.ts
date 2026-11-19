@@ -237,8 +237,20 @@ export async function fetchPrestamo(id: string): Promise<PrestamoDetalle> {
   return (await api.get<PrestamoDetalle>(`${P}/${id}`)).data
 }
 
+/** Escribano que se puede proponer como garante (sin datos del padrón). */
+export interface Garante {
+  id: string
+  apellido_nombre: string
+  matricula_numero: number | null
+}
+
+export async function fetchGarantes(q: string): Promise<Garante[]> {
+  return (await api.get<Garante[]>(`${P}/garantes`, { params: { q } })).data
+}
+
 export async function crearSolicitud(data: {
-  escribano_id: string
+  /** Solo el personal: el escribano solicita siempre a su nombre. */
+  escribano_id: string | null
   linea_id: string
   capital: string
   cuotas: number
