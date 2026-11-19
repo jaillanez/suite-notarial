@@ -5,8 +5,8 @@ y por año, y el folio y la fecha acompañan ese orden. Sobre los actos ya decla
 
 - número repetido: bloquea si está en otra DDJJ del año; en la misma DDJJ solo se admite como
   acto múltiple (varios actos de una misma escritura, cada uno en su renglón);
-- folio repetido: advierte, salvo con la escritura inmediata anterior o siguiente (una escritura
-  puede empezar en el folio donde terminó la otra);
+- folio repetido: bloquea si ya está en otra escritura (aunque sea la consecutiva); solo lo
+  comparten los actos de una misma escritura;
 - folio o fecha fuera de orden respecto de la numeración: advierte;
 - números salteados entre la primera y la última escritura declaradas del año: se listan para
   declararlos «sin efecto» si no se usaron.
@@ -209,19 +209,20 @@ def revisar(vista: Vista, c: Candidato) -> list[Control]:
     menores = bisect.bisect_left(p.numeros, c.numero)
     mayores = bisect.bisect_right(p.numeros, c.numero)
     if c.folio is not None:
+        # Otros actos de la misma escritura comparten el folio sin aviso (distancia 0).
         mismo_folio = [
-            a
-            for a in p.por_folio.get(c.folio, [])
-            if a.id != c.excluir and abs(a.numero - c.numero) > 1
+            a for a in p.por_folio.get(c.folio, []) if a.id != c.excluir and a.numero != c.numero
         ]
         if mismo_folio:
+            # Pedido de la Caja (19/11/2026): un folio ya usado por otra escritura no se carga,
+            # aunque sea la consecutiva.
             otro = mismo_folio[0]
             controles.append(
                 Control(
                     "FOLIO_REPETIDO",
-                    NivelControl.ADVERTENCIA,
-                    f"El folio {c.folio} también figura en la escritura N° {otro.numero}: "
-                    "verificalo en el libro.",
+                    NivelControl.BLOQUEANTE,
+                    f"El folio {c.folio} ya está en la escritura N° {otro.numero}: corregí el "
+                    "folio.",
                 )
             )
         antes = p.max_folio[menores - 1] if menores > 0 else None

@@ -49,12 +49,13 @@ def test_acto_multiple_solo_en_la_misma_declaracion() -> None:
     assert _codigos(otra) == {"NUMERO_REPETIDO": NivelControl.BLOQUEANTE}
 
 
-def test_folio_compartido_con_la_contigua_es_normal() -> None:
-    # La 13 empieza en el folio donde terminó la 12.
-    assert _codigos(Candidato("GENERAL", 13, 25, date(2026, 9, 10))) == {}
-    # Pero el folio de la 10 en la 13 no corresponde.
+def test_folio_repetido_bloquea_aunque_sea_la_contigua() -> None:
+    # Pedido de la Caja (19/11/2026): ni siquiera la escritura consecutiva comparte el folio.
+    assert _codigos(Candidato("GENERAL", 13, 25, date(2026, 9, 10))) == {
+        "FOLIO_REPETIDO": NivelControl.BLOQUEANTE
+    }
     assert _codigos(Candidato("GENERAL", 13, 20, date(2026, 9, 10))) == {
-        "FOLIO_REPETIDO": NivelControl.ADVERTENCIA,
+        "FOLIO_REPETIDO": NivelControl.BLOQUEANTE,
         "FOLIO_FUERA_DE_ORDEN": NivelControl.ADVERTENCIA,
     }
 
@@ -293,7 +294,7 @@ async def test_aporte_multiple_en_la_misma_escritura(
     otra_fecha = await _agregar(notario, ddjj["id"], {**hipoteca, "fecha_acto": "2026-09-16"})
     assert otra_fecha.status_code == 422
     # Un acto múltiple necesita su primer acto en la misma DDJJ.
-    suelto = await _agregar(notario, ddjj["id"], {**hipoteca, "numero_escritura": 49})
+    suelto = await _agregar(notario, ddjj["id"], {**hipoteca, "numero_escritura": 49, "folio": 10})
     assert suelto.status_code == 422
     assert "cargá primero su primer acto" in suelto.json()["detail"]
     # Y no se puede repartir la escritura en otra DDJJ.
