@@ -45,11 +45,11 @@ export function ConfirmarCorreoPage() {
           <>
             <Alert tone="success">{confirmar.data}</Alert>
             <Link
-              to="/"
+              to="/ingresar"
               replace
               className="inline-flex min-h-11 items-center rounded-control bg-brand-800 px-4 text-sm font-semibold text-white no-underline hover:bg-brand-700"
             >
-              Ir a la Suite
+              Ir a ingresar
             </Link>
           </>
         ) : (

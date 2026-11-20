@@ -334,6 +334,7 @@ async def pedir_cambio_correo(
 @router.post("/perfil/correo/confirmar", response_model=MessageResponse)
 async def confirmar_cambio_correo(
     body: ConfirmarCorreoIn,
+    response: Response,
     background: BackgroundTasks,
     session: SessionDep,
     settings: SettingsDep,
@@ -343,7 +344,11 @@ async def confirmar_cambio_correo(
     """Confirma el cambio con el enlace del mail (no hace falta tener la sesión abierta)."""
     user, anterior = await service.confirm_email_change(session, ctx, body.token)
     background.add_task(send_safely, mailer, email_changed_mail(settings, user, anterior))
-    return MessageResponse(message=f"Listo: desde ahora ingresás con {user.email}.")
+    # Las sesiones se cerraron: también la de este navegador.
+    clear_session_cookies(response, settings)
+    return MessageResponse(
+        message=f"Listo: desde ahora ingresás con {user.email}. Volvé a ingresar con ese correo."
+    )
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)

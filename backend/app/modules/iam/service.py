@@ -731,6 +731,7 @@ async def confirm_password_reset(
     token.used_at = now
     user.hashed_password = await passwords.hash_password_async(new_password)
     user.password_changed_at = now
+    await _anular_cambios_de_correo(session, user.id, now)
     user.failed_login_attempts = 0
     user.locked_until = None
     user.is_verified = True
@@ -790,6 +791,7 @@ async def change_password(
     now = _now()
     user.hashed_password = await passwords.hash_password_async(new_password)
     user.password_changed_at = now
+    await _anular_cambios_de_correo(session, user.id, now)
     user.failed_login_attempts = 0
     user.locked_until = None
     await session.execute(
@@ -846,6 +848,19 @@ async def update_profile(
 
 # --------------------------------------------------------------------------- cambio de correo
 
+
+async def _anular_cambios_de_correo(
+    session: AsyncSession, user_id: uuid.UUID, now: datetime
+) -> None:
+    """Un cambio o restablecimiento de contraseña anula los cambios de correo pendientes: quien
+    tenía la cuenta comprometida no puede llevarse el correo de ingreso después."""
+    await session.execute(
+        update(EmailChangeToken)
+        .where(EmailChangeToken.user_id == user_id, EmailChangeToken.used_at.is_(None))
+        .values(used_at=now)
+    )
+
+
 # Los pedidos de cambio de correo de una cuenta por hora (cada uno manda un mail).
 MAX_EMAIL_CHANGES_PER_HOUR = 3
 EMAIL_CHANGE_TTL_MIN = 60
@@ -891,8 +906,8 @@ async def request_email_change(
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, PASSWORD_ACTUAL_INCORRECTA)
     if nuevo == user.email:
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "Ese ya es tu correo.")
-    if await _email_en_uso(session, nuevo, user.id):
-        raise ProblemError(HTTPStatus.CONFLICT, EMAIL_EN_USO)
+    # No se dice acá si la dirección ya es de otra cuenta (revelaría qué correos existen): el
+    # enlace sale igual y la confirmación lo rechaza. Cada pedido cuenta para el límite.
     now = _now()
     recientes = await session.scalar(
         select(func.count())
@@ -965,6 +980,8 @@ async def confirm_email_change(
         if token.expires_at <= now
         else "inactive"
         if user is None or not user.is_active
+        else "stale"
+        if user.password_changed_at is not None and user.password_changed_at > token.created_at
         else None
     )
     if motivo is not None or token is None or user is None:
@@ -983,6 +1000,8 @@ async def confirm_email_change(
     anterior = user.email
     token.used_at = now
     user.email = token.nuevo_email
+    # Cambió el identificador de ingreso: se vuelve a ingresar en todos los dispositivos.
+    await revoke_all_user_sessions(session, user.id, "email_changed")
     record_audit(
         session,
         ctx,

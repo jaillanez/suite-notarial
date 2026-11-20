@@ -52,7 +52,9 @@ async def test_cambio_de_correo_con_confirmacion(
 
     confirmado = await client.post("/api/v1/auth/perfil/correo/confirmar", json={"token": token})
     assert confirmado.status_code == 200, confirmado.text
-    assert (await client.get("/api/v1/auth/perfil")).json()["email"] == NUEVO
+    # Cambió el identificador: se cierran las sesiones y se vuelve a ingresar con el nuevo.
+    assert (await client.get("/api/v1/auth/perfil")).status_code == 401
+    assert (await db_session.get(User, user.id, populate_existing=True)).email == NUEVO  # type: ignore[union-attr]
     # Se avisa a la dirección anterior.
     assert mailer.sent[-1].to == anterior
     # El enlace es de un solo uso.
@@ -75,11 +77,33 @@ async def test_cambio_de_correo_exige_la_contrasena_y_un_correo_libre(
 
     mala = await _pedir(client, password="no-es-la-clave")
     assert mala.status_code == 422  # type: ignore[attr-defined]
-    ocupado = await _pedir(client, otro.email)
-    assert ocupado.status_code == 409  # type: ignore[attr-defined]
     mismo = await _pedir(client, user.email)
     assert mismo.status_code == 422  # type: ignore[attr-defined]
     assert mailer.sent == []
+    # Un correo de otra cuenta no se delata al pedir: la respuesta es la misma y la
+    # confirmación lo rechaza.
+    ocupado = await _pedir(client, otro.email)
+    assert ocupado.status_code == 202  # type: ignore[attr-defined]
+    token = await _token(mailer)
+    rechazado = await client.post("/api/v1/auth/perfil/correo/confirmar", json={"token": token})
+    assert rechazado.status_code == 409
+
+
+async def test_cambiar_la_contrasena_anula_el_cambio_de_correo_pendiente(
+    client: AsyncClient, db_session: AsyncSession, mailer: FakeMailer
+) -> None:
+    user = await make_user(db_session)
+    await login(client, user)
+    assert (await _pedir(client)).status_code == 202  # type: ignore[attr-defined]
+    token = await _token(mailer)
+    cambio = await client.post(
+        "/api/v1/auth/password/change",
+        json={"current_password": PASSWORD, "new_password": "Otra-Clave-Segura-2026!"},
+    )
+    assert cambio.status_code == 200, cambio.text
+    anulado = await client.post("/api/v1/auth/perfil/correo/confirmar", json={"token": token})
+    assert anulado.status_code == 400
+    assert (await db_session.get(User, user.id, populate_existing=True)).email == user.email  # type: ignore[union-attr]
 
 
 async def test_el_correo_tomado_mientras_tanto_no_se_confirma(
