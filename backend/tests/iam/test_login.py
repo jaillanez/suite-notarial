@@ -8,7 +8,7 @@ from app.common.audit import AuditSecurityLog
 from app.common.cuit import format_cuit
 from app.modules.iam.models import User
 from app.modules.iam.service import INVALID_CREDENTIALS
-from tests.iam.factories import PASSWORD, make_user
+from tests.iam.factories import PASSWORD, complete_email_code, make_user
 
 
 async def _events(session: AsyncSession, user: User) -> list[str]:
@@ -26,9 +26,12 @@ async def _events(session: AsyncSession, user: User) -> list[str]:
 async def test_login_sets_hardened_cookies(client: AsyncClient, db_session: AsyncSession) -> None:
     user = await make_user(db_session)
 
-    response = await client.post(
+    step = await client.post(
         "/api/v1/auth/login", json={"identifier": user.email, "password": PASSWORD}
     )
+    assert step.status_code == 200
+    assert step.json()["status"] == "mfa_required"
+    response = await complete_email_code(client)
 
     assert response.status_code == 200
     assert response.json()["status"] == "authenticated"
@@ -114,6 +117,7 @@ async def test_success_is_audited_with_ip(client: AsyncClient, db_session: Async
     user = await make_user(db_session)
 
     await client.post("/api/v1/auth/login", json={"identifier": user.email, "password": PASSWORD})
+    await complete_email_code(client)
 
     row = (
         await db_session.execute(

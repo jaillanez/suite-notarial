@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.iam.deps import MFA_ENROLLMENT_TYPE
 from app.modules.iam.models import RecoveryCode, User
 from app.modules.iam.service import INVALID_MFA
-from tests.iam.factories import PASSWORD, make_user, totp_code
+from tests.iam.factories import PASSWORD, complete_email_code, make_user, totp_code
+from tests.iam.test_rbac import login
 
 
 async def _password_step(client: AsyncClient, user: User) -> dict[str, object]:
@@ -78,7 +79,7 @@ async def test_enrollment_enables_mfa_with_recovery_codes(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     user = await make_user(db_session)
-    await _password_step(client, user)
+    await login(client, user)
 
     setup = await client.post("/api/v1/auth/mfa/setup")
     assert setup.status_code == 200
@@ -114,7 +115,7 @@ async def test_enrollment_enables_mfa_with_recovery_codes(
 
 async def test_recovery_code_is_single_use(client: AsyncClient, db_session: AsyncSession) -> None:
     user = await make_user(db_session)
-    await _password_step(client, user)
+    await login(client, user)
     secret = (await client.post("/api/v1/auth/mfa/setup")).json()["secret"]
     codes = (await client.post("/api/v1/auth/mfa/enable", json={"code": totp_code(secret)})).json()[
         "recovery_codes"
@@ -131,12 +132,36 @@ async def test_recovery_code_is_single_use(client: AsyncClient, db_session: Asyn
     assert second.status_code == 401
 
 
-async def test_privileged_role_must_enroll_before_acting(
+async def test_privileged_role_without_app_uses_email_code(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     admin = await make_user(db_session, roles=("ROLE_ADMIN",))
-    login = await _password_step(client, admin)
-    assert login["status"] == "authenticated"
+    step = await _password_step(client, admin)
+    assert step["status"] == "mfa_required"
+    assert step["mfa_method"] == "email"
+    # Con la contraseña sola no hay sesión.
+    assert (await client.get("/api/v1/users")).status_code == 401
+
+    ok = await complete_email_code(client)
+    assert ok.status_code == 200
+    assert ok.json()["user"]["mfa_verified"] is True
+    assert (await client.get("/api/v1/users")).status_code == 200
+
+
+async def test_without_email_code_privileged_role_must_enroll(
+    client: AsyncClient, db_session: AsyncSession, app: object
+) -> None:
+    """Con el código por correo apagado (solo desarrollo), el personal necesita la aplicación."""
+    from fastapi import FastAPI
+
+    from app.core.config import get_settings
+
+    assert isinstance(app, FastAPI)
+    sin_correo = get_settings().model_copy(update={"LOGIN_EMAIL_CODE": False})
+    app.dependency_overrides[get_settings] = lambda: sin_correo
+    admin = await make_user(db_session, roles=("ROLE_ADMIN",))
+    step = await _password_step(client, admin)
+    assert step["status"] == "authenticated"
 
     blocked = await client.get("/api/v1/users")
     assert blocked.status_code == 403
@@ -144,24 +169,34 @@ async def test_privileged_role_must_enroll_before_acting(
 
     secret = (await client.post("/api/v1/auth/mfa/setup")).json()["secret"]
     await client.post("/api/v1/auth/mfa/enable", json={"code": totp_code(secret)})
-
-    allowed = await client.get("/api/v1/users")
-    assert allowed.status_code == 200
+    assert (await client.get("/api/v1/users")).status_code == 200
 
 
-async def test_privileged_role_cannot_disable_mfa(
-    client: AsyncClient, db_session: AsyncSession
+async def test_privileged_role_can_disable_app_only_with_email_code(
+    client: AsyncClient, db_session: AsyncSession, app: object
 ) -> None:
+    from fastapi import FastAPI
+
+    from app.core.config import get_settings
+
     secret = pyotp.random_base32()
     admin = await make_user(db_session, roles=("ROLE_ADMIN",), totp_secret=secret)
-    await _password_step(client, admin)
-    await client.post("/api/v1/auth/login/mfa", json={"code": totp_code(secret)})
+    await login(client, admin, secret)
+    assert isinstance(app, FastAPI)
+    sin_correo = get_settings().model_copy(update={"LOGIN_EMAIL_CODE": False})
+    app.dependency_overrides[get_settings] = lambda: sin_correo
 
-    response = await client.post(
+    # Sin el código por correo, la aplicación es su único segundo paso: no se desactiva.
+    blocked = await client.post(
         "/api/v1/auth/mfa/disable", json={"password": PASSWORD, "code": totp_code(secret, 1)}
     )
+    assert blocked.status_code == 403
 
-    assert response.status_code == 403
+    del app.dependency_overrides[get_settings]
+    allowed = await client.post(
+        "/api/v1/auth/mfa/disable", json={"password": PASSWORD, "code": totp_code(secret, 1)}
+    )
+    assert allowed.status_code == 200
 
 
 async def test_escribano_can_disable_mfa(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -210,7 +245,7 @@ async def test_mfa_enforcement_can_be_disabled_only_outside_production(
     from app.core.config import Environment, Settings, get_settings
 
     admin = await make_user(db_session, roles=("ROLE_ADMIN",))
-    relaxed = get_settings().model_copy(update={"MFA_ENFORCED": False})
+    relaxed = get_settings().model_copy(update={"MFA_ENFORCED": False, "LOGIN_EMAIL_CODE": False})
     from fastapi import FastAPI
 
     assert isinstance(app, FastAPI)

@@ -24,6 +24,20 @@ def password_reset_mail(settings: Settings, user: User, raw_token: str) -> Outgo
     )
 
 
+def login_code_mail(settings: Settings, user: User, code: str) -> OutgoingMail:
+    return render_mail(
+        "login_code",
+        f"{code} es tu código de ingreso · Suite Notarial",
+        user.email,
+        {
+            "full_name": user.full_name,
+            "code": code,
+            "ttl_minutes": settings.MFA_PENDING_TTL_MIN,
+            "link": f"{settings.public_web_base}/recuperar-clave",
+        },
+    )
+
+
 def account_created_mail(settings: Settings, user: User, raw_token: str) -> OutgoingMail:
     return render_mail(
         "account_created",

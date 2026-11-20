@@ -30,6 +30,8 @@ class AccessClaims:
 @dataclass(frozen=True)
 class MfaPendingClaims:
     user_id: uuid.UUID
+    # Código enviado por correo para este ingreso; None si el segundo paso es la aplicación.
+    code_id: uuid.UUID | None = None
 
 
 def _encode(settings: Settings, payload: dict[str, object], ttl: timedelta) -> str:
@@ -92,13 +94,18 @@ def decode_access_token(settings: Settings, token: str) -> AccessClaims:
     )
 
 
-def create_mfa_pending_token(settings: Settings, *, user_id: uuid.UUID) -> str:
-    return _encode(
-        settings,
-        {"sub": str(user_id), "typ": "mfa_pending"},
-        timedelta(minutes=settings.MFA_PENDING_TTL_MIN),
-    )
+def create_mfa_pending_token(
+    settings: Settings, *, user_id: uuid.UUID, code_id: uuid.UUID | None = None
+) -> str:
+    payload: dict[str, object] = {"sub": str(user_id), "typ": "mfa_pending"}
+    if code_id is not None:
+        payload["cid"] = str(code_id)
+    return _encode(settings, payload, timedelta(minutes=settings.MFA_PENDING_TTL_MIN))
 
 
 def decode_mfa_pending_token(settings: Settings, token: str) -> MfaPendingClaims:
-    return MfaPendingClaims(user_id=_uuid_claim(_decode(settings, token, "mfa_pending"), "sub"))
+    claims = _decode(settings, token, "mfa_pending")
+    return MfaPendingClaims(
+        user_id=_uuid_claim(claims, "sub"),
+        code_id=_uuid_claim(claims, "cid") if "cid" in claims else None,
+    )

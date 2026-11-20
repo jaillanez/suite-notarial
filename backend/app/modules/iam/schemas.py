@@ -42,6 +42,10 @@ class SessionUser(BaseModel):
 class LoginResponse(BaseModel):
     status: Literal["authenticated", "mfa_required"]
     user: SessionUser | None = None
+    # Con mfa_required: por dónde llega el código y, si es por correo, a qué dirección
+    # (enmascarada: solo se muestra a quien ya ingresó la contraseña correcta).
+    mfa_method: Literal["totp", "email"] | None = None
+    email_hint: str | None = None
 
 
 class MessageResponse(BaseModel):

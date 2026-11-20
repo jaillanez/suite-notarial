@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p style="margin:0 0 16px;">Hola, {{ full_name }}.</p>
+<p style="margin:0 0 16px;">Tu código para ingresar a la Suite Notarial es:</p>
+<p style="margin:0 0 24px;font-size:32px;font-weight:700;letter-spacing:8px;color:#113347;font-family:Menlo,Consolas,monospace;">{{ code }}</p>
+<p style="margin:0 0 16px;">Vence en {{ ttl_minutes }} minutos y sirve una sola vez. No se lo des a nadie: el personal de la Caja nunca te lo va a pedir.</p>
+<p style="margin:0;">Si no estabas ingresando, alguien conoce tu contraseña. <a href="{{ link }}" style="color:#135ea8;">Cambiala cuanto antes</a>.</p>
+{% endblock %}

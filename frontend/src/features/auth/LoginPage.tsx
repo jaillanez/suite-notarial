@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, LogIn, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, LogIn, Mail, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 
@@ -7,7 +7,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Field, PasswordField } from '../../components/ui/Field'
 import { toProblem } from '../../lib/api'
-import { login, loginMfa, type LoginResult } from './api'
+import { login, loginMfa, reenviarCodigo, type LoginResult } from './api'
 import { SESSION_KEY } from './session'
 
 type Step = 'password' | 'mfa'
@@ -18,6 +18,8 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [useRecovery, setUseRecovery] = useState(false)
+  // Con mfa_required: si el código llega por correo y a qué dirección (enmascarada).
+  const [porCorreo, setPorCorreo] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
@@ -26,6 +28,7 @@ export function LoginPage() {
 
   const finish = (result: LoginResult) => {
     if (result.status === 'mfa_required') {
+      setPorCorreo(result.mfa_method === 'email' ? (result.email_hint ?? 'tu correo') : null)
       setStep('mfa')
       return
     }
@@ -40,6 +43,14 @@ export function LoginPage() {
   const mfaStep = useMutation({
     mutationFn: () => loginMfa(code),
     onSuccess: finish,
+  })
+  const reenvio = useMutation({
+    mutationFn: reenviarCodigo,
+    onSuccess: () => {
+      setCode('')
+      mfaStep.reset()
+      codeRef.current?.focus()
+    },
   })
 
   useEffect(() => {
@@ -58,7 +69,93 @@ export function LoginPage() {
     setStep('password')
     setCode('')
     setPassword('')
+    setUseRecovery(false)
     mfaStep.reset()
+    reenvio.reset()
+  }
+
+  if (step === 'mfa' && porCorreo) {
+    const problem = mfaStep.isError
+      ? toProblem(mfaStep.error)
+      : reenvio.isError
+        ? toProblem(reenvio.error)
+        : null
+    const expired = problem?.detail.startsWith('La verificación venció')
+    return (
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-brand-900">Revisá tu correo</h1>
+        <p className="mt-2 text-ink-muted">
+          Te mandamos un código de 6 dígitos a <strong className="text-ink">{porCorreo}</strong>.
+          Vence en unos minutos. Si no lo ves, buscalo en correo no deseado.
+        </p>
+        <form onSubmit={onMfa} className="mt-8 space-y-5" noValidate>
+          {problem && (
+            <Alert
+              tone="danger"
+              action={
+                expired ? (
+                  <Button variant="secondary" onClick={backToPassword} icon={ArrowLeft}>
+                    Volver a ingresar
+                  </Button>
+                ) : undefined
+              }
+            >
+              {problem.detail}
+            </Alert>
+          )}
+          {reenvio.isSuccess && !problem && (
+            <Alert tone="success">Te mandamos un código nuevo. El anterior ya no sirve.</Alert>
+          )}
+          <Field
+            ref={codeRef}
+            label="Código del correo"
+            name="code"
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value.replace(/\D/g, ''))
+            }}
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={6}
+            placeholder="000000"
+            className="[&_input]:tracking-[0.2em] [&_input]:tabular-nums"
+            required
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            icon={ShieldCheck}
+            busy={mfaStep.isPending}
+            busyLabel="Verificando…"
+            disabled={code.length < 6}
+            className="w-full"
+          >
+            Verificar e ingresar
+          </Button>
+        </form>
+        <div className="mt-6 flex flex-col items-start gap-1">
+          <Button
+            variant="ghost"
+            icon={Mail}
+            busy={reenvio.isPending}
+            busyLabel="Enviando…"
+            onClick={() => {
+              reenvio.mutate()
+            }}
+          >
+            Mandarme otro código
+          </Button>
+          <button
+            type="button"
+            onClick={backToPassword}
+            className="min-h-11 cursor-pointer text-sm font-semibold text-action-700 underline underline-offset-4 hover:text-brand-800"
+          >
+            Ingresar con otra cuenta
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (step === 'mfa') {

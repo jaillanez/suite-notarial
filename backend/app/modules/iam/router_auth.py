@@ -30,6 +30,7 @@ from app.modules.iam.deps import (
 from app.modules.iam.mails import (
     email_change_mail,
     email_changed_mail,
+    login_code_mail,
     password_changed_mail,
     password_reset_mail,
 )
@@ -54,6 +55,7 @@ from app.modules.iam.schemas import (
 )
 from app.modules.iam.tokens import (
     InvalidTokenError,
+    MfaPendingClaims,
     create_access_token,
     create_mfa_pending_token,
     decode_mfa_pending_token,
@@ -91,20 +93,62 @@ def session_user(
     )
 
 
+def mask_email(email: str) -> str:
+    """«h***@gmail.com»: alcanza para reconocer la dirección sin mostrarla entera."""
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}"
+
+
+def _email_code_challenge(
+    response: Response,
+    settings: Settings,
+    background: BackgroundTasks,
+    mailer: Mailer,
+    user: User,
+    code: service.LoginCode,
+) -> LoginResponse:
+    set_mfa_cookie(
+        response, settings, create_mfa_pending_token(settings, user_id=user.id, code_id=code.id)
+    )
+    background.add_task(send_safely, mailer, login_code_mail(settings, user, code.raw))
+    return LoginResponse(
+        status="mfa_required", mfa_method="email", email_hint=mask_email(user.email)
+    )
+
+
+def _pending_claims(request: Request, settings: Settings) -> MfaPendingClaims:
+    expired = ProblemError(
+        HTTPStatus.UNAUTHORIZED, "La verificación venció. Volvé a ingresar tu contraseña."
+    )
+    token = request.cookies.get(MFA_COOKIE)
+    if not token:
+        raise expired
+    try:
+        return decode_mfa_pending_token(settings, token)
+    except InvalidTokenError as exc:
+        raise expired from exc
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
     response: Response,
+    background: BackgroundTasks,
     session: SessionDep,
     settings: SettingsDep,
     ctx: RequestContextDep,
+    mailer: MailerDep,
 ) -> LoginResponse:
     step = await service.authenticate_password(
         session, settings, ctx, body.identifier, body.password
     )
+    if step.mfa_required and step.email_code is not None:
+        return _email_code_challenge(
+            response, settings, background, mailer, step.user, step.email_code
+        )
     if step.mfa_required:
         set_mfa_cookie(response, settings, create_mfa_pending_token(settings, user_id=step.user.id))
-        return LoginResponse(status="mfa_required")
+        return LoginResponse(status="mfa_required", mfa_method="totp")
     issued = await service.issue_session(session, settings, ctx, step.user, mfa_verified=False)
     set_session_cookies(response, settings, issued.access_token, issued.refresh_token)
     permissions = await effective_permissions(session, step.user)
@@ -129,18 +173,10 @@ async def login_mfa(
     settings: SettingsDep,
     ctx: RequestContextDep,
 ) -> LoginResponse:
-    token = request.cookies.get(MFA_COOKIE)
-    if not token:
-        raise ProblemError(
-            HTTPStatus.UNAUTHORIZED, "La verificación venció. Volvé a ingresar tu contraseña."
-        )
-    try:
-        claims = decode_mfa_pending_token(settings, token)
-    except InvalidTokenError as exc:
-        raise ProblemError(
-            HTTPStatus.UNAUTHORIZED, "La verificación venció. Volvé a ingresar tu contraseña."
-        ) from exc
-    user = await service.verify_mfa_login(session, settings, ctx, claims.user_id, body.code)
+    claims = _pending_claims(request, settings)
+    user = await service.verify_mfa_login(
+        session, settings, ctx, claims.user_id, body.code, claims.code_id
+    )
     issued = await service.issue_session(session, settings, ctx, user, mfa_verified=True)
     set_session_cookies(response, settings, issued.access_token, issued.refresh_token)
     permissions = await effective_permissions(session, user)
@@ -154,6 +190,22 @@ async def login_mfa(
             mfa_sugerido=mfa_sugerido_for(settings, user),
         ),
     )
+
+
+@router.post("/login/codigo", response_model=LoginResponse)
+async def resend_login_code(
+    request: Request,
+    response: Response,
+    background: BackgroundTasks,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+    mailer: MailerDep,
+) -> LoginResponse:
+    """Reenvía el código por correo de un ingreso en curso (anula el anterior)."""
+    claims = _pending_claims(request, settings)
+    user, code = await service.resend_login_code(session, settings, ctx, claims.user_id)
+    return _email_code_challenge(response, settings, background, mailer, user, code)
 
 
 @router.post("/refresh", response_model=LoginResponse)

@@ -17,6 +17,10 @@ export interface SessionUser {
 export interface LoginResult {
   status: 'authenticated' | 'mfa_required'
   user: SessionUser | null
+  /** Con mfa_required: el código llega por correo o lo genera la aplicación. */
+  mfa_method?: 'totp' | 'email' | null
+  /** Dirección a la que se mandó el código, enmascarada («h***@gmail.com»). */
+  email_hint?: string | null
 }
 
 export interface MfaSetup {
@@ -35,6 +39,11 @@ export async function login(identifier: string, password: string): Promise<Login
 
 export async function loginMfa(code: string): Promise<LoginResult> {
   return (await api.post<LoginResult>('/v1/auth/login/mfa', { code })).data
+}
+
+/** Manda un código nuevo por correo para el ingreso en curso (anula el anterior). */
+export async function reenviarCodigo(): Promise<LoginResult> {
+  return (await api.post<LoginResult>('/v1/auth/login/codigo')).data
 }
 
 export async function logout(): Promise<void> {

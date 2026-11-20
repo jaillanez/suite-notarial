@@ -50,11 +50,16 @@ class Settings(BaseSettings):
     DATA_ENCRYPTION_KEY: SecretStr
     LOGIN_MAX_ATTEMPTS: Annotated[int, Field(gt=0)] = 5
     LOGIN_LOCK_MINUTES: Annotated[int, Field(gt=0)] = 15
-    MFA_PENDING_TTL_MIN: Annotated[int, Field(gt=0)] = 5
+    # Vigencia del paso de verificación del ingreso (y del código que llega por correo).
+    MFA_PENDING_TTL_MIN: Annotated[int, Field(gt=0)] = 10
     TOTP_ISSUER: str = "Caja Notarial de San Juan"
     # 2FA obligatorio para los roles que lo exigen. Solo se puede apagar en development/test,
     # para no tener que reactivarlo después de cada `make reset-dev`.
     MFA_ENFORCED: bool = True
+    # Segundo paso por correo en cada ingreso (pedido de la Caja, 20/11/2026): quien no tiene
+    # la aplicación de autenticación recibe un código de 6 dígitos en su correo. Solo se puede
+    # apagar en development/test.
+    LOGIN_EMAIL_CODE: bool = True
 
     SMTP_HOST: str = "localhost"
     SMTP_PORT: Annotated[int, Field(gt=0, lt=65536)] = 1025
@@ -197,6 +202,11 @@ class Settings(BaseSettings):
             Environment.STAGING,
         ):
             raise ValueError("MFA_ENFORCED=false solo se admite en development, test o staging")
+        if not self.LOGIN_EMAIL_CODE and self.ENVIRONMENT not in (
+            Environment.DEVELOPMENT,
+            Environment.TEST,
+        ):
+            raise ValueError("LOGIN_EMAIL_CODE=false solo se admite en development o test")
         if self.SMTP_USER and self.SMTP_SECURITY == "none":
             raise ValueError(
                 "No se envían credenciales SMTP sin TLS: usá SMTP_SECURITY starttls o tls"

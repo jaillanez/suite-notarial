@@ -108,8 +108,13 @@ def mfa_required_for(settings: Settings, user: User) -> bool:
 
 
 def mfa_sugerido_for(settings: Settings, user: User) -> bool:
-    """Con la exigencia apagada (servidor de prueba), al personal se le recomienda activarlo."""
-    return not settings.MFA_ENFORCED and user.mfa_required and not user.totp_enabled
+    """Con la exigencia apagada y sin código por correo, al personal se le recomienda la app."""
+    return (
+        not settings.MFA_ENFORCED
+        and not settings.LOGIN_EMAIL_CODE
+        and user.mfa_required
+        and not user.totp_enabled
+    )
 
 
 def _permission_checker(

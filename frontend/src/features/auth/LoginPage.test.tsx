@@ -53,6 +53,44 @@ describe('LoginPage', () => {
     expect(authApi.loginMfa).toHaveBeenCalledWith('123456')
   })
 
+  it('pide el código que llegó por correo y permite reenviarlo', async () => {
+    vi.mocked(authApi.login).mockResolvedValue({
+      status: 'mfa_required',
+      user: null,
+      mfa_method: 'email',
+      email_hint: 'h***@gmail.com',
+    })
+    vi.mocked(authApi.reenviarCodigo).mockResolvedValue({
+      status: 'mfa_required',
+      user: null,
+      mfa_method: 'email',
+      email_hint: 'h***@gmail.com',
+    })
+    vi.mocked(authApi.loginMfa).mockResolvedValue({
+      status: 'authenticated',
+      user: { ...ESCRIBANO, mfa_verified: true },
+    })
+    renderWithProviders(<LoginPage />, {
+      path: '/ingresar',
+      routes: [{ path: '/', element: <p>Inicio</p> }],
+    })
+
+    fillCredentials()
+    expect(await screen.findByText('Revisá tu correo')).toBeInTheDocument()
+    expect(screen.getByText('h***@gmail.com')).toBeInTheDocument()
+    expect(screen.queryByText('No tengo acceso a la aplicación')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mandarme otro código' }))
+    expect(await screen.findByText(/Te mandamos un código nuevo/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Código del correo'), {
+      target: { value: '12 34-56' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Verificar e ingresar' }))
+    expect(await screen.findByText('Inicio')).toBeInTheDocument()
+    expect(authApi.loginMfa).toHaveBeenCalledWith('123456')
+  })
+
   it('muestra el error genérico del servidor', async () => {
     vi.mocked(authApi.login).mockRejectedValue(axios401('Las credenciales no son válidas.'))
     renderWithProviders(<LoginPage />, { path: '/ingresar' })
