@@ -24,10 +24,14 @@ def password_reset_mail(settings: Settings, user: User, raw_token: str) -> Outgo
     )
 
 
+LOGIN_CODE_SUBJECT = "Tu código de ingreso · Suite Notarial"
+
+
 def login_code_mail(settings: Settings, user: User, code: str) -> OutgoingMail:
     return render_mail(
         "login_code",
-        f"{code} es tu código de ingreso · Suite Notarial",
+        # El código va solo en el cuerpo: el asunto queda en registros y notificaciones.
+        LOGIN_CODE_SUBJECT,
         user.email,
         {
             "full_name": user.full_name,

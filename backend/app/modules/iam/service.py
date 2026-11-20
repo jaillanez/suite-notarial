@@ -401,6 +401,10 @@ async def verify_mfa_login(
     if user is None or not user.is_active or _is_locked(user):
         raise _credentials_error(INVALID_MFA)
     if code_id is not None:
+        # Mismas condiciones que para pedirlo: con la aplicación activa (o el código por correo
+        # apagado) un código de correo pendiente no sirve como segundo paso.
+        if user.totp_enabled or not settings.LOGIN_EMAIL_CODE:
+            raise _credentials_error(INVALID_MFA)
         return await _verify_login_code(session, settings, ctx, user, code_id, code)
     if not user.totp_enabled:
         raise _credentials_error(INVALID_MFA)
@@ -679,6 +683,12 @@ async def enable_mfa(
         raise ProblemError(HTTPStatus.CONFLICT, "La verificación en dos pasos ya está activa.")
     await _require_valid_totp(session, settings, ctx, user, code)
     user.totp_enabled = True
+    # Desde ahora el segundo paso es la aplicación: se anulan los códigos por correo pendientes.
+    await session.execute(
+        update(LoginEmailCode)
+        .where(LoginEmailCode.user_id == user.id, LoginEmailCode.used_at.is_(None))
+        .values(used_at=_now())
+    )
     codes = await _replace_recovery_codes(session, settings, user)
     # Quien acaba de probar la posesión del segundo factor queda verificado en esta sesión.
     current.mfa_verified = True

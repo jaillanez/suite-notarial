@@ -48,6 +48,7 @@ async def test_el_codigo_llega_al_correo_y_abre_la_sesion(
     assert mail.to == user.email
     code = take_login_code(client)
     assert code in mail.text and code in mail.html
+    assert code not in mail.subject
     assert "https://suite.cajanotarial-sj.test/recuperar-clave" in mail.text
     # El código no se guarda en claro.
     stored = await db_session.scalar(
@@ -178,6 +179,40 @@ async def test_con_la_aplicacion_no_se_manda_codigo(
     assert step["mfa_method"] == "totp"
     assert mailer.sent == []
     assert (await client.post("/api/v1/auth/login/codigo")).status_code == 401
+
+
+async def test_al_activar_la_aplicacion_el_codigo_pendiente_no_sirve(
+    client: AsyncClient, db_session: AsyncSession, app: object
+) -> None:
+    """Un código de correo pedido antes de activar la aplicación no reemplaza a la aplicación."""
+    from httpx import ASGITransport
+
+    from tests.conftest import CSRF_HEADERS
+    from tests.iam.factories import totp_code
+
+    user = await make_user(db_session)
+    await _password(client, user.email)
+    pendiente = take_login_code(client)
+
+    # En otro dispositivo, con sesión, activa la aplicación.
+    assert isinstance(app, object)
+    otro = AsyncClient(
+        transport=ASGITransport(app=app, client=("203.0.113.40", 54000)),  # type: ignore[arg-type]
+        base_url="https://test",
+        headers=CSRF_HEADERS,
+    )
+    await login(otro, user)
+    secret = (await otro.post("/api/v1/auth/mfa/setup")).json()["secret"]
+    enabled = await otro.post("/api/v1/auth/mfa/enable", json={"code": totp_code(secret)})
+    assert enabled.status_code == 200
+    await otro.aclose()
+
+    response = await client.post("/api/v1/auth/login/mfa", json={"code": pendiente})
+    assert response.status_code == 401
+    anulados = await db_session.scalars(
+        select(LoginEmailCode.used_at).where(LoginEmailCode.user_id == user.id)
+    )
+    assert all(u is not None for u in anulados)
 
 
 async def test_la_sesion_abierta_sin_codigo_no_se_renueva(

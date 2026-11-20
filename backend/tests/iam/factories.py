@@ -15,6 +15,7 @@ from app.common.cuit import check_digit
 from app.core.config import get_settings
 from app.core.crypto import encrypt_secret
 from app.modules.iam import passwords
+from app.modules.iam.mails import LOGIN_CODE_SUBJECT
 from app.modules.iam.models import Role, User, UserRole
 from app.modules.iam.router_auth import get_mailer
 
@@ -84,7 +85,7 @@ def replace_cookie(client: AsyncClient, name: str, value: str, path: str) -> Non
     client.cookies.set(name, value, domain="test.local", path=path)
 
 
-LOGIN_CODE_SUBJECT = re.compile(r"^(\d{6}) es tu código de ingreso")
+LOGIN_CODE_RE = re.compile(r"^(\d{6})$", re.MULTILINE)
 
 
 def take_login_code(client: AsyncClient) -> str:
@@ -97,8 +98,9 @@ def take_login_code(client: AsyncClient) -> str:
     mailer = transport.app.dependency_overrides[get_mailer]()
     sent = mailer.sent
     for mail in reversed(sent):
-        match = LOGIN_CODE_SUBJECT.match(mail.subject)
-        if match:
+        if mail.subject == LOGIN_CODE_SUBJECT:
+            match = LOGIN_CODE_RE.search(mail.text)
+            assert match is not None, mail.text
             sent.remove(mail)
             return match.group(1)
     raise AssertionError("No se envió ningún código de ingreso")
