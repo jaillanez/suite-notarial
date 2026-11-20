@@ -890,10 +890,10 @@ async def request_email_change(
     *,
     password: str,
     nuevo_email: str,
-) -> str:
+) -> str | None:
     """Pide cambiar el correo de ingreso: exige la contraseña (con una sesión robada no se
     cambia) y devuelve el token que va por mail a la dirección nueva. El correo cambia recién
-    al confirmar desde ese enlace."""
+    al confirmar desde ese enlace. None: la dirección es de otra cuenta y no se manda nada."""
     nuevo = nuevo_email.strip().lower()
     if _is_locked(user):
         await passwords.burn_verification_time_async(password)
@@ -906,8 +906,20 @@ async def request_email_change(
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, PASSWORD_ACTUAL_INCORRECTA)
     if nuevo == user.email:
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "Ese ya es tu correo.")
-    # No se dice acá si la dirección ya es de otra cuenta (revelaría qué correos existen): el
-    # enlace sale igual y la confirmación lo rechaza. Cada pedido cuenta para el límite.
+    # Si la dirección ya es de otra cuenta no se dice (revelaría qué correos existen) ni se le
+    # manda nada a ese tercero: la respuesta es la misma y queda en la auditoría.
+    if await _email_en_uso(session, nuevo, user.id):
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.EMAIL_CHANGE_REQUESTED,
+            severity=Severity.WARNING,
+            actor_user_id=user.id,
+            target_user_id=user.id,
+            details={"sent": False, "reason": "en_uso"},
+        )
+        await session.commit()
+        return None
     now = _now()
     recientes = await session.scalar(
         select(func.count())

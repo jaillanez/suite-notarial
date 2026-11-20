@@ -325,7 +325,8 @@ async def pedir_cambio_correo(
         session, settings, ctx, user, password=body.password, nuevo_email=str(body.nuevo_email)
     )
     nuevo = str(body.nuevo_email).strip().lower()
-    background.add_task(send_safely, mailer, email_change_mail(settings, user, nuevo, raw))
+    if raw is not None:
+        background.add_task(send_safely, mailer, email_change_mail(settings, user, nuevo, raw))
     return MessageResponse(
         message=f"Te mandamos un enlace a {nuevo}: abrilo para confirmar el cambio."
     )

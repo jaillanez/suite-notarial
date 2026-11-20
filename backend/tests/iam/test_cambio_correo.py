@@ -80,13 +80,12 @@ async def test_cambio_de_correo_exige_la_contrasena_y_un_correo_libre(
     mismo = await _pedir(client, user.email)
     assert mismo.status_code == 422  # type: ignore[attr-defined]
     assert mailer.sent == []
-    # Un correo de otra cuenta no se delata al pedir: la respuesta es la misma y la
-    # confirmación lo rechaza.
+    # Un correo de otra cuenta no se delata (misma respuesta) ni recibe nada.
     ocupado = await _pedir(client, otro.email)
     assert ocupado.status_code == 202  # type: ignore[attr-defined]
-    token = await _token(mailer)
-    rechazado = await client.post("/api/v1/auth/perfil/correo/confirmar", json={"token": token})
-    assert rechazado.status_code == 409
+    assert mailer.sent == []
+    filtro = EmailChangeToken.user_id == user.id
+    assert (await db_session.scalars(select(EmailChangeToken).where(filtro))).all() == []
 
 
 async def test_cambiar_la_contrasena_anula_el_cambio_de_correo_pendiente(
