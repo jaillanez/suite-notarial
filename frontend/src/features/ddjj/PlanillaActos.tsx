@@ -1,4 +1,4 @@
-import { CircleX, Plus, Trash2, TriangleAlert } from 'lucide-react'
+import { CircleX, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { Button } from '../../components/ui/Button'
@@ -100,12 +100,14 @@ function ProtocoloGrilla({
   conACargo,
   editable,
   onQuitar,
+  onCorregir,
 }: {
   protocolo: ProtocoloPlanilla
   ddjj: DeclaracionDetalle
   conACargo: boolean
   editable: boolean
   onQuitar: (acto: Acto) => void
+  onCorregir: (acto: Acto) => void
 }) {
   const actos = new Map(ddjj.actos.map((a) => [a.id, a]))
   const cargos = conACargo
@@ -123,16 +125,28 @@ function ProtocoloGrilla({
     const acto = r.acto_id ? actos.get(r.acto_id) : undefined
     if (!editable || !acto) return null
     return (
-      <Button
-        variant="ghost"
-        icon={Trash2}
-        aria-label={`Quitar el acto ${numeroRenglon(r)}`}
-        onClick={() => {
-          onQuitar(acto)
-        }}
-      >
-        <span className="lg:sr-only">Quitar</span>
-      </Button>
+      <span className="flex">
+        <Button
+          variant="ghost"
+          icon={Pencil}
+          aria-label={`Corregir el acto ${numeroRenglon(r)}`}
+          onClick={() => {
+            onCorregir(acto)
+          }}
+        >
+          <span className="lg:sr-only">Corregir</span>
+        </Button>
+        <Button
+          variant="ghost"
+          icon={Trash2}
+          aria-label={`Quitar el acto ${numeroRenglon(r)}`}
+          onClick={() => {
+            onQuitar(acto)
+          }}
+        >
+          <span className="lg:sr-only">Quitar</span>
+        </Button>
+      </span>
     )
   }
   const detalle = (r: RenglonPlanilla) => {
@@ -286,10 +300,13 @@ function Resumen({ planilla, conACargo }: { planilla: Planilla; conACargo: boole
                 Folios
               </th>
               {cargos.map((c) => (
-                <th key={c} scope="col" className={`${TH} text-right last:pr-6`}>
+                <th key={c} scope="col" className={`${TH} text-right`}>
                   {titulo[c]}
                 </th>
               ))}
+              <th scope="col" className={`${TH} pr-6 text-right`}>
+                Total
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -305,23 +322,25 @@ function Resumen({ planilla, conACargo }: { planilla: Planilla; conACargo: boole
                   {rango(p.folios_desde, p.folios_hasta)}
                 </td>
                 {cargos.map((c) => (
-                  <td key={c} className={`${TD} ${NUM} text-ink last:pr-6`}>
+                  <td key={c} className={`${TD} ${NUM} text-ink`}>
                     {formatMoney(p.totales[c])}
                   </td>
                 ))}
+                <td className={`${TD} ${NUM} pr-6 text-ink`}>{formatMoney(p.totales.total)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot className="border-t-2 border-brand-900 bg-surface-sunken font-semibold text-ink">
             <tr>
               <th scope="row" colSpan={3} className={`${TD} pl-6 text-left`}>
-                Totales
+                Total de protocolos (General + Auxiliar)
               </th>
               {cargos.map((c) => (
-                <td key={c} className={`${TD} ${NUM} last:pr-6`}>
+                <td key={c} className={`${TD} ${NUM}`}>
                   {formatMoney(planilla.totales[c])}
                 </td>
               ))}
+              <td className={`${TD} ${NUM} pr-6`}>{formatMoney(planilla.totales.total)}</td>
             </tr>
           </tfoot>
         </table>
@@ -340,8 +359,21 @@ function Resumen({ planilla, conACargo }: { planilla: Planilla; conACargo: boole
                 <span>{formatMoney(p.totales[c])}</span>
               </dd>
             ))}
+            <dd className="flex justify-between text-sm font-semibold text-ink tabular-nums">
+              <span>Total</span>
+              <span>{formatMoney(p.totales.total)}</span>
+            </dd>
           </div>
         ))}
+        <div className="px-5 py-4">
+          <dt className="font-semibold text-ink">Total de protocolos (General + Auxiliar)</dt>
+          {cargos.map((c) => (
+            <dd key={c} className="flex justify-between text-sm text-ink tabular-nums">
+              <span>{titulo[c]}</span>
+              <span>{formatMoney(planilla.totales[c])}</span>
+            </dd>
+          ))}
+        </div>
       </dl>
       <div className="flex items-baseline justify-between gap-3 border-t border-line px-5 py-4 sm:px-6">
         <span className="text-sm text-ink-muted">
@@ -366,12 +398,14 @@ export function PlanillaActos({
   editable,
   onAgregar,
   onQuitar,
+  onCorregir,
 }: {
   ddjj: DeclaracionDetalle
   planilla: Planilla
   editable: boolean
   onAgregar: (protocolo: TipoProtocolo) => void
   onQuitar: (acto: Acto) => void
+  onCorregir: (acto: Acto) => void
 }) {
   const id = useId()
   const pestanias: Pestania[] = ['GENERAL', 'AUXILIAR', 'RESUMEN']
@@ -464,6 +498,7 @@ export function PlanillaActos({
             conACargo={conACargo}
             editable={editable}
             onQuitar={onQuitar}
+            onCorregir={onCorregir}
           />
         ) : (
           <Resumen planilla={planilla} conACargo={conACargo} />

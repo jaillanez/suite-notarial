@@ -16,7 +16,7 @@ import { useSession } from '../auth/session'
 import { formatDecimal, normalizeDecimalInput, normalizeTasaInput } from '../../lib/decimal'
 import { fetchLineas, guardarLinea, type Linea, type Moneda, type Sistema } from './api'
 import { CondicionesLinea, RequisitosLinea } from './componentes'
-import { MONEDA, SISTEMA } from './labels'
+import { LEYENDA_USD, MONEDA, SISTEMA } from './labels'
 
 const tasa = (v: string) => formatDecimal(v, 4).replace(/,?0+$/, '')
 
@@ -172,8 +172,7 @@ function LineaDialog({
         />
         {f.moneda === 'USD' && (
           <p className="text-sm text-ink-muted sm:col-span-2">
-            Montos, cuotas e ingreso neto en dólares. La Caja todavía no fijó el tipo de cambio para
-            evaluar la afectación junto con ingresos o préstamos en pesos.
+            Montos y cuotas en dólares. {LEYENDA_USD}
           </p>
         )}
         <Select

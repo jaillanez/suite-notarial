@@ -17,7 +17,7 @@ import {
   type Moneda,
   type Totales,
 } from './api'
-import { MONEDA, SISTEMA, estadoCuota, importe, requisitosLinea } from './labels'
+import { LEYENDA_USD, MONEDA, SISTEMA, estadoCuota, importe, requisitosLinea } from './labels'
 
 /** Cuadro de amortización: tabla en escritorio, lista apilada en celular, totales al pie. */
 export function PlanCuotas({
@@ -216,6 +216,9 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
             {importe(ev.otras_cuotas, ev.moneda)}
           </Par>
         )}
+        <Par label="Ingreso neto mensual mínimo" fuerte>
+          {importe(ev.ingreso_minimo, ev.moneda)}
+        </Par>
         {ev.afectacion !== null && (
           <div
             className={`flex items-baseline justify-between gap-4 px-5 py-3 sm:px-6 ${excede ? 'bg-danger-50 text-danger-700' : ''}`}
@@ -234,6 +237,12 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
           {importe(ev.totales.total, ev.moneda)}
         </Par>
       </dl>
+      <p className="text-sm text-ink-muted">
+        El ingreso neto mínimo es el que hace falta para que la cuota
+        {ev.otras_cuotas !== '0.00' ? ', sumada a las de otros préstamos vigentes,' : ''} no supere
+        el {formatPercent(ev.afectacion_maxima)} del ingreso.
+        {ev.moneda === 'USD' && ` ${LEYENDA_USD}`}
+      </p>
     </div>
   )
 }

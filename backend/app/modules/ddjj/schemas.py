@@ -135,8 +135,7 @@ class ActoIn(BaseModel):
             if self.motivo_exencion is not None or self.detalle_exencion is not None:
                 raise ValueError("Solo un acto exento lleva motivo de exención.")
             return self
-        if self.motivo_exencion is None:
-            raise ValueError("Indicá el motivo de la exención.")
+        # El motivo es optativo: la Caja no se lo pregunta al escribano al cargar.
         if self.motivo_exencion is MotivoExencion.OTRO and len(self.detalle_exencion or "") < 3:
             raise ValueError("Detallá el motivo de la exención.")
         return self
@@ -159,14 +158,16 @@ class ActoOut(BaseModel):
     fecha_acto: date
     naturaleza: str
     categoria: CategoriaActo
-    base_imponible: Money
+    # Misma escala que la entrada y la columna (Numeric(18, 2)): un valor que se pudo cargar
+    # siempre se puede mostrar.
+    base_imponible: BaseImponible
     motivo_exencion: MotivoExencion | None
     detalle_exencion: str | None
     vademecum_id: uuid.UUID | None
     vademecum_nombre: str | None
     fuera_de_vademecum: bool
-    precio: Money | None
-    avaluo: Money | None
+    precio: BaseImponible | None
+    avaluo: BaseImponible | None
     mismas_partes: bool
     # En borrador es el aporte estimado con los parámetros vigentes; presentada, el congelado.
     aporte: Money | None
@@ -433,7 +434,7 @@ class RenglonPlanillaOut(BaseModel):
     categoria: CategoriaActo
     motivo_exencion: MotivoExencion | None
     detalle_exencion: str | None
-    base_imponible: Money | None
+    base_imponible: BaseImponible | None
     aporte_variable: Money | None
     aporte_fijo: Money | None
     escribano: str

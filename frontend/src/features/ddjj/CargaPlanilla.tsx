@@ -120,7 +120,6 @@ function faltante(form: ActoForm, conVademecum: boolean): string | null {
   if (form.categoria === 'ESCRITURA_CON_VALOR') {
     return conVademecum ? 'Falta el precio o el avalúo.' : 'Falta la base imponible.'
   }
-  if (form.categoria === 'EXENTO') return 'Falta el motivo de la exención: abrí «Más».'
   return 'Falta completar el acto: abrí «Más».'
 }
 
@@ -443,7 +442,7 @@ export function CargaPlanilla({
         </p>
         {ddjj.escribanos.length > 1 && (
           <Select
-            label="Escribano de los renglones"
+            label="Escribano autorizante del acto que se está cargando"
             className="sm:w-96 sm:shrink-0"
             value={escribanoLote}
             onChange={(e) => {
@@ -622,8 +621,6 @@ export function CargaPlanilla({
                               r.clave === renglon.clave
                                 ? {
                                     ...r,
-                                    // Un exento necesita el motivo: se abre el editor completo.
-                                    abierto: r.abierto || categoria === 'EXENTO',
                                     form: {
                                       ...r.form,
                                       categoria,

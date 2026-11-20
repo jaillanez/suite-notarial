@@ -38,9 +38,11 @@ SIMBOLO_MONEDA: dict[Moneda, str] = {Moneda.ARS: "$", Moneda.USD: "US$"}
 # TODO(negocio): definir tipo de cambio para evaluar la afectación de préstamos en dólares.
 # Mientras tanto, en un préstamo en dólares el ingreso neto se declara en dólares y la
 # afectación solo suma cuotas de la misma moneda (préstamos en otra moneda impiden otorgar).
+# Criterio de la Caja (Horacio Quiroga, 20/11/2026): los ingresos en pesos se pasan a dólares
+# al tipo de cambio comprador del Banco de la Nación Argentina.
 AVISO_TIPO_CAMBIO = (
-    "Préstamo en dólares: el ingreso neto se declara en dólares. La Caja todavía no definió "
-    "el tipo de cambio para evaluar la afectación con ingresos o préstamos en pesos."
+    "Préstamo en dólares: el ingreso neto se declara en dólares, convertido al tipo de cambio "
+    "comprador del Banco de la Nación Argentina."
 )
 
 

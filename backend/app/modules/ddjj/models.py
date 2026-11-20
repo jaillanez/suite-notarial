@@ -187,9 +187,10 @@ class Acto(UUIDMixin, TimestampMixin, Base):
             "'EXENTO')",
             name="categoria_valida",
         ),
-        # Un acto exento siempre dice por qué; «otro motivo», con detalle.
+        # El motivo es optativo (la Caja no se lo pregunta al escribano) y solo en un exento;
+        # «otro motivo», con detalle.
         CheckConstraint(
-            "(categoria = 'EXENTO') = (motivo_exencion IS NOT NULL)", name="exento_con_motivo"
+            "motivo_exencion IS NULL OR categoria = 'EXENTO'", name="exento_con_motivo"
         ),
         CheckConstraint(
             "motivo_exencion IS NULL OR motivo_exencion IN ('CONVENIO_IPV', 'ACTA_SUBSANATORIA', "

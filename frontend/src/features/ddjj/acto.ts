@@ -69,6 +69,31 @@ export function actoVacio(ddjj: DeclaracionDetalle): ActoForm {
   }
 }
 
+/** Formulario de un acto ya cargado, para corregirlo. */
+export function formDeActo(acto: Acto): ActoForm {
+  return {
+    escribano_id: acto.escribano_id,
+    categoria: acto.categoria,
+    tipo_protocolo: acto.tipo_protocolo,
+    numero_escritura: String(acto.numero_escritura),
+    folio: acto.folio === null ? '' : String(acto.folio),
+    fecha_acto: acto.fecha_acto,
+    naturaleza: acto.naturaleza,
+    base_imponible:
+      acto.categoria === 'ESCRITURA_CON_VALOR' && acto.precio === null && acto.avaluo === null
+        ? acto.base_imponible
+        : '',
+    vademecum_id: acto.vademecum_id ?? '',
+    fuera_de_vademecum: acto.fuera_de_vademecum,
+    precio: acto.precio ?? '',
+    avaluo: acto.avaluo ?? '',
+    acto_multiple: acto.orden_en_escritura > 1,
+    mismas_partes: acto.orden_en_escritura > 1 ? acto.mismas_partes : null,
+    motivo_exencion: acto.motivo_exencion ?? '',
+    detalle_exencion: acto.detalle_exencion ?? '',
+  }
+}
+
 /** Precio o avalúo cargados: la base la calcula el servidor (el mayor de los dos). */
 export function conPrecioOAvaluo(form: ActoForm): boolean {
   return (
@@ -121,9 +146,8 @@ export function actoCompleto(form: ActoForm, hayVademecum = false): boolean {
     (form.categoria !== 'ESCRITURA_CON_VALOR' ||
       form.base_imponible.trim() !== '' ||
       conPrecioOAvaluo(form)) &&
-    (form.categoria !== 'EXENTO' ||
-      (form.motivo_exencion !== '' &&
-        (form.motivo_exencion !== 'OTRO' || form.detalle_exencion.trim().length >= 3))),
+    // El motivo de la exención es optativo (la Caja no se lo pregunta al escribano).
+    (form.motivo_exencion !== 'OTRO' || form.detalle_exencion.trim().length >= 3),
   )
 }
 

@@ -129,6 +129,8 @@ class EvaluacionOut(BaseModel):
     afectacion: Rate | None
     afectacion_maxima: Rate
     requiere_garante: bool
+    # Ingreso neto mensual mínimo para que la cuota no supere el tope de afectación.
+    ingreso_minimo: Money
     # Motivos por los que no se puede otorgar (vacío = viable).
     impedimentos: list[str]
     # Avisos que no impiden otorgar pero hay que revisar (p. ej. antigüedad no verificable).

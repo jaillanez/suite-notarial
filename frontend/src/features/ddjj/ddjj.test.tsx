@@ -948,13 +948,10 @@ describe('carga en planilla', () => {
         expect.objectContaining({ categoria: 'ACTA_O_PODER', naturaleza: 'Poder general' }),
       )
     })
-    // Un exento abre el editor completo para el motivo.
+    // Un exento no pide el motivo (la Caja no se lo pregunta al escribano).
     const tipo2 = await screen.findByLabelText('Tipo de aporte, renglón 1')
     fireEvent.change(tipo2, { target: { value: 'EXENTO' } })
-    expect(screen.getByRole('button', { name: 'Más datos del renglón 1' })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
+    expect(screen.queryByLabelText('Motivo de la exención')).not.toBeInTheDocument()
   })
 
   it('cada renglón muestra el aporte estimado y un aviso que bloquea impide guardar', async () => {

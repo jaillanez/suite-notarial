@@ -1,14 +1,13 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
-  Camera,
+  Check,
   Download,
   FileText,
   FilePenLine,
   Paperclip,
   Plus,
   ReceiptText,
-  ScanText,
   Send,
   Sheet,
   Trash2,
@@ -40,6 +39,7 @@ import { PERIODO_TASA } from '../parametros/labels'
 import {
   agregarActo,
   bajaActo,
+  corregirActo,
   fetchPlanilla,
   descargarBoleta,
   emitirBoleta,
@@ -58,10 +58,16 @@ import {
   type ModalidadBoleta,
   type TipoProtocolo,
 } from './api'
-import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
+import {
+  actoCompleto,
+  actoInput,
+  actoSiguiente,
+  actoSugerido,
+  formDeActo,
+  type ActoForm,
+} from './acto'
 import { ActoCampos } from './ActoCampos'
 import { CargaPlanilla } from './CargaPlanilla'
-import { MinutaDialog } from '../ia/MinutaPage'
 import { PlanillaActos } from './PlanillaActos'
 import { VistaPreviaPdf } from './VistaPreviaPdf'
 import { useVerificacionActo } from './verificacion'
@@ -403,18 +409,22 @@ function ActoDialog({
   ddjj,
   open,
   protocolo,
+  acto,
   onClose,
 }: {
   ddjj: DeclaracionDetalle
   open: boolean
   /** Protocolo de la pestaña desde la que se agrega (con el número que sigue en él). */
   protocolo?: TipoProtocolo
+  /** Acto ya cargado que se corrige (sin él, se agrega uno nuevo). */
+  acto?: Acto
   onClose: () => void
 }) {
   const invalidate = useInvalidate(ddjj.id)
   // Completado con lo más probable: mismo escribano, protocolo y fecha que el último acto, y
   // el número de escritura que sigue.
   const [form, setForm] = useState(() => {
+    if (acto) return formDeActo(acto)
     const sugerido = actoSugerido(ddjj, todayIso())
     return protocolo && protocolo !== sugerido.tipo_protocolo
       ? {
@@ -425,11 +435,13 @@ function ActoDialog({
       : sugerido
   })
   const [agregado, setAgregado] = useState<string | null>(null)
-  const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form)
+  const { verificacion, bloqueado, actualizando } = useVerificacionActo(ddjj.id, form, acto?.id)
   const { actos: vademecum } = useVademecumDelPeriodo(ddjj.periodo)
   const save = useMutation({
     mutationFn: ({ datos }: { datos: ActoForm; otro: boolean }) =>
-      agregarActo(ddjj.id, actoInput(datos)),
+      acto
+        ? corregirActo(ddjj.id, acto.id, actoInput(datos))
+        : agregarActo(ddjj.id, actoInput(datos)),
     onSuccess: async (_, { datos, otro }) => {
       await invalidate()
       if (!otro) {
@@ -454,33 +466,39 @@ function ActoDialog({
         save.reset()
         onClose()
       }}
-      title="Agregar acto"
-      description={`Acto autorizado en ${formatPeriodo(ddjj.periodo)} por un escribano del registro. Viene completado con los datos del último acto: cambiá solo lo que difiere.`}
+      title={acto ? `Corregir la escritura N° ${String(acto.numero_escritura)}` : 'Agregar acto'}
+      description={
+        acto
+          ? 'Cambiá lo que esté mal y guardá. El acto anterior queda registrado en la auditoría.'
+          : `Acto autorizado en ${formatPeriodo(ddjj.periodo)} por un escribano del registro. Viene completado con los datos del último acto: cambiá solo lo que difiere.`
+      }
       footer={
         <>
           <Button onClick={onClose}>{agregado ? 'Terminar' : 'Cancelar'}</Button>
-          <Button
-            icon={Plus}
-            busy={save.isPending && save.variables.otro}
-            busyLabel="Agregando…"
-            disabled={!listo || save.isPending}
-            onClick={() => {
-              guardar(true)
-            }}
-          >
-            Agregar y cargar otro
-          </Button>
+          {!acto && (
+            <Button
+              icon={Plus}
+              busy={save.isPending && save.variables.otro}
+              busyLabel="Agregando…"
+              disabled={!listo || save.isPending}
+              onClick={() => {
+                guardar(true)
+              }}
+            >
+              Agregar y cargar otro
+            </Button>
+          )}
           <Button
             variant="primary"
-            icon={Plus}
+            icon={acto ? Check : Plus}
             busy={save.isPending && !save.variables.otro}
-            busyLabel="Agregando…"
+            busyLabel={acto ? 'Guardando…' : 'Agregando…'}
             disabled={!listo || save.isPending}
             onClick={() => {
               guardar(false)
             }}
           >
-            Agregar
+            {acto ? 'Guardar cambios' : 'Agregar'}
           </Button>
         </>
       }
@@ -620,6 +638,7 @@ function ActosPanel({
   const editable = ddjj.estado === 'BORRADOR' && ddjj.puede_operar
   const [agregando, setAgregando] = useState<TipoProtocolo | null>(null)
   const [quitando, setQuitando] = useState<Acto | null>(null)
+  const [corrigiendo, setCorrigiendo] = useState<Acto | null>(null)
   // La planilla de carga está abierta siempre que la DDJJ se pueda editar (nueva o con actos).
   const [enPlanilla, setEnPlanilla] = useState(editable)
   // La misma planilla que imprime el PDF: los importes vienen del servidor.
@@ -630,7 +649,6 @@ function ActosPanel({
     enabled: ddjj.actos.length > 0,
   })
   const [verPdf, setVerPdf] = useState(false)
-  const [minuta, setMinuta] = useState(false)
   const estimado = ddjj.estado === 'BORRADOR'
   const hayIncluidos =
     planilla.data?.protocolos.some((p) => p.renglones.some((r) => r.incluido_en_otro)) ?? false
@@ -645,25 +663,6 @@ function ActosPanel({
       }
       actions={
         <div className="flex flex-wrap gap-3">
-          {editable && ddjj.escribanos.length > 0 && (
-            <Link
-              to={`/ddjj/${ddjj.id}/indice`}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline transition-colors duration-150 ease-out-quint hover:border-brand-700 hover:bg-brand-50"
-            >
-              <Camera aria-hidden="true" className="size-4" strokeWidth={2.25} />
-              Foto del índice
-            </Link>
-          )}
-          {editable && ddjj.escribanos.length > 0 && (
-            <Button
-              icon={ScanText}
-              onClick={() => {
-                setMinuta(true)
-              }}
-            >
-              Cargar desde la minuta
-            </Button>
-          )}
           <Button
             icon={FileText}
             onClick={() => {
@@ -697,13 +696,6 @@ function ActosPanel({
         </div>
       }
     >
-      <MinutaDialog
-        ddjj={ddjj}
-        open={minuta}
-        onClose={() => {
-          setMinuta(false)
-        }}
-      />
       <VistaPreviaPdf
         ddjj={ddjj}
         titulo={`${estimado ? 'Borrador de la DDJJ' : 'DDJJ'} ${formatPeriodo(ddjj.periodo)}`}
@@ -758,6 +750,7 @@ function ActosPanel({
             editable={editable}
             onAgregar={setAgregando}
             onQuitar={setQuitando}
+            onCorregir={setCorrigiendo}
           />
         </div>
       ) : (
@@ -778,6 +771,17 @@ function ActosPanel({
           setAgregando(null)
         }}
       />
+      {corrigiendo && (
+        <ActoDialog
+          key={`corregir-${corrigiendo.id}`}
+          ddjj={ddjj}
+          open
+          acto={corrigiendo}
+          onClose={() => {
+            setCorrigiendo(null)
+          }}
+        />
+      )}
       <BajaDialog
         key={quitando?.id ?? 'ninguno'}
         ddjj={ddjj}

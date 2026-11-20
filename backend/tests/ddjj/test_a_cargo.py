@@ -420,7 +420,7 @@ async def test_no_se_cierra_al_titular_si_deja_actos_a_cargo_sin_respaldo(
 ) -> None:
     creada = (await _designar(notario, _designacion(escenario, designado))).json()
     ddjj = await _borrador(a_cargo_client, escenario, "2026-10")
-    acto = escritura(designado.escribano, 30, "1000", fecha_acto="2026-10-18")
+    acto = escritura(designado.escribano, 30, "1000", fecha_acto="2026-10-16")
     assert (await _agregar(a_cargo_client, ddjj["id"], acto)).status_code == 201
     cargo_id = await db_session.scalar(
         select(Adscripcion.id).where(

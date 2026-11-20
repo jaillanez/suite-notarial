@@ -324,10 +324,11 @@ async def test_boleta_que_vence_hoy_se_publica_con_vencimiento_hoy(
 ) -> None:
     """El banco acepta un vencimiento el mismo día de la publicación: se declara y se paga en el
     día."""
-    monkeypatch.setattr(supervielle_service, "today_local", lambda: HOY)
+    vence = date.fromisoformat(boleta["fecha_pago"])
+    monkeypatch.setattr(supervielle_service, "today_local", lambda: vence)
     respuesta = await _pagar(notario, boleta["id"])
     assert respuesta.status_code == 201, respuesta.text
-    assert [p["vence"] for p in banco.publicaciones] == [HOY]
+    assert [p["vence"] for p in banco.publicaciones] == [vence]
 
 
 async def test_banco_caido(

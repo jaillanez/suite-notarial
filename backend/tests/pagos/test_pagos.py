@@ -195,9 +195,10 @@ async def test_acreditacion_fuera_de_plazo_exige_constancia(
     from datetime import timedelta
 
     comprobante = (await adjuntar(notario, boleta)).json()
-    monkeypatch.setattr(pagos_service, "today_local", lambda: HOY + timedelta(days=5))
+    # La boleta vale hasta el vencimiento (28/10): el 29 ya es fuera de plazo.
+    monkeypatch.setattr(pagos_service, "today_local", lambda: HOY + timedelta(days=7))
     url = f"/api/v1/pagos/comprobantes/{comprobante['id']}/aprobar"
-    datos = {"importe_confirmado": boleta["total_a_pagar"], "fecha_acreditacion": "2026-10-27"}
+    datos = {"importe_confirmado": boleta["total_a_pagar"], "fecha_acreditacion": "2026-10-29"}
 
     sin_constancia = await tesoreria.post(url, json=datos)
     antes_de_transferir = await tesoreria.post(

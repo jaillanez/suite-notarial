@@ -115,6 +115,18 @@ def cuota_maxima(cuotas: list[Cuota]) -> Decimal:
     return max(c.cuota for c in cuotas)
 
 
+def ingreso_minimo(compromiso_mensual: Decimal, afectacion_maxima: Decimal) -> Decimal:
+    """Ingreso neto mensual más bajo con el que el compromiso no supera el tope de afectación,
+    redondeado hacia arriba al centavo: con ese ingreso, `afectacion` nunca da más que el tope."""
+    if afectacion_maxima <= 0:
+        raise MotorPrestamoError("El tope de afectación tiene que ser mayor que cero.")
+    if compromiso_mensual < 0:
+        raise MotorPrestamoError("El compromiso mensual no puede ser negativo.")
+    return (compromiso_mensual * CIEN / afectacion_maxima).quantize(
+        MONEY_QUANT, rounding=ROUND_CEILING
+    )
+
+
 def afectacion(compromiso_mensual: Decimal, ingreso_neto: Decimal) -> Decimal:
     """Porcentaje del ingreso neto mensual comprometido, redondeado hacia arriba a 4 decimales.
 

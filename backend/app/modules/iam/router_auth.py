@@ -27,9 +27,16 @@ from app.modules.iam.deps import (
     mfa_required_for,
     mfa_sugerido_for,
 )
-from app.modules.iam.mails import password_changed_mail, password_reset_mail
+from app.modules.iam.mails import (
+    email_change_mail,
+    email_changed_mail,
+    password_changed_mail,
+    password_reset_mail,
+)
 from app.modules.iam.models import User
 from app.modules.iam.schemas import (
+    CambioCorreoIn,
+    ConfirmarCorreoIn,
     LoginRequest,
     LoginResponse,
     MessageResponse,
@@ -300,6 +307,49 @@ async def editar_perfil(
         phone_number=body.phone_number,
     )
     return _perfil(user)
+
+
+@router.post("/perfil/correo", response_model=MessageResponse, status_code=202)
+async def pedir_cambio_correo(
+    body: CambioCorreoIn,
+    principal: PrincipalDep,
+    background: BackgroundTasks,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+    mailer: MailerDep,
+) -> MessageResponse:
+    """Cambio del correo de ingreso: manda un enlace a la dirección nueva para confirmarla."""
+    user = principal.user
+    raw = await service.request_email_change(
+        session, settings, ctx, user, password=body.password, nuevo_email=str(body.nuevo_email)
+    )
+    nuevo = str(body.nuevo_email).strip().lower()
+    if raw is not None:
+        background.add_task(send_safely, mailer, email_change_mail(settings, user, nuevo, raw))
+    return MessageResponse(
+        message=f"Te mandamos un enlace a {nuevo}: abrilo para confirmar el cambio."
+    )
+
+
+@router.post("/perfil/correo/confirmar", response_model=MessageResponse)
+async def confirmar_cambio_correo(
+    body: ConfirmarCorreoIn,
+    response: Response,
+    background: BackgroundTasks,
+    session: SessionDep,
+    settings: SettingsDep,
+    ctx: RequestContextDep,
+    mailer: MailerDep,
+) -> MessageResponse:
+    """Confirma el cambio con el enlace del mail (no hace falta tener la sesión abierta)."""
+    user, anterior = await service.confirm_email_change(session, ctx, body.token)
+    background.add_task(send_safely, mailer, email_changed_mail(settings, user, anterior))
+    # Las sesiones se cerraron: también la de este navegador.
+    clear_session_cookies(response, settings)
+    return MessageResponse(
+        message=f"Listo: desde ahora ingresás con {user.email}. Volvé a ingresar con ese correo."
+    )
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)

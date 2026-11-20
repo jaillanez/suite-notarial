@@ -58,7 +58,8 @@ async def tesoreria(app: FastAPI, db_session: AsyncSession) -> AsyncIterator[Asy
 
 @pytest.fixture
 async def boleta(notario: AsyncClient, escenario: Escenario) -> dict[str, Any]:
-    """Boleta pendiente del titular por la DDJJ 09/2026, con pago hasta el 23/10/2026."""
+    """Boleta pendiente del titular por la DDJJ 09/2026: se pide para el 23/10/2026, en término,
+    así que vale hasta el vencimiento (28/10/2026)."""
     ddjj = (
         await notario.post(
             "/api/v1/ddjj/declaraciones",

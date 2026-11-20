@@ -7,6 +7,7 @@ import { ForgotPasswordPage } from './features/auth/ForgotPasswordPage'
 import { RedirectIfAuthenticated, RequireAuth, RequirePermission } from './features/auth/guards'
 import { LoginPage } from './features/auth/LoginPage'
 import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
+import { ConfirmarCorreoPage } from './features/auth/ConfirmarCorreoPage'
 import { DeclaracionesPage } from './features/ddjj/DeclaracionesPage'
 import { DDJJAnteriorPage } from './features/ddjj/DDJJAnteriores'
 import { DeclaracionPage } from './features/ddjj/DeclaracionPage'
@@ -74,6 +75,7 @@ const router = createBrowserRouter([
     element: <PublicShell />,
     children: [
       { path: '/restablecer-clave', element: <ResetPasswordPage /> },
+      { path: '/confirmar-correo', element: <ConfirmarCorreoPage /> },
       // Verificación pública de boletas (QR impreso): no requiere sesión.
       { path: '/verificar', element: <VerificarBoletaPage /> },
       { path: '/verificar/:codigo', element: <VerificarBoletaPage /> },

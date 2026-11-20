@@ -167,6 +167,7 @@ def evaluacion_out(ev: service.Evaluacion) -> EvaluacionOut:
         afectacion=ev.afectacion,
         afectacion_maxima=ev.afectacion_maxima,
         requiere_garante=ev.requiere_garante,
+        ingreso_minimo=ev.ingreso_minimo,
         impedimentos=ev.impedimentos,
         avisos=ev.avisos,
         plan=plan,

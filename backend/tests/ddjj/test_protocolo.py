@@ -20,7 +20,7 @@ def _acto(
     return ActoDeclarado(uuid.uuid4(), ddjj, tipo, numero, folio, date(2026, 9, dia), "2026-09")
 
 
-DECLARADOS = [_acto(10, 20, 3), _acto(11, 22, 5), _acto(12, 25, 9), _acto(15, 31, 20)]
+DECLARADOS = [_acto(10, 20, 3), _acto(11, 22, 4), _acto(12, 25, 9), _acto(15, 31, 20)]
 VISTA = protocolo.Vista.total(DECLARADOS)
 
 
@@ -29,16 +29,16 @@ def _codigos(c: Candidato) -> dict[str, NivelControl]:
 
 
 def test_numero_repetido_bloquea() -> None:
-    controles = protocolo.revisar(VISTA, Candidato("GENERAL", 11, 22, date(2026, 9, 5)))
+    controles = protocolo.revisar(VISTA, Candidato("GENERAL", 11, 22, date(2026, 9, 4)))
     assert [c.codigo for c in controles] == ["NUMERO_REPETIDO"]
     assert controles[0].nivel is NivelControl.BLOQUEANTE
     assert "DDJJ 09/2026" in controles[0].mensaje
     # El mismo número en el otro protocolo no choca.
-    assert _codigos(Candidato("AUXILIAR", 11, 22, date(2026, 9, 5))) == {}
+    assert _codigos(Candidato("AUXILIAR", 11, 22, date(2026, 9, 4))) == {}
 
 
 def test_acto_multiple_solo_en_la_misma_declaracion() -> None:
-    misma = Candidato("GENERAL", 11, 22, date(2026, 9, 5), ddjj_id=SETIEMBRE)
+    misma = Candidato("GENERAL", 11, 22, date(2026, 9, 4), ddjj_id=SETIEMBRE)
     controles = protocolo.revisar(VISTA, misma)
     assert [c.codigo for c in controles] == ["NUMERO_REPETIDO"]
     assert "marcalo como acto múltiple" in controles[0].mensaje
@@ -67,7 +67,18 @@ def test_folio_y_fecha_fuera_de_orden() -> None:
         "FECHA_FUERA_DE_ORDEN": NivelControl.ADVERTENCIA,
     }
     # En orden: sin controles.
-    assert _codigos(Candidato("GENERAL", 13, 27, date(2026, 9, 12))) == {}
+    assert _codigos(Candidato("GENERAL", 13, 27, date(2026, 9, 11))) == {}
+
+
+def test_sabado_y_domingo_bloquean() -> None:
+    """Pedido de la Caja (20/11/2026): la escritura se autoriza en un día hábil."""
+    sabado = protocolo.revisar(VISTA, Candidato("GENERAL", 13, 27, date(2026, 9, 12)))
+    assert [(c.codigo, c.nivel) for c in sabado] == [("FECHA_NO_HABIL", NivelControl.BLOQUEANTE)]
+    assert "sábado" in sabado[0].mensaje
+    domingo = _codigos(Candidato("GENERAL", 13, 27, date(2026, 9, 13)))
+    assert domingo == {"FECHA_NO_HABIL": NivelControl.BLOQUEANTE}
+    # Sin número todavía (a medio cargar) igual se avisa.
+    assert _codigos(Candidato("GENERAL", None, None, date(2026, 9, 13))) == domingo
 
 
 def test_al_revisar_un_acto_cargado_se_excluye_a_si_mismo() -> None:
@@ -198,7 +209,7 @@ async def test_ficha_con_controles_y_numeros_salteados(
     notario: AsyncClient, escenario: Escenario
 ) -> None:
     ddjj = await _borrador(notario, escenario, "2026-09")
-    for numero, folio, dia in ((20, 40, "10"), (23, 30, "12"), (24, 45, "16")):
+    for numero, folio, dia in ((20, 40, "10"), (23, 30, "11"), (24, 45, "16")):
         response = await _agregar(
             notario,
             ddjj["id"],

@@ -37,6 +37,7 @@ const EV: apiModule.Evaluacion = {
   capital: '100000.00',
   cuotas: 12,
   cuota_maxima: '8884.88',
+  ingreso_minimo: '29616.27',
   otras_cuotas: '0.00',
   afectacion: '35.5396',
   afectacion_maxima: '30.0000',

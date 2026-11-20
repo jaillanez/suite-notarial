@@ -108,7 +108,11 @@ export function PrestamosPage() {
         <ul className="divide-y divide-line" aria-busy={query.isFetching}>
           {query.data?.length === 0 && (
             <li className="px-5 py-10 text-center text-ink-muted sm:px-6">
-              {estado ? 'Ningún préstamo en este estado.' : 'Todavía no hay préstamos.'}
+              {estado
+                ? 'Ningún préstamo en este estado.'
+                : personal
+                  ? 'Todavía no hay préstamos.'
+                  : 'Todavía no tenés préstamos. Cuando la Caja te otorgue uno, acá vas a ver su saldo y sus cuotas: pagadas, vencidas y a vencer.'}
             </li>
           )}
           {query.data?.map((p) => {

@@ -12,11 +12,9 @@ def _exento(e: Escenario, numero: int, **extra: Any) -> dict[str, Any]:
     return escritura(e.titular, numero, "0", categoria="EXENTO", **extra)
 
 
-async def test_exento_exige_motivo(notario: AsyncClient, escenario: Escenario) -> None:
+async def test_motivo_de_exencion(notario: AsyncClient, escenario: Escenario) -> None:
     ddjj = await _borrador(notario, escenario, "2026-09")
 
-    sin_motivo = await _agregar(notario, ddjj["id"], _exento(escenario, 1))
-    assert sin_motivo.status_code == 422
     otro_sin_detalle = await _agregar(
         notario, ddjj["id"], _exento(escenario, 1, motivo_exencion="OTRO", detalle_exencion="  ")
     )
@@ -36,6 +34,11 @@ async def test_exento_exige_motivo(notario: AsyncClient, escenario: Escenario) -
     assert otro.status_code == 201, otro.text
     assert otro.json()["motivo_exencion"] == "OTRO"
     assert otro.json()["detalle_exencion"] == "Donación al Estado"
+
+    # El motivo es optativo (pedido de la Caja, 20/11/2026): no se le pregunta al escribano.
+    sin_motivo = await _agregar(notario, ddjj["id"], _exento(escenario, 2))
+    assert sin_motivo.status_code == 201, sin_motivo.text
+    assert sin_motivo.json()["motivo_exencion"] is None
 
 
 async def test_exento_no_aporta_pero_cuenta_y_se_cobra_el_minimo(

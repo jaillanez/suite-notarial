@@ -146,6 +146,7 @@
         <th class="der">Aporte Titular</th>
         <th class="der">Aporte Adscripto</th>
         <th class="der">Aporte A cargo</th>
+        <th class="der">Total</th>
       </tr>
     </thead>
     <tbody>
@@ -157,13 +158,15 @@
         <td class="der num">{{ p.totales.titular|pesos }}</td>
         <td class="der num">{{ p.totales.adscripto|pesos }}</td>
         <td class="der num">{{ p.totales.a_cargo|pesos }}</td>
+        <td class="der num">{{ p.totales.total|pesos }}</td>
       </tr>
       {% endfor %}
       <tr class="totales">
-        <td colspan="3">Totales · {{ d.totales.total|pesos }}</td>
+        <td colspan="3">Total de protocolos (General + Auxiliar)</td>
         <td class="der num">{{ d.totales.titular|pesos }}</td>
         <td class="der num">{{ d.totales.adscripto|pesos }}</td>
         <td class="der num">{{ d.totales.a_cargo|pesos }}</td>
+        <td class="der num">{{ d.totales.total|pesos }}</td>
       </tr>
     </tbody>
   </table>
