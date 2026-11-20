@@ -1,11 +1,13 @@
 """Fábricas de datos sintéticos para los tests de IAM."""
 
+import re
 import time
 import uuid
 from itertools import count
 
 import pyotp
-from httpx import AsyncClient
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +15,9 @@ from app.common.cuit import check_digit
 from app.core.config import get_settings
 from app.core.crypto import encrypt_secret
 from app.modules.iam import passwords
+from app.modules.iam.mails import LOGIN_CODE_SUBJECT
 from app.modules.iam.models import Role, User, UserRole
+from app.modules.iam.router_auth import get_mailer
 
 PASSWORD = "Prueba-Segura-2026!"
 _seq = count(1)
@@ -79,3 +83,28 @@ def replace_cookie(client: AsyncClient, name: str, value: str, path: str) -> Non
         if cookie.name == name:
             client.cookies.jar.clear(cookie.domain, cookie.path, cookie.name)
     client.cookies.set(name, value, domain="test.local", path=path)
+
+
+LOGIN_CODE_RE = re.compile(r"^(\d{6})$", re.MULTILINE)
+
+
+def take_login_code(client: AsyncClient) -> str:
+    """Saca del buzón de prueba el último código de ingreso enviado y lo devuelve.
+
+    Se quita del buzón para que los tests que cuentan correos no lo vean.
+    """
+    transport = client._transport
+    assert isinstance(transport, ASGITransport) and isinstance(transport.app, FastAPI)
+    mailer = transport.app.dependency_overrides[get_mailer]()
+    sent = mailer.sent
+    for mail in reversed(sent):
+        if mail.subject == LOGIN_CODE_SUBJECT:
+            match = LOGIN_CODE_RE.search(mail.text)
+            assert match is not None, mail.text
+            sent.remove(mail)
+            return match.group(1)
+    raise AssertionError("No se envió ningún código de ingreso")
+
+
+async def complete_email_code(client: AsyncClient) -> Response:
+    return await client.post("/api/v1/auth/login/mfa", json={"code": take_login_code(client)})

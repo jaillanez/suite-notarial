@@ -116,10 +116,14 @@ fijos por acto, mínimo mensual, médico asistencial y tasa de mora; ver
 porque la pantalla no indica su unidad. Además siembra un padrón sintético: una circunscripción, tres registros y cinco escribanos
 (el primero vinculado a la cuenta `escribano@suite-notarial.example`). Son datos inventados.
 
-Los roles con 2FA obligatorio entran directo a *Seguridad de la cuenta* hasta activarlo. En
-desarrollo local se puede apagar esa exigencia con `MFA_ENFORCED=false` en `backend/.env`, para
-no reactivarlo tras cada `make reset-dev`; la configuración rechaza ese valor fuera de
-development/test y los tests siempre corren con el 2FA exigido. Para
+Cada ingreso tiene un segundo paso: quien no usa una aplicación de autenticación recibe un
+código de 6 dígitos en su correo (en desarrollo, en Mailpit: `http://localhost:8025`). Vence a
+los `MFA_PENDING_TTL_MIN` minutos, sirve una vez, se anula tras 5 intentos y se pueden pedir
+hasta 5 cada 15 minutos. La aplicación de autenticación queda como opción, más segura. En
+desarrollo local se puede apagar con `LOGIN_EMAIL_CODE=false`; entonces los roles con 2FA
+obligatorio entran directo a *Seguridad de la cuenta* hasta activar la aplicación (o
+`MFA_ENFORCED=false` lo deja como recomendación). La configuración rechaza esos valores fuera de
+development/test y los tests siempre corren con ambos encendidos. Para
 producción, el primer administrador se crea con
 `make create-admin email=... cuit=... name="..."` (pide la contraseña por consola).
 
@@ -165,7 +169,8 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `JWT_ACCESS_TTL_MIN` / `JWT_REFRESH_TTL_DAYS` | Vigencia del access token (15 min) y del refresh (7 días) |
 | `DATA_ENCRYPTION_KEY` | AES-256 en base64 (32 bytes) para secretos en reposo: semillas TOTP y clave HMAC de códigos de recuperación |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Bloqueo temporal tras intentos fallidos (5 / 15) |
-| `MFA_PENDING_TTL_MIN` | Tiempo para completar el segundo paso del ingreso (5) |
+| `MFA_PENDING_TTL_MIN` | Tiempo para completar el segundo paso del ingreso y vigencia del código por correo (10) |
+| `LOGIN_EMAIL_CODE` | Código por correo en cada ingreso (true; solo se apaga en development/test) |
 | `COOKIE_SECURE` / `COOKIE_DOMAIN` | Atributos de la cookie de sesión (`COOKIE_SECURE=true` en producción) |
 | `SMTP_HOST` / `SMTP_PORT` / `MAIL_FROM` | Correo saliente (Mailpit en dev) |
 | `SMTP_SECURITY` / `SMTP_USER` / `SMTP_PASSWORD` | `none` solo en dev/test; fuera de eso `starttls` o `tls` obligatorio |

@@ -6,10 +6,14 @@ no revelar si una cuenta existe, está suspendida o bloqueada (anti-enumeración
 """
 
 import contextlib
+import hashlib
+import hmac
+import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
+from typing import Literal
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +27,7 @@ from app.core.security import generate_token, sha256_hex
 from app.modules.iam import passwords, totp
 from app.modules.iam.models import (
     EmailChangeToken,
+    LoginEmailCode,
     PasswordResetToken,
     RecoveryCode,
     User,
@@ -43,6 +48,14 @@ RESET_REQUEST_ACK = (
     "para restablecer la contraseña."
 )
 MAX_RESET_REQUESTS_PER_HOUR = 3
+# Código de ingreso por correo: cuántos se pueden pedir en la ventana (ingresos + reenvíos) y
+# cuántos intentos admite cada uno antes de anularse.
+MAX_LOGIN_CODES = 5
+LOGIN_CODES_WINDOW = timedelta(minutes=15)
+LOGIN_CODE_MAX_ATTEMPTS = 5
+TOO_MANY_LOGIN_CODES = (
+    "Pediste demasiados códigos en poco tiempo. Esperá unos minutos y volvé a ingresar."
+)
 # Ventana en la que un refresh ya rotado se trata como pedido concurrente (otra pestaña),
 # no como robo del token.
 REFRESH_CONCURRENCY_GRACE = timedelta(seconds=10)
@@ -95,10 +108,21 @@ async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
 # --------------------------------------------------------------------------- login
 
 
+MfaMethod = Literal["totp", "email"]
+
+
+@dataclass(frozen=True)
+class LoginCode:
+    id: uuid.UUID
+    raw: str  # se envía por correo; nunca se guarda
+
+
 @dataclass(frozen=True)
 class PasswordStep:
     user: User
     mfa_required: bool
+    mfa_method: MfaMethod | None = None
+    email_code: LoginCode | None = None
 
 
 async def _register_failure(
@@ -196,10 +220,137 @@ async def authenticate_password(
         user.hashed_password = await passwords.hash_password_async(password)
 
     if user.totp_enabled:
-        record_audit(session, ctx, AuditEvent.LOGIN_MFA_CHALLENGE, target_user_id=user.id)
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.LOGIN_MFA_CHALLENGE,
+            target_user_id=user.id,
+            details={"method": "totp"},
+        )
         await session.commit()
-        return PasswordStep(user=user, mfa_required=True)
+        return PasswordStep(user=user, mfa_required=True, mfa_method="totp")
+    if settings.LOGIN_EMAIL_CODE:
+        code = await _issue_login_code(session, settings, ctx, user)
+        return PasswordStep(user=user, mfa_required=True, mfa_method="email", email_code=code)
     return PasswordStep(user=user, mfa_required=False)
+
+
+def _login_code_hash(settings: Settings, user_id: uuid.UUID, code_id: uuid.UUID, code: str) -> str:
+    """HMAC-SHA256 con clave del servidor, atado al usuario y al pedido: sin la clave, la base
+    sola no sirve para probar los 10^6 códigos posibles."""
+    key = hmac.new(
+        settings.data_encryption_key, b"suite-notarial:login-email-codes:v1", hashlib.sha256
+    ).digest()
+    message = f"{user_id}:{code_id}:{code.strip()}".encode()
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+
+async def _issue_login_code(
+    session: AsyncSession, settings: Settings, ctx: RequestContext, user: User
+) -> LoginCode:
+    """Crea el código de ingreso por correo (anula los pendientes) y confirma la transacción.
+
+    Solo se llega acá con la contraseña correcta: el límite de pedidos no revela nada sobre
+    cuentas ajenas y frena el envío masivo de correos a una cuenta.
+    """
+    now = _now()
+    recientes = await session.scalar(
+        select(func.count())
+        .select_from(LoginEmailCode)
+        .where(
+            LoginEmailCode.user_id == user.id,
+            LoginEmailCode.created_at > now - LOGIN_CODES_WINDOW,
+        )
+    )
+    if recientes is not None and recientes >= MAX_LOGIN_CODES:
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.LOGIN_MFA_CHALLENGE,
+            severity=Severity.WARNING,
+            target_user_id=user.id,
+            details={"method": "email", "sent": False, "reason": "limite"},
+        )
+        await session.commit()
+        raise ProblemError(HTTPStatus.TOO_MANY_REQUESTS, TOO_MANY_LOGIN_CODES)
+    await session.execute(
+        update(LoginEmailCode)
+        .where(LoginEmailCode.user_id == user.id, LoginEmailCode.used_at.is_(None))
+        .values(used_at=now)
+    )
+    code_id = uuid.uuid4()
+    raw = f"{secrets.randbelow(1_000_000):06d}"
+    session.add(
+        LoginEmailCode(
+            id=code_id,
+            user_id=user.id,
+            code_hash=_login_code_hash(settings, user.id, code_id, raw),
+            expires_at=now + timedelta(minutes=settings.MFA_PENDING_TTL_MIN),
+            created_by_ip=ctx.ip_address,
+        )
+    )
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.LOGIN_MFA_CHALLENGE,
+        target_user_id=user.id,
+        details={"method": "email", "sent": True},
+    )
+    await session.commit()
+    return LoginCode(id=code_id, raw=raw)
+
+
+async def resend_login_code(
+    session: AsyncSession, settings: Settings, ctx: RequestContext, user_id: uuid.UUID
+) -> tuple[User, LoginCode]:
+    """Nuevo código por correo para un ingreso que ya pasó la contraseña."""
+    user = await get_user(session, user_id)
+    if (
+        user is None
+        or not user.is_active
+        or _is_locked(user)
+        or user.totp_enabled
+        or not settings.LOGIN_EMAIL_CODE
+    ):
+        raise _credentials_error(INVALID_MFA)
+    return user, await _issue_login_code(session, settings, ctx, user)
+
+
+async def _verify_login_code(
+    session: AsyncSession,
+    settings: Settings,
+    ctx: RequestContext,
+    user: User,
+    code_id: uuid.UUID,
+    code: str,
+) -> User:
+    record = (
+        await session.execute(
+            select(LoginEmailCode).where(LoginEmailCode.id == code_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    vigente = (
+        record is not None
+        and record.user_id == user.id
+        and record.used_at is None
+        and record.expires_at > _now()
+        and record.attempts < LOGIN_CODE_MAX_ATTEMPTS
+    )
+    if (
+        vigente
+        and record is not None
+        and hmac.compare_digest(
+            record.code_hash, _login_code_hash(settings, user.id, record.id, code)
+        )
+    ):
+        record.used_at = _now()
+        return user
+    if vigente and record is not None:
+        record.attempts += 1
+        if record.attempts >= LOGIN_CODE_MAX_ATTEMPTS:
+            record.used_at = _now()
+    await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_MFA_FAILED)
+    raise _credentials_error(INVALID_MFA)
 
 
 def _decrypt_totp_secret(settings: Settings, user: User) -> str:
@@ -244,9 +395,18 @@ async def verify_mfa_login(
     ctx: RequestContext,
     user_id: uuid.UUID,
     code: str,
+    code_id: uuid.UUID | None = None,
 ) -> User:
     user = await get_user(session, user_id)
-    if user is None or not user.is_active or not user.totp_enabled or _is_locked(user):
+    if user is None or not user.is_active or _is_locked(user):
+        raise _credentials_error(INVALID_MFA)
+    if code_id is not None:
+        # Mismas condiciones que para pedirlo: con la aplicación activa (o el código por correo
+        # apagado) un código de correo pendiente no sirve como segundo paso.
+        if user.totp_enabled or not settings.LOGIN_EMAIL_CODE:
+            raise _credentials_error(INVALID_MFA)
+        return await _verify_login_code(session, settings, ctx, user, code_id, code)
+    if not user.totp_enabled:
         raise _credentials_error(INVALID_MFA)
 
     secret = _decrypt_totp_secret(settings, user)
@@ -394,6 +554,13 @@ async def refresh_session(
         current.revoked_reason = "expired" if current.expires_at <= now else "user_inactive"
         await session.commit()
         raise expired
+    if settings.LOGIN_EMAIL_CODE and not current.mfa_verified:
+        # Sesión abierta antes del código por correo (solo contraseña): se vuelve a ingresar.
+        current.is_revoked = True
+        current.revoked_at = now
+        current.revoked_reason = "mfa_not_verified"
+        await session.commit()
+        raise expired
 
     current.rotated_at = now
     current.is_revoked = True
@@ -516,6 +683,12 @@ async def enable_mfa(
         raise ProblemError(HTTPStatus.CONFLICT, "La verificación en dos pasos ya está activa.")
     await _require_valid_totp(session, settings, ctx, user, code)
     user.totp_enabled = True
+    # Desde ahora el segundo paso es la aplicación: se anulan los códigos por correo pendientes.
+    await session.execute(
+        update(LoginEmailCode)
+        .where(LoginEmailCode.user_id == user.id, LoginEmailCode.used_at.is_(None))
+        .values(used_at=_now())
+    )
     codes = await _replace_recovery_codes(session, settings, user)
     # Quien acaba de probar la posesión del segundo factor queda verificado en esta sesión.
     current.mfa_verified = True
@@ -543,7 +716,8 @@ async def disable_mfa(
 ) -> None:
     if not user.totp_enabled:
         raise ProblemError(HTTPStatus.CONFLICT, "La verificación en dos pasos no está activa.")
-    if settings.MFA_ENFORCED and user.mfa_required:
+    # Con el código por correo, quien desactiva la aplicación sigue con segundo paso.
+    if settings.MFA_ENFORCED and user.mfa_required and not settings.LOGIN_EMAIL_CODE:
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
             "Tu rol exige verificación en dos pasos: no se puede desactivar.",

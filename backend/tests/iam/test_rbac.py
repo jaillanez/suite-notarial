@@ -9,17 +9,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
 from app.modules.iam.models import User
-from tests.iam.factories import PASSWORD, make_user, replace_cookie, totp_code
+from tests.iam.factories import (
+    PASSWORD,
+    complete_email_code,
+    make_user,
+    replace_cookie,
+    totp_code,
+)
 
 
-async def login(client: AsyncClient, user: User, secret: str | None = None) -> None:
+async def login(
+    client: AsyncClient, user: User, secret: str | None = None, password: str = PASSWORD
+) -> None:
+    """Ingreso completo: contraseña y segundo paso (aplicación si hay secreto, si no correo)."""
     response = await client.post(
-        "/api/v1/auth/login", json={"identifier": user.email, "password": PASSWORD}
+        "/api/v1/auth/login", json={"identifier": user.email, "password": password}
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "mfa_required"
     if secret:
         mfa = await client.post("/api/v1/auth/login/mfa", json={"code": totp_code(secret)})
-        assert mfa.status_code == 200
+    else:
+        mfa = await complete_email_code(client)
+    assert mfa.status_code == 200, mfa.text
 
 
 async def test_protected_endpoint_requires_session(client: AsyncClient) -> None:

@@ -184,6 +184,32 @@ class EmailChangeToken(UUIDMixin, Base):
     created_by_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
 
 
+class LoginEmailCode(UUIDMixin, Base):
+    """Código de 6 dígitos enviado al correo como segundo paso del ingreso.
+
+    Se guarda como HMAC-SHA256 con clave del servidor (la base sola no sirve para probarlos);
+    vence a los `MFA_PENDING_TTL_MIN`, se usa una sola vez y se anula tras varios intentos.
+    """
+
+    __tablename__ = "security_login_email_codes"
+    __table_args__ = (CheckConstraint("attempts >= 0", name="attempts_no_negativo"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("security_users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
+
+
 class UserSession(UUIDMixin, Base):
     """Sesión con refresh token rotativo. Cada rotación crea una fila nueva de la misma familia."""
 

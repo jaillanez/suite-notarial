@@ -1,0 +1,13 @@
+Hola, {{ full_name }}.
+
+Tu código para ingresar a la Suite Notarial es:
+
+{{ code }}
+
+Vence en {{ ttl_minutes }} minutos y sirve una sola vez. No se lo des a nadie: el personal de la Caja nunca te lo va a pedir.
+
+Si no estabas ingresando, alguien conoce tu contraseña. Cambiala cuanto antes desde:
+{{ link }}
+
+—
+Caja Notarial de San Juan · Mensaje automático, no lo respondas.

@@ -180,8 +180,8 @@ function DisableDialog({ open, onClose }: { open: boolean; onClose: () => void }
     <Dialog
       open={open}
       onClose={onClose}
-      title="Desactivar verificación en dos pasos"
-      description="Tu cuenta quedará protegida solo por la contraseña."
+      title="Dejar de usar la aplicación"
+      description="Al ingresar te vamos a mandar el código a tu correo, como al resto de las cuentas."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -243,7 +243,7 @@ export function AccountSecurityPage() {
     <>
       <PageHeader
         title="Mi cuenta"
-        description="Tus datos, tu contraseña y la verificación en dos pasos."
+        description="Tus datos, tu contraseña y cómo verificamos que sos vos al ingresar."
       />
       {forced && !codes && (
         <div className="mb-6" ref={aviso}>
@@ -289,15 +289,15 @@ export function AccountSecurityPage() {
         {!forced && <PerfilPanel />}
         {!forced && <ContrasenaPanel />}
         <Panel
-          title="Verificación en dos pasos"
-          description="Además de la contraseña, al ingresar te pedimos un código que genera tu teléfono."
+          title="Aplicación de autenticación"
+          description="Cada vez que ingresás te mandamos un código a tu correo. Si preferís, podés usar en su lugar el código que genera una app en tu celular: es opcional y más seguro."
           actions={
             user.mfa_enabled ? (
               <StatusIndicator tone="success" label="Activa" />
-            ) : user.mfa_required ? (
+            ) : forced ? (
               <StatusIndicator tone="warning" label="Obligatoria para tu rol" />
             ) : (
-              <StatusIndicator tone="unknown" label="Inactiva" />
+              <StatusIndicator tone="unknown" label="Opcional" />
             )
           }
         >
@@ -315,17 +315,15 @@ export function AccountSecurityPage() {
               >
                 Generar códigos de recuperación nuevos
               </Button>
-              {!user.mfa_required && (
-                <Button
-                  variant="danger"
-                  icon={ShieldOff}
-                  onClick={() => {
-                    setDialog('disable')
-                  }}
-                >
-                  Desactivar
-                </Button>
-              )}
+              <Button
+                variant="danger"
+                icon={ShieldOff}
+                onClick={() => {
+                  setDialog('disable')
+                }}
+              >
+                Desactivar
+              </Button>
             </div>
           ) : (
             <Enrollment onCodes={setCodes} />

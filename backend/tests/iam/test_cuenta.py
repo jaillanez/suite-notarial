@@ -61,10 +61,7 @@ async def test_cambiar_contrasena_cierra_las_otras_sesiones(
         "/api/v1/auth/login", json={"identifier": user.email, "password": PASSWORD}
     )
     assert viejo.status_code == 401
-    nuevo = await client.post(
-        "/api/v1/auth/login", json={"identifier": user.email, "password": NUEVA}
-    )
-    assert nuevo.status_code == 200
+    await login(client, user, password=NUEVA)
     # Aviso por mail y auditoría.
     assert [m.subject for m in mailer.sent] == ["Se cambió tu contraseña · Suite Notarial"]
     assert "tus otras sesiones abiertas" in mailer.sent[0].html
