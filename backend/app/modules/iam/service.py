@@ -906,20 +906,6 @@ async def request_email_change(
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, PASSWORD_ACTUAL_INCORRECTA)
     if nuevo == user.email:
         raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "Ese ya es tu correo.")
-    # Si la dirección ya es de otra cuenta no se dice (revelaría qué correos existen) ni se le
-    # manda nada a ese tercero: la respuesta es la misma y queda en la auditoría.
-    if await _email_en_uso(session, nuevo, user.id):
-        record_audit(
-            session,
-            ctx,
-            AuditEvent.EMAIL_CHANGE_REQUESTED,
-            severity=Severity.WARNING,
-            actor_user_id=user.id,
-            target_user_id=user.id,
-            details={"sent": False, "reason": "en_uso"},
-        )
-        await session.commit()
-        return None
     now = _now()
     recientes = await session.scalar(
         select(func.count())
@@ -934,6 +920,32 @@ async def request_email_change(
             HTTPStatus.TOO_MANY_REQUESTS,
             "Ya pediste varios cambios de correo en la última hora: probá más tarde.",
         )
+    # Si la dirección ya es de otra cuenta no se dice (revelaría qué correos existen) ni se le
+    # manda nada a ese tercero: la respuesta es la misma, el pedido consume el cupo igual que
+    # uno real (queda registrado, ya usado) y la dirección intentada queda en la auditoría.
+    if await _email_en_uso(session, nuevo, user.id):
+        session.add(
+            EmailChangeToken(
+                user_id=user.id,
+                nuevo_email=nuevo,
+                token_hash=sha256_hex(generate_token(32)),
+                expires_at=now,
+                used_at=now,
+                created_by_ip=ctx.ip_address,
+            )
+        )
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.EMAIL_CHANGE_REQUESTED,
+            severity=Severity.WARNING,
+            actor_user_id=user.id,
+            target_user_id=user.id,
+            new_value={"email": nuevo},
+            details={"sent": False, "reason": "en_uso"},
+        )
+        await session.commit()
+        return None
     # Un pedido nuevo invalida los anteriores pendientes.
     await session.execute(
         update(EmailChangeToken)

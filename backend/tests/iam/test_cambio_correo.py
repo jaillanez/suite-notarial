@@ -84,8 +84,13 @@ async def test_cambio_de_correo_exige_la_contrasena_y_un_correo_libre(
     ocupado = await _pedir(client, otro.email)
     assert ocupado.status_code == 202  # type: ignore[attr-defined]
     assert mailer.sent == []
+    # Consume el cupo igual que un pedido real (no se distingue por el límite), ya usado.
     filtro = EmailChangeToken.user_id == user.id
-    assert (await db_session.scalars(select(EmailChangeToken).where(filtro))).all() == []
+    registrados = (await db_session.scalars(select(EmailChangeToken).where(filtro))).all()
+    assert [t.used_at is not None for t in registrados] == [True]
+    for _ in range(2):
+        assert (await _pedir(client, otro.email)).status_code == 202  # type: ignore[attr-defined]
+    assert (await _pedir(client)).status_code == 429  # type: ignore[attr-defined]
 
 
 async def test_cambiar_la_contrasena_anula_el_cambio_de_correo_pendiente(
