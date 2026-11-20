@@ -338,6 +338,11 @@ export async function agregarActo(id: string, data: ActoInput): Promise<Acto> {
   return (await api.post<Acto>(`${P}/declaraciones/${id}/actos`, data)).data
 }
 
+/** Corrige un acto del borrador: el servidor lo reemplaza por el corregido. */
+export async function corregirActo(id: string, actoId: string, data: ActoInput): Promise<Acto> {
+  return (await api.put<Acto>(`${P}/declaraciones/${id}/actos/${actoId}`, data)).data
+}
+
 export async function verificarActo(
   id: string,
   data: VerificacionActoInput,

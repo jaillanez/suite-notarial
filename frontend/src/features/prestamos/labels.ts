@@ -1,5 +1,5 @@
 import type { Tone } from '../../components/StatusIndicator'
-import { formatImporte, formatPercent } from '../../lib/decimal'
+import { compararDecimal, formatImporte, formatPercent } from '../../lib/decimal'
 import type { Cuota, EstadoPrestamo, Linea, Moneda, Sistema, TipoDocumento } from './api'
 
 export const ESTADO_PRESTAMO: Record<EstadoPrestamo, { label: string; tone: Tone }> = {
@@ -56,10 +56,44 @@ export function requisitosLinea(l: Linea): string[] {
   return r
 }
 
+/** Leyenda de las líneas en dólares (criterio de la Caja, 20/11/2026). */
+export const LEYENDA_USD =
+  'Los ingresos se declaran en dólares, al tipo de cambio comprador del Banco de la Nación Argentina.'
+
+/** Documentos que la línea exige para otorgar (igual que service.documentacion_requerida). */
+export function documentosDeLinea(l: Linea): TipoDocumento[] {
+  const r: TipoDocumento[] = []
+  if (l.requiere_certificado_ingresos) r.push('CERTIFICADO_INGRESOS')
+  if (l.requiere_certificado_bienes) r.push('CERTIFICADO_BIENES')
+  return r
+}
+
+/** Capital y cuotas fuera de lo que admite la línea: el error de cada campo (o undefined). */
+export function fueraDeLinea(
+  l: Linea | undefined,
+  capital: string,
+  cuotas: number,
+): { capital?: string; cuotas?: string } {
+  if (!l) return {}
+  const errores: { capital?: string; cuotas?: string } = {}
+  if (/^\d+(\.\d{1,2})?$/.test(capital)) {
+    if (compararDecimal(capital, l.monto_maximo) > 0) {
+      errores.capital = `El máximo de la línea es ${importe(l.monto_maximo, l.moneda)}.`
+    } else if (compararDecimal(capital, l.monto_minimo) < 0) {
+      errores.capital = `El mínimo de la línea es ${importe(l.monto_minimo, l.moneda)}.`
+    }
+  }
+  if (Number.isFinite(cuotas) && cuotas > 0) {
+    if (cuotas > l.plazo_maximo) errores.cuotas = `Hasta ${String(l.plazo_maximo)} cuotas.`
+    else if (cuotas < l.plazo_minimo) errores.cuotas = `Desde ${String(l.plazo_minimo)} cuotas.`
+  }
+  return errores
+}
+
 export function estadoCuota(c: Cuota): { label: string; tone: Tone } {
   if (c.estado === 'PAGADA') return { label: 'Pagada', tone: 'success' }
   if (c.vencida) return { label: 'Vencida', tone: 'danger' }
-  return { label: 'Pendiente', tone: 'unknown' }
+  return { label: 'A vencer', tone: 'unknown' }
 }
 
 /** Igual que en el servidor (catalog.NOMBRE_DOCUMENTO). */

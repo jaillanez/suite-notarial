@@ -521,6 +521,22 @@ async def agregar_acto(
     return acto_out(await service.agregar_acto(session, ctx, principal, ddjj_id, body))
 
 
+@router.put("/declaraciones/{ddjj_id}/actos/{acto_id}", response_model=ActoOut)
+async def corregir_acto(
+    ddjj_id: uuid.UUID,
+    acto_id: uuid.UUID,
+    body: ActoIn,
+    principal: CanOperate,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> ActoOut:
+    """Corrige un acto del borrador: lo reemplaza por el corregido (el anterior queda dado de
+    baja y en la auditoría)."""
+    return acto_out(
+        await service.agregar_acto(session, ctx, principal, ddjj_id, body, reemplaza=acto_id)
+    )
+
+
 @router.post("/declaraciones/{ddjj_id}/actos/verificacion", response_model=VerificacionActoOut)
 async def verificar_acto(
     ddjj_id: uuid.UUID, body: VerificacionActoIn, principal: CanOperate, session: SessionDep

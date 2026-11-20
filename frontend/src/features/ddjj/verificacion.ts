@@ -71,4 +71,5 @@ export const CAMPO_DEL_CONTROL: Record<string, 'numero_escritura' | 'folio' | 'f
   FOLIO_REPETIDO: 'folio',
   FOLIO_FUERA_DE_ORDEN: 'folio',
   FECHA_FUERA_DE_ORDEN: 'fecha_acto',
+  FECHA_NO_HABIL: 'fecha_acto',
 }

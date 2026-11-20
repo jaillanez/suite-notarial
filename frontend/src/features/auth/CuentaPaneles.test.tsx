@@ -20,7 +20,7 @@ describe('perfil', () => {
     vi.resetAllMocks()
   })
 
-  it('solo se edita el teléfono: nombre, correo y CUIT los administra la Caja', async () => {
+  it('se edita el teléfono: nombre y CUIT los administra la Caja', async () => {
     vi.mocked(authApi.fetchPerfil).mockResolvedValue(PERFIL)
     vi.mocked(authApi.actualizarPerfil).mockResolvedValue({
       ...PERFIL,
@@ -44,6 +44,46 @@ describe('perfil', () => {
       expect(authApi.actualizarPerfil).toHaveBeenCalledWith({ phone_number: '264 555-0101' })
     })
     expect(await screen.findByText('Tus datos se guardaron.')).toBeInTheDocument()
+  })
+})
+
+describe('teléfono y correo', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  it('el teléfono solo admite números y una cantidad lógica', async () => {
+    vi.mocked(authApi.fetchPerfil).mockResolvedValue(PERFIL)
+    renderWithProviders(<PerfilPanel />, { user: ESCRIBANO })
+    const telefono = await screen.findByLabelText('Teléfono (opcional)')
+    // Letras y símbolos no entran.
+    fireEvent.change(telefono, { target: { value: 'ab#264' } })
+    expect(telefono).toHaveValue('264')
+    expect(screen.getByText(/entre 8 y 15 números/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled()
+    fireEvent.change(telefono, { target: { value: '264 427-6426' } })
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeEnabled()
+  })
+
+  it('el correo se cambia con un enlace a la dirección nueva', async () => {
+    vi.mocked(authApi.fetchPerfil).mockResolvedValue(PERFIL)
+    vi.mocked(authApi.pedirCambioCorreo).mockResolvedValue(
+      'Te mandamos un enlace a nuevo@suite-notarial.example: abrilo para confirmar el cambio.',
+    )
+    renderWithProviders(<PerfilPanel />, { user: ESCRIBANO })
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar el correo' }))
+    fireEvent.change(screen.getByLabelText('Correo nuevo'), {
+      target: { value: 'nuevo@suite-notarial.example' },
+    })
+    fireEvent.change(screen.getByLabelText('Tu contraseña'), { target: { value: 'clave' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar el enlace' }))
+    await waitFor(() => {
+      expect(authApi.pedirCambioCorreo).toHaveBeenCalledWith(
+        'nuevo@suite-notarial.example',
+        'clave',
+      )
+    })
+    expect(await screen.findByText(/abrilo para confirmar el cambio/)).toBeInTheDocument()
   })
 })
 

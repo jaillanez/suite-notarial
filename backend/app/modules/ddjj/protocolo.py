@@ -7,6 +7,7 @@ y por año, y el folio y la fecha acompañan ese orden. Sobre los actos ya decla
   acto múltiple (varios actos de una misma escritura, cada uno en su renglón);
 - folio repetido: bloquea si ya está en otra escritura (aunque sea la consecutiva); solo lo
   comparten los actos de una misma escritura;
+- fecha en sábado o domingo: bloquea;
 - folio o fecha fuera de orden respecto de la numeración: advierte;
 - números salteados entre la primera y la última escritura declaradas del año: se listan para
   declararlos «sin efecto» si no se usaron.
@@ -32,6 +33,8 @@ from enum import StrEnum
 
 # Tramos de números salteados que se informan (los demás se resumen en el total).
 MAX_TRAMOS = 20
+# date.weekday(): 5 es sábado, 6 domingo.
+SABADO = 5
 
 
 class NivelControl(StrEnum):
@@ -168,9 +171,21 @@ def _periodo(periodo: str) -> str:
 
 def revisar(vista: Vista, c: Candidato) -> list[Control]:
     """Controles de un acto (nuevo o ya cargado) contra los declarados del mismo año."""
-    if c.numero is None:
-        return []
     controles: list[Control] = []
+    # Las escrituras se autorizan en días hábiles: sábado y domingo bloquean (pedido de la Caja,
+    # 20/11/2026). TODO(negocio): feriados nacionales y provinciales.
+    if c.fecha is not None and c.fecha.weekday() >= SABADO:
+        dia = "sábado" if c.fecha.weekday() == SABADO else "domingo"
+        controles.append(
+            Control(
+                "FECHA_NO_HABIL",
+                NivelControl.BLOQUEANTE,
+                f"El {c.fecha:%d/%m/%Y} es {dia}: la fecha de la escritura tiene que ser un día "
+                "hábil.",
+            )
+        )
+    if c.numero is None:
+        return controles
     protocolo = _protocolo(c.tipo_protocolo)
     completo = vista.completo.protocolos.get(c.tipo_protocolo)
     repetidos = (

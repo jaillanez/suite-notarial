@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
 import pytest
@@ -68,6 +68,11 @@ async def test_simular_otorgar_y_cobrar_hasta_cancelar(
     s = sim.json()
     assert s["cuota_maxima"] == "8884.88"
     assert s["afectacion"] == "14.8082"
+    # El ingreso neto con el que la cuota llega justo al tope de la línea.
+    tope = Decimal(s["afectacion_maxima"])
+    assert Decimal(s["ingreso_minimo"]) == (Decimal("8884.88") * 100 / tope).quantize(
+        Decimal("0.01"), rounding=ROUND_CEILING
+    )
     assert s["impedimentos"] == []
     assert s["tasa_es_ejemplo"] is True
     assert s["totales"] == {"capital": "100000.00", "intereses": "6618.53", "total": "106618.53"}

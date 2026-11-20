@@ -101,3 +101,18 @@ export async function cambiarContrasena(actual: string, nueva: string): Promise<
     })
   ).data.message
 }
+
+/** Pide cambiar el correo de ingreso: llega un enlace a la dirección nueva para confirmarla. */
+export async function pedirCambioCorreo(nuevoEmail: string, password: string): Promise<string> {
+  return (
+    await api.post<{ message: string }>('/v1/auth/perfil/correo', {
+      nuevo_email: nuevoEmail,
+      password,
+    })
+  ).data.message
+}
+
+export async function confirmarCambioCorreo(token: string): Promise<string> {
+  return (await api.post<{ message: string }>('/v1/auth/perfil/correo/confirmar', { token })).data
+    .message
+}

@@ -1,0 +1,7 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p style="margin:0 0 16px;">Hola, {{ full_name }}.</p>
+<p style="margin:0 0 16px;">El correo de ingreso de tu cuenta en la Suite Notarial cambió: desde ahora es <strong>{{ nuevo_email }}</strong>. Esta dirección ya no sirve para ingresar.</p>
+<p style="margin:0 0 16px;">Si no fuiste vos, avisá enseguida a la Caja Notarial.</p>
+{% with label="Ir a la Suite Notarial" %}{% include "_button.html" %}{% endwith %}
+{% endblock %}

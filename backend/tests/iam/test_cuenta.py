@@ -124,7 +124,7 @@ async def test_perfil_del_personal(client: AsyncClient, db_session: AsyncSession
 
     nombre = await client.patch(
         "/api/v1/auth/perfil",
-        json={"full_name": "Nombre Corregido", "phone_number": "264"},
+        json={"full_name": "Nombre Corregido", "phone_number": "264 555-0303"},
     )
     assert nombre.status_code == 403
     assert (await client.get("/api/v1/auth/me")).json()["full_name"] == user.full_name

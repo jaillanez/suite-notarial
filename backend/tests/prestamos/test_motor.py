@@ -109,3 +109,18 @@ def test_afectacion_y_errores() -> None:
         plan(Sistema.FRANCES, D("1000"), D("-1"), 12, INICIO)
     with pytest.raises(MotorPrestamoError):
         afectacion(D("100"), D("0"))
+
+
+def test_ingreso_minimo_deja_la_afectacion_justo_en_el_tope() -> None:
+    """Pedido de la Caja (20/11/2026): en vez de pedir el ingreso, se informa el mínimo."""
+    from app.modules.prestamos.motor import afectacion, ingreso_minimo
+
+    tope = Decimal("30.0000")
+    for cuota in (Decimal("1000.00"), Decimal("333.33"), Decimal("12345.67"), Decimal("0.01")):
+        minimo = ingreso_minimo(cuota, tope)
+        assert afectacion(cuota, minimo) <= tope
+        # Un centavo menos ya supera el tope.
+        assert afectacion(cuota, minimo - Decimal("0.01")) > tope
+    assert ingreso_minimo(Decimal("300.00"), tope) == Decimal("1000.00")
+    with pytest.raises(MotorPrestamoError):
+        ingreso_minimo(Decimal("1.00"), Decimal("0"))

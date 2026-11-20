@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
-import { useState, type SyntheticEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 
 import { StatusIndicator } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
@@ -222,6 +222,13 @@ export function AccountSecurityPage() {
   const navigate = useNavigate()
   const [codes, setCodes] = useState<string[] | null>(null)
   const [dialog, setDialog] = useState<'regenerate' | 'disable' | null>(null)
+  const location = useLocation()
+  // Sección a la que quiso entrar sin tener activado el 2FA obligatorio (ver RequireAuth).
+  const bloqueada = (location.state as { bloqueada?: string } | null)?.bloqueada
+  const aviso = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (bloqueada) aviso.current?.scrollIntoView({ block: 'center' })
+  }, [bloqueada, location.key])
   if (!user) return null
 
   const forced = needsMfaEnrollment(user)
@@ -239,10 +246,18 @@ export function AccountSecurityPage() {
         description="Tus datos, tu contraseña y la verificación en dos pasos."
       />
       {forced && !codes && (
-        <div className="mb-6">
-          <Alert tone="warning" title="Activá la verificación en dos pasos para continuar">
+        <div className="mb-6" ref={aviso}>
+          <Alert
+            tone={bloqueada ? 'danger' : 'warning'}
+            title={
+              bloqueada
+                ? 'No podés entrar todavía: falta activar la verificación en dos pasos'
+                : 'Activá la verificación en dos pasos para continuar'
+            }
+          >
             Tu rol tiene acceso a información sensible de la Caja. Hasta que la actives, el resto de
-            la Suite queda bloqueado para esta cuenta.
+            la Suite queda bloqueado para esta cuenta: activala más abajo con una app de
+            autenticación en el celular (Google Authenticator, Microsoft Authenticator o similar).
           </Alert>
         </div>
       )}

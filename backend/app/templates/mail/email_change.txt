@@ -1,0 +1,11 @@
+Hola, {{ full_name }}.
+
+Pediste usar esta dirección como correo de ingreso a la Suite Notarial. Confirmala en este enlace:
+{{ link }}
+
+El enlace vence en {{ ttl_minutes }} minutos y se puede usar una sola vez. Hasta que lo confirmes seguís ingresando con tu correo anterior.
+
+Si no pediste este cambio, ignorá este correo.
+
+—
+Caja Notarial de San Juan · Mensaje automático, no lo respondas.

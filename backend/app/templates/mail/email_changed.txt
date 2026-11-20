@@ -1,0 +1,10 @@
+Hola, {{ full_name }}.
+
+El correo de ingreso de tu cuenta en la Suite Notarial cambió: desde ahora es {{ nuevo_email }}. Esta dirección ya no sirve para ingresar.
+
+Si no fuiste vos, avisá enseguida a la Caja Notarial.
+
+{{ link }}
+
+—
+Caja Notarial de San Juan · Mensaje automático, no lo respondas.

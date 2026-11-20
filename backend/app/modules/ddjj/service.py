@@ -650,12 +650,39 @@ async def agregar_acto(
     data: ActoIn,
     *,
     acto_id: uuid.UUID | None = None,
+    reemplaza: uuid.UUID | None = None,
 ) -> Acto:
     """`acto_id` lo fija quien necesita referenciar el acto en la misma transacción (p. ej. la
-    ratificación de una sugerencia de IA): el commit es uno solo."""
+    ratificación de una sugerencia de IA): el commit es uno solo.
+
+    `reemplaza`: corrección de un acto ya cargado. El acto viejo se da de baja (lógica, queda
+    en la auditoría con sus valores) y el corregido se da de alta con los mismos controles, en
+    la misma transacción: si el corregido no pasa, el viejo queda como estaba."""
     ddjj = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, ddjj.registro_id)
     _exigir_borrador(ddjj)
+    original: Acto | None = None
+    if reemplaza is not None:
+        original = (
+            (
+                await session.execute(
+                    select(Acto).where(
+                        Acto.id == reemplaza, Acto.ddjj_id == ddjj.id, Acto.is_active.is_(True)
+                    )
+                )
+            )
+            .unique()
+            .scalars()
+            .first()
+        )
+        if original is None:
+            raise _not_found("El acto")
+    # Corregido en su misma escritura: conserva su lugar entre los actos de la escritura.
+    mismo_lugar = (
+        original is not None
+        and original.tipo_protocolo == data.tipo_protocolo.value
+        and original.numero_escritura == data.numero_escritura
+    )
     desde, hasta = rango_periodo(ddjj.periodo)
     if not desde <= data.fecha_acto <= hasta:
         raise _invalid(
@@ -672,6 +699,21 @@ async def agregar_acto(
     # La fecha ya está dentro del período: el año del protocolo es el del período.
     anio = int(ddjj.periodo[:4])
     await _bloquear_protocolo(session, ddjj.registro_id, anio)
+    if original is not None:
+        original.is_active = False
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.DDJJ_ACTO_BAJA,
+            actor_user_id=principal.user.id,
+            old_value=_acto_values(original),
+            details={
+                "ddjj_id": str(ddjj.id),
+                "acto_id": str(original.id),
+                "motivo": "Corregido: lo reemplaza el acto corregido.",
+            },
+        )
+        await session.flush()
     if len(await list_actos(session, ddjj.id)) >= MAX_ACTOS_POR_DDJJ:
         raise _conflict(f"Una declaración jurada admite hasta {MAX_ACTOS_POR_DDJJ} actos.")
     vista = protocolo.Vista(
@@ -684,16 +726,26 @@ async def agregar_acto(
         data.folio,
         data.fecha_acto,
         ddjj_id=ddjj.id,
-        multiple=data.acto_multiple,
+        # Los otros actos de su propia escritura no son un número repetido.
+        multiple=data.acto_multiple or mismo_lugar,
     )
     for control in protocolo.revisar(vista, candidato):
         if control.nivel is protocolo.NivelControl.BLOQUEANTE:
             raise _conflict(control.mensaje)
-    orden = await _orden_en_escritura(session, ddjj, data)
-    hermanos = await _misma_escritura(session, ddjj, data) if orden > 1 else []
+    if mismo_lugar and original is not None:
+        orden = original.orden_en_escritura
+        hermanos = await _misma_escritura(session, ddjj, data)
+    else:
+        orden = await _orden_en_escritura(session, ddjj, data)
+        hermanos = await _misma_escritura(session, ddjj, data) if orden > 1 else []
     # Un acto suelto no tiene a quién agruparse: la respuesta se pide al cargar el segundo acto
     # de la escritura (ActoIn la exige en un acto múltiple).
-    mismas_partes = True if data.mismas_partes is None else data.mismas_partes
+    if data.mismas_partes is not None:
+        mismas_partes = data.mismas_partes
+    elif mismo_lugar and original is not None:
+        mismas_partes = original.mismas_partes
+    else:
+        mismas_partes = True
     for hermano in hermanos:
         # Las mismas partes valen para toda la escritura: la respuesta del último acto rige, y
         # cada acto que cambia queda en la auditoría con su valor anterior.
@@ -740,6 +792,7 @@ async def agregar_acto(
         details={
             "ddjj_id": str(ddjj.id),
             "acto_id": str(item.id),
+            **({"corrige_acto_id": str(original.id)} if original is not None else {}),
             **(
                 {"mismas_partes_escritura": mismas_partes, "actos_de_la_escritura": orden}
                 if hermanos
@@ -1198,6 +1251,10 @@ async def _crear_boleta(
 ) -> Boleta:
     registro = await session.get(RegistroNotarial, ddjj.registro_id)
     assert registro is not None  # noqa: S101 - FK RESTRICT
+    # En término no hay mora: el importe vale hasta el vencimiento, y eso dice «pagar hasta»
+    # (la Caja lo pidió: no la fecha en que se generó).
+    if liquidacion.dias_mora == 0 and fecha_pago < vencimiento:
+        fecha_pago = vencimiento
     numero = await session.scalar(text("SELECT nextval('ddjj_boletas_numero_seq')"))
     boleta = Boleta(
         id=uuid.uuid4(),

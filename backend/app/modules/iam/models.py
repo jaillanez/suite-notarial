@@ -161,6 +161,29 @@ class PasswordResetToken(UUIDMixin, Base):
     created_by_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
 
 
+class EmailChangeToken(UUIDMixin, Base):
+    """Pedido de cambio del correo de ingreso: se confirma con el enlace que va a la dirección
+    nueva (prueba que es de quien la pidió). Un solo uso, guardado como SHA-256."""
+
+    __tablename__ = "security_email_change_tokens"
+    __table_args__ = (CheckConstraint("nuevo_email = lower(nuevo_email)", name="email_lowercase"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("security_users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    nuevo_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
+
+
 class UserSession(UUIDMixin, Base):
     """Sesión con refresh token rotativo. Cada rotación crea una fila nueva de la misma familia."""
 

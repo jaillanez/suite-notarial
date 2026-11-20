@@ -31,8 +31,9 @@ const BASE: ActoForm = {
 }
 
 describe('acto exento', () => {
-  it('exige el motivo y, si es otro, el detalle', () => {
-    expect(actoCompleto(BASE)).toBe(false)
+  it('el motivo es optativo; si es otro, lleva el detalle', () => {
+    // La Caja no le pregunta el motivo al escribano (20/11/2026).
+    expect(actoCompleto(BASE)).toBe(true)
     expect(actoCompleto({ ...BASE, motivo_exencion: 'CONVENIO_IPV' })).toBe(true)
     expect(actoCompleto({ ...BASE, motivo_exencion: 'OTRO' })).toBe(false)
     expect(actoCompleto({ ...BASE, motivo_exencion: 'OTRO', detalle_exencion: 'Donación' })).toBe(

@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p style="margin:0 0 16px;">Hola, {{ full_name }}.</p>
+<p style="margin:0 0 16px;">Pediste usar esta dirección como correo de ingreso a la Suite Notarial. Confirmala con el botón:</p>
+{% with label="Confirmar mi nuevo correo" %}{% include "_button.html" %}{% endwith %}
+<p style="margin:0 0 16px;">El enlace vence en {{ ttl_minutes }} minutos y se puede usar una sola vez. Hasta que lo confirmes seguís ingresando con tu correo anterior.</p>
+<p style="margin:0;">Si no pediste este cambio, ignorá este correo.</p>
+{% endblock %}

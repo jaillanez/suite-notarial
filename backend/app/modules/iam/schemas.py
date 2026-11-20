@@ -7,11 +7,12 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
 from app.common.cuit import InvalidCuitError, normalize_cuit
+from app.common.telefono import Telefono
 
 Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=255)]
 PasswordInput = Annotated[str, StringConstraints(min_length=1, max_length=256)]
 FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)]
-Phone = Annotated[str, StringConstraints(strip_whitespace=True, max_length=50)]
+Phone = Telefono
 OtpInput = Annotated[str, StringConstraints(strip_whitespace=True, min_length=6, max_length=20)]
 
 
@@ -105,9 +106,7 @@ class UserCreate(BaseModel):
         str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)
     ]
     cuit: str
-    phone_number: Annotated[str, StringConstraints(strip_whitespace=True, max_length=50)] | None = (
-        None
-    )
+    phone_number: Telefono | None = None
     roles: list[str] = Field(min_length=1)
 
     @field_validator("cuit")
@@ -168,6 +167,15 @@ class PerfilOut(BaseModel):
     phone_number: str | None
     # El nombre de un escribano lo lleva el padrón: lo cambia la Caja.
     nombre_editable: bool
+
+
+class CambioCorreoIn(BaseModel):
+    nuevo_email: EmailStr
+    password: PasswordInput
+
+
+class ConfirmarCorreoIn(BaseModel):
+    token: Annotated[str, StringConstraints(strip_whitespace=True, min_length=16, max_length=200)]
 
 
 class PerfilIn(BaseModel):

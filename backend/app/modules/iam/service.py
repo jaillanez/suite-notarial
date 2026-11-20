@@ -21,7 +21,13 @@ from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import ProblemError
 from app.core.security import generate_token, sha256_hex
 from app.modules.iam import passwords, totp
-from app.modules.iam.models import PasswordResetToken, RecoveryCode, User, UserSession
+from app.modules.iam.models import (
+    EmailChangeToken,
+    PasswordResetToken,
+    RecoveryCode,
+    User,
+    UserSession,
+)
 from app.modules.iam.tokens import create_access_token
 
 INVALID_CREDENTIALS = (
@@ -836,3 +842,156 @@ async def update_profile(
         )
     await session.commit()
     return user
+
+
+# --------------------------------------------------------------------------- cambio de correo
+
+# Los pedidos de cambio de correo de una cuenta por hora (cada uno manda un mail).
+MAX_EMAIL_CHANGES_PER_HOUR = 3
+EMAIL_CHANGE_TTL_MIN = 60
+INVALID_EMAIL_CHANGE_TOKEN = (
+    "El enlace para confirmar el correo no es válido o ya venció: pedí el cambio de nuevo desde "
+    "Mi cuenta."
+)
+EMAIL_EN_USO = "Ese correo ya lo usa otra cuenta de la Suite."
+
+
+def email_change_link(settings: Settings, raw_token: str) -> str:
+    """Enlace de confirmación bajo `PUBLIC_WEB_URL` (SEC-04); el token va en el fragmento."""
+    return f"{settings.public_web_base}/confirmar-correo#token={raw_token}"
+
+
+async def _email_en_uso(session: AsyncSession, email: str, propio: uuid.UUID) -> bool:
+    return (
+        await session.scalar(select(User.id).where(User.email == email, User.id != propio))
+    ) is not None
+
+
+async def request_email_change(
+    session: AsyncSession,
+    settings: Settings,
+    ctx: RequestContext,
+    user: User,
+    *,
+    password: str,
+    nuevo_email: str,
+) -> str:
+    """Pide cambiar el correo de ingreso: exige la contraseña (con una sesión robada no se
+    cambia) y devuelve el token que va por mail a la dirección nueva. El correo cambia recién
+    al confirmar desde ese enlace."""
+    nuevo = nuevo_email.strip().lower()
+    if _is_locked(user):
+        await passwords.burn_verification_time_async(password)
+        raise ProblemError(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            "Demasiados intentos con la contraseña: probá de nuevo más tarde.",
+        )
+    if not await passwords.verify_password_async(user.hashed_password, password):
+        await _register_failure(session, settings, ctx, user, AuditEvent.LOGIN_FAILED)
+        raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, PASSWORD_ACTUAL_INCORRECTA)
+    if nuevo == user.email:
+        raise ProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "Ese ya es tu correo.")
+    if await _email_en_uso(session, nuevo, user.id):
+        raise ProblemError(HTTPStatus.CONFLICT, EMAIL_EN_USO)
+    now = _now()
+    recientes = await session.scalar(
+        select(func.count())
+        .select_from(EmailChangeToken)
+        .where(
+            EmailChangeToken.user_id == user.id,
+            EmailChangeToken.created_at > now - timedelta(hours=1),
+        )
+    )
+    if recientes is not None and recientes >= MAX_EMAIL_CHANGES_PER_HOUR:
+        raise ProblemError(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            "Ya pediste varios cambios de correo en la última hora: probá más tarde.",
+        )
+    # Un pedido nuevo invalida los anteriores pendientes.
+    await session.execute(
+        update(EmailChangeToken)
+        .where(EmailChangeToken.user_id == user.id, EmailChangeToken.used_at.is_(None))
+        .values(used_at=now)
+    )
+    raw = generate_token(32)
+    expires_at = now + timedelta(minutes=EMAIL_CHANGE_TTL_MIN)
+    session.add(
+        EmailChangeToken(
+            user_id=user.id,
+            nuevo_email=nuevo,
+            token_hash=sha256_hex(raw),
+            expires_at=expires_at,
+            created_by_ip=ctx.ip_address,
+        )
+    )
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.EMAIL_CHANGE_REQUESTED,
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        old_value={"email": user.email},
+        new_value={"email": nuevo},
+        details={"expires_at": expires_at.isoformat()},
+    )
+    await session.commit()
+    return raw
+
+
+async def confirm_email_change(
+    session: AsyncSession, ctx: RequestContext, raw_token: str
+) -> tuple[User, str]:
+    """Confirma el cambio con el enlace del mail. Devuelve la cuenta y su correo anterior (para
+    avisarle ahí que cambió)."""
+    now = _now()
+    token = (
+        (
+            await session.execute(
+                select(EmailChangeToken)
+                .where(EmailChangeToken.token_hash == sha256_hex(raw_token))
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .first()
+    )
+    user = await get_user(session, token.user_id) if token else None
+    motivo = (
+        "unknown"
+        if token is None
+        else "used"
+        if token.used_at is not None
+        else "expired"
+        if token.expires_at <= now
+        else "inactive"
+        if user is None or not user.is_active
+        else None
+    )
+    if motivo is not None or token is None or user is None:
+        record_audit(
+            session,
+            ctx,
+            AuditEvent.EMAIL_CHANGE_REJECTED,
+            severity=Severity.WARNING,
+            target_user_id=user.id if user else None,
+            details={"reason": motivo},
+        )
+        await session.commit()
+        raise ProblemError(HTTPStatus.BAD_REQUEST, INVALID_EMAIL_CHANGE_TOKEN)
+    if await _email_en_uso(session, token.nuevo_email, user.id):
+        raise ProblemError(HTTPStatus.CONFLICT, EMAIL_EN_USO)
+    anterior = user.email
+    token.used_at = now
+    user.email = token.nuevo_email
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.EMAIL_CHANGED,
+        severity=Severity.WARNING,
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        old_value={"email": anterior},
+        new_value={"email": user.email},
+    )
+    await session.commit()
+    return user, anterior

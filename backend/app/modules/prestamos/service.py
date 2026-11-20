@@ -471,6 +471,8 @@ class Evaluacion:
     afectacion: Decimal | None
     afectacion_maxima: Decimal
     requiere_garante: bool
+    # Ingreso neto mensual con el que la cuota (y las de otros préstamos) llega justo al tope.
+    ingreso_minimo: Decimal = CERO
     impedimentos: list[str] = field(default_factory=list)
     # No impiden otorgar, pero quien resuelve los tiene que revisar.
     avisos: list[str] = field(default_factory=list)
@@ -580,6 +582,7 @@ async def evaluar(
         afectacion=afectacion,
         afectacion_maxima=linea.afectacion_maxima,
         requiere_garante=linea.requiere_garante,
+        ingreso_minimo=motor.ingreso_minimo(cuota_maxima + otras, linea.afectacion_maxima),
         impedimentos=impedimentos,
         avisos=avisos,
         impedimentos_garante=del_garante,

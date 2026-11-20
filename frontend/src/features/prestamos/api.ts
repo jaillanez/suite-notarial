@@ -67,6 +67,8 @@ export interface Evaluacion {
   afectacion: string | null
   afectacion_maxima: string
   requiere_garante: boolean
+  /** Ingreso neto mensual mínimo para que la cuota no supere el tope de afectación. */
+  ingreso_minimo: string
   impedimentos: string[]
   /** No impiden otorgar, pero hay que revisarlos (tipo de cambio, antigüedad). */
   avisos: string[]

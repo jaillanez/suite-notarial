@@ -24,7 +24,8 @@ export function RequireAuth() {
     return <Navigate to="/ingresar" replace state={{ from: location.pathname }} />
   }
   if (needsMfaEnrollment(user) && location.pathname !== '/cuenta/seguridad') {
-    return <Navigate to="/cuenta/seguridad" replace />
+    // Dice a qué sección quiso entrar: la pantalla explica por qué no lo llevó ahí.
+    return <Navigate to="/cuenta/seguridad" replace state={{ bloqueada: location.pathname }} />
   }
   return <Outlet />
 }
