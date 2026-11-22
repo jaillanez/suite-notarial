@@ -68,7 +68,7 @@ const NAV: NavItem[] = [
 ]
 
 function navClass({ isActive }: { isActive: boolean }): string {
-  return `flex min-h-11 items-center rounded-control px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 ease-out-quint ${
+  return `flex min-h-11 items-center rounded-control px-3 text-sm font-medium transition-colors duration-150 ease-out-quint ${
     isActive
       ? 'bg-brand-50 text-brand-900'
       : 'text-ink-muted hover:bg-brand-50 hover:text-brand-800'
@@ -125,8 +125,8 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex h-[4.5rem] max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
+      <header className="sticky top-0 z-30 border-b border-line bg-surface">
+        <div className="flex h-[4.5rem] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <BrandLogo />
           <div className="flex items-center gap-1">
             <NavLink
@@ -161,7 +161,7 @@ export function AppShell() {
               onClick={() => {
                 setMenuOpen((v) => !v)
               }}
-              className="inline-flex size-11 cursor-pointer items-center justify-center rounded-control text-brand-800 hover:bg-brand-50 sm:hidden"
+              className="inline-flex size-11 cursor-pointer items-center justify-center rounded-control text-brand-800 hover:bg-brand-50 lg:hidden"
             >
               {menuOpen ? (
                 <X aria-hidden="true" className="size-5" />
@@ -171,19 +171,11 @@ export function AppShell() {
             </button>
           </div>
         </div>
-        {items.length > 0 && (
-          <nav
-            aria-label="Principal"
-            className="mx-auto hidden max-w-5xl flex-wrap gap-1 px-4 pb-2 sm:flex sm:px-6"
-          >
-            {navLinks}
-          </nav>
-        )}
         {menuOpen && (
           <nav
             id="menu-principal"
             aria-label="Principal"
-            className="flex flex-col gap-1 border-t border-line px-4 py-3 sm:hidden"
+            className="flex max-h-[calc(100dvh-4.5rem)] flex-col gap-1 overflow-y-auto border-t border-line px-4 py-3 lg:hidden"
           >
             {navLinks}
             <NavLink
@@ -209,40 +201,51 @@ export function AppShell() {
           </nav>
         )}
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
-        {sugerir2fa && (
-          <div className="mb-8">
-            <Alert
-              tone="info"
-              title="Te recomendamos activar la verificación en dos pasos"
-              action={
-                <div className="flex flex-wrap gap-3">
-                  <Link
-                    to="/cuenta/seguridad"
-                    className="inline-flex min-h-11 items-center rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline hover:border-brand-700 hover:bg-brand-50"
-                  >
-                    Activarla ahora
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      omitirMfaSugerido(user)
-                      setOmitido(true)
-                    }}
-                    className="inline-flex min-h-11 cursor-pointer items-center rounded-control px-4 text-sm font-semibold text-brand-800 hover:bg-brand-50"
-                  >
-                    Ahora no
-                  </button>
-                </div>
-              }
-            >
-              Tu rol tiene acceso a información sensible de la Caja: con este paso, aunque alguien
-              conozca tu contraseña no puede entrar sin tu teléfono.
-            </Alert>
-          </div>
+      <div className="lg:flex">
+        {/* Escritorio: menú lateral fijo; el contenido usa todo el ancho restante. */}
+        {items.length > 0 && (
+          <nav
+            aria-label="Principal"
+            className="sticky top-[4.5rem] hidden h-[calc(100dvh-4.5rem)] w-64 shrink-0 flex-col gap-1 overflow-y-auto border-r border-line bg-surface px-3 py-6 lg:flex"
+          >
+            {navLinks}
+          </nav>
         )}
-        <Outlet />
-      </main>
+        <main className="min-w-0 flex-1 px-4 py-10 sm:px-6 sm:py-12 lg:px-10">
+          {sugerir2fa && (
+            <div className="mb-8">
+              <Alert
+                tone="info"
+                title="Te recomendamos activar la verificación en dos pasos"
+                action={
+                  <div className="flex flex-wrap gap-3">
+                    <Link
+                      to="/cuenta/seguridad"
+                      className="inline-flex min-h-11 items-center rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline hover:border-brand-700 hover:bg-brand-50"
+                    >
+                      Activarla ahora
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        omitirMfaSugerido(user)
+                        setOmitido(true)
+                      }}
+                      className="inline-flex min-h-11 cursor-pointer items-center rounded-control px-4 text-sm font-semibold text-brand-800 hover:bg-brand-50"
+                    >
+                      Ahora no
+                    </button>
+                  </div>
+                }
+              >
+                Tu rol tiene acceso a información sensible de la Caja: con este paso, aunque alguien
+                conozca tu contraseña no puede entrar sin tu teléfono.
+              </Alert>
+            </div>
+          )}
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

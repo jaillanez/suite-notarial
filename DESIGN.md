@@ -200,9 +200,9 @@ Paleta institucional sobria: un petróleo profundo como voz, un azul de acción 
 
 ## Layout
 
-Columna única centrada con ancho máximo de 64rem (1024px) compartida por cabecera y contenido, para que el logo y el título queden en el mismo eje. Márgenes laterales de 16px en celular y 24px desde 640px; el contenido principal respira 40px arriba y abajo (56px desde 640px). El ritmo sigue la base de 4px de Tailwind: 4, 8, 12, 16, 20, 24, 32, 40, 56.
+La Suite autenticada ocupa toda la pantalla (pedido de la Caja, 22/11/2026): cabecera fija arriba a todo el ancho, menú lateral fijo de 16rem a la izquierda desde 1024px y el contenido en todo el ancho restante, para que las grillas aprovechen el monitor. Márgenes laterales del contenido de 16px en celular, 24px desde 640px y 40px desde 1024px; respira 40px arriba y abajo (48px desde 640px). Las pantallas públicas (ingreso, recuperación) siguen en una columna centrada. El ritmo sigue la base de 4px de Tailwind: 4, 8, 12, 16, 20, 24, 32, 40, 56.
 
-Dentro de un panel, cada fila es un par etiqueta/valor con `justify-between` que se envuelve (`flex-wrap`) en pantallas angostas en vez de truncar; la cabecera del panel pasa de columna a fila desde 640px, con la acción alineada arriba. El único punto de quiebre en uso es 640px. Los objetivos táctiles miden al menos 44px de alto.
+Dentro de un panel, cada fila es un par etiqueta/valor con `justify-between` que se envuelve (`flex-wrap`) en pantallas angostas en vez de truncar; la cabecera del panel pasa de columna a fila desde 640px, con la acción alineada arriba. Los puntos de quiebre en uso son 640px y 1024px (menú lateral). Los objetivos táctiles miden al menos 44px de alto.
 
 ## Elevation & Depth
 
@@ -344,9 +344,9 @@ Contenidos y seguros: la acción se ofrece, no grita.
 - Página de lectura en la cabecera pública: campo de código (acepta espacios, guiones y minúsculas) y el veredicto como aviso con título ("Boleta auténtica" o rechazo), seguido de la ficha mínima de la boleta. Nunca muestra datos personales.
 
 ### Navigation (cabecera institucional)
-- Barra de 72px sobre Superficie con borde inferior Línea. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio. Mismo ancho máximo que el contenido.
+- Barra de 72px sobre Superficie con borde inferior Línea, fija arriba y a todo el ancho. Logo oficial a la izquierda (36px de alto, 44px desde 640px), enlazado al inicio.
 - Pública (ingreso, recuperación): a la derecha, "Suite Notarial" en Label y Tinta Secundaria; el formulario va en una columna de 28rem.
-- Autenticada: a la derecha, nombre de la persona con "Seguridad de la cuenta" debajo y "Cerrar sesión"; debajo, fila de navegación con las secciones que el usuario puede ver (la activa sobre Bruma Petróleo). En celular, un botón de menú despliega la navegación.
+- Autenticada: a la derecha, nombre de la persona con "Seguridad de la cuenta" debajo y "Cerrar sesión"; las secciones que el usuario puede ver van en un menú lateral fijo de 16rem sobre Superficie con borde derecho Línea, con su propio desplazamiento (la activa sobre Bruma Petróleo). Por debajo de 1024px, un botón de menú despliega la navegación.
 - Si el rol exige 2FA y falta activarlo, la navegación se oculta: solo existe Seguridad de la cuenta.
 
 ## Do's and Don'ts
