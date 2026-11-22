@@ -210,6 +210,33 @@ class LoginEmailCode(UUIDMixin, Base):
     created_by_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
 
 
+class TrustedDevice(UUIDMixin, Base):
+    """Navegador en el que la persona pidió no volver a recibir el código del segundo paso.
+
+    El navegador guarda un token aleatorio en una cookie HttpOnly; acá solo su SHA-256. Vence a
+    los `TRUSTED_DEVICE_DAYS` y se revoca al cambiar la contraseña o el correo de ingreso.
+    """
+
+    __tablename__ = "security_trusted_devices"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("security_users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+
 class UserSession(UUIDMixin, Base):
     """Sesión con refresh token rotativo. Cada rotación crea una fila nueva de la misma familia."""
 

@@ -30,6 +30,7 @@ from app.modules.iam.models import (
     LoginEmailCode,
     PasswordResetToken,
     RecoveryCode,
+    TrustedDevice,
     User,
     UserSession,
 )
@@ -123,6 +124,8 @@ class PasswordStep:
     mfa_required: bool
     mfa_method: MfaMethod | None = None
     email_code: LoginCode | None = None
+    # Entró desde un equipo de confianza: la sesión cuenta como verificada.
+    trusted_device: bool = False
 
 
 async def _register_failure(
@@ -173,6 +176,7 @@ async def authenticate_password(
     ctx: RequestContext,
     identifier: str,
     password: str,
+    device_token: str | None = None,
 ) -> PasswordStep:
     user = await find_user_by_identifier(session, identifier)
     if user is None:
@@ -219,6 +223,10 @@ async def authenticate_password(
     if passwords.needs_rehash(user.hashed_password):
         user.hashed_password = await passwords.hash_password_async(password)
 
+    if device_token and await _use_trusted_device(session, user, device_token):
+        record_audit(session, ctx, AuditEvent.LOGIN_TRUSTED_DEVICE, target_user_id=user.id)
+        await session.commit()
+        return PasswordStep(user=user, mfa_required=False, trusted_device=True)
     if user.totp_enabled:
         record_audit(
             session,
@@ -233,6 +241,56 @@ async def authenticate_password(
         code = await _issue_login_code(session, settings, ctx, user)
         return PasswordStep(user=user, mfa_required=True, mfa_method="email", email_code=code)
     return PasswordStep(user=user, mfa_required=False)
+
+
+async def _use_trusted_device(session: AsyncSession, user: User, raw: str) -> bool:
+    """El navegador trae un token vigente de esta misma cuenta: se registra el uso."""
+    device = await session.scalar(
+        select(TrustedDevice).where(
+            TrustedDevice.token_hash == sha256_hex(raw),
+            TrustedDevice.user_id == user.id,
+            TrustedDevice.revoked_at.is_(None),
+            TrustedDevice.expires_at > _now(),
+        )
+    )
+    if device is None:
+        return False
+    device.last_used_at = _now()
+    return True
+
+
+async def register_trusted_device(
+    session: AsyncSession, settings: Settings, ctx: RequestContext, user: User
+) -> str:
+    """Registra el navegador como equipo de confianza y devuelve el token para la cookie."""
+    raw = generate_token(32)
+    session.add(
+        TrustedDevice(
+            user_id=user.id,
+            token_hash=sha256_hex(raw),
+            user_agent=(ctx.user_agent or "")[:255] or None,
+            created_by_ip=ctx.ip_address,
+            expires_at=_now() + timedelta(days=settings.TRUSTED_DEVICE_DAYS),
+        )
+    )
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.TRUSTED_DEVICE_ADDED,
+        actor_user_id=user.id,
+        target_user_id=user.id,
+        details={"days": settings.TRUSTED_DEVICE_DAYS},
+    )
+    await session.commit()
+    return raw
+
+
+async def revoke_trusted_devices(session: AsyncSession, user_id: uuid.UUID, reason: str) -> None:
+    await session.execute(
+        update(TrustedDevice)
+        .where(TrustedDevice.user_id == user_id, TrustedDevice.revoked_at.is_(None))
+        .values(revoked_at=_now(), revoked_reason=reason)
+    )
 
 
 def _login_code_hash(settings: Settings, user_id: uuid.UUID, code_id: uuid.UUID, code: str) -> str:
@@ -906,6 +964,7 @@ async def confirm_password_reset(
     user.hashed_password = await passwords.hash_password_async(new_password)
     user.password_changed_at = now
     await _anular_cambios_de_correo(session, user.id, now)
+    await revoke_trusted_devices(session, user.id, "password_changed")
     user.failed_login_attempts = 0
     user.locked_until = None
     user.is_verified = True
@@ -966,6 +1025,7 @@ async def change_password(
     user.hashed_password = await passwords.hash_password_async(new_password)
     user.password_changed_at = now
     await _anular_cambios_de_correo(session, user.id, now)
+    await revoke_trusted_devices(session, user.id, "password_changed")
     user.failed_login_attempts = 0
     user.locked_until = None
     await session.execute(
@@ -1200,6 +1260,7 @@ async def confirm_email_change(
     user.email = token.nuevo_email
     # Cambió el identificador de ingreso: se vuelve a ingresar en todos los dispositivos.
     await revoke_all_user_sessions(session, user.id, "email_changed")
+    await revoke_trusted_devices(session, user.id, "email_changed")
     record_audit(
         session,
         ctx,

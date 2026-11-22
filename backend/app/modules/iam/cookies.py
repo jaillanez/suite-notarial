@@ -7,6 +7,8 @@ from app.core.config import Settings
 ACCESS_COOKIE = "sn_access"
 REFRESH_COOKIE = "sn_refresh"
 MFA_COOKIE = "sn_mfa"
+# Equipo de confianza: solo viaja al ingreso. Sobrevive al cierre de sesión a propósito.
+DEVICE_COOKIE = "sn_equipo"
 
 ACCESS_PATH = "/api"
 REFRESH_PATH = "/api/v1/auth"
@@ -84,3 +86,15 @@ def clear_session_cookies(response: Response, settings: Settings) -> None:
     response.delete_cookie(ACCESS_COOKIE, path=ACCESS_PATH, domain=domain, httponly=True)
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_PATH, domain=domain, httponly=True)
     clear_mfa_cookie(response, settings)
+
+
+def set_device_cookie(response: Response, settings: Settings, token: str) -> None:
+    _set(
+        response,
+        settings,
+        DEVICE_COOKIE,
+        token,
+        path=MFA_PATH,
+        max_age=settings.TRUSTED_DEVICE_DAYS * 86400,
+        samesite="strict",
+    )

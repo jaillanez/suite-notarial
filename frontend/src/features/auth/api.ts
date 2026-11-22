@@ -37,8 +37,11 @@ export async function login(identifier: string, password: string): Promise<Login
   return (await api.post<LoginResult>('/v1/auth/login', { identifier, password })).data
 }
 
-export async function loginMfa(code: string): Promise<LoginResult> {
-  return (await api.post<LoginResult>('/v1/auth/login/mfa', { code })).data
+/** `recordarEquipo`: no volver a pedir el segundo paso en este navegador (30 días). */
+export async function loginMfa(code: string, recordarEquipo = false): Promise<LoginResult> {
+  return (
+    await api.post<LoginResult>('/v1/auth/login/mfa', { code, recordar_equipo: recordarEquipo })
+  ).data
 }
 
 /** Manda un código nuevo por correo para el ingreso en curso (anula el anterior). */
