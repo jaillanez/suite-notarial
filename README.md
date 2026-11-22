@@ -171,6 +171,7 @@ Definidas y tipadas en `backend/app/core/config.py`; plantilla en `backend/.env.
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Bloqueo temporal tras intentos fallidos (5 / 15) |
 | `MFA_PENDING_TTL_MIN` | Tiempo para completar el segundo paso del ingreso y vigencia del código por correo (10) |
 | `LOGIN_EMAIL_CODE` | Código por correo en cada ingreso (true; solo se apaga en development/test) |
+| `TRUSTED_DEVICE_DAYS` | Días que un equipo marcado «no volver a pedirlo» entra sin código (30; se olvida al cambiar la contraseña o el correo) |
 | `COOKIE_SECURE` / `COOKIE_DOMAIN` | Atributos de la cookie de sesión (`COOKIE_SECURE=true` en producción) |
 | `SMTP_HOST` / `SMTP_PORT` / `MAIL_FROM` | Correo saliente (Mailpit en dev) |
 | `SMTP_SECURITY` / `SMTP_USER` / `SMTP_PASSWORD` | `none` solo en dev/test; fuera de eso `starttls` o `tls` obligatorio |

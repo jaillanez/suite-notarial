@@ -12,10 +12,12 @@ from app.core.errors import ProblemError
 from app.core.mail import Mailer, SmtpMailer, send_safely
 from app.modules.iam import service
 from app.modules.iam.cookies import (
+    DEVICE_COOKIE,
     MFA_COOKIE,
     REFRESH_COOKIE,
     clear_session_cookies,
     set_access_cookie,
+    set_device_cookie,
     set_mfa_cookie,
     set_session_cookies,
 )
@@ -132,6 +134,7 @@ def _pending_claims(request: Request, settings: Settings) -> MfaPendingClaims:
 @router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    request: Request,
     response: Response,
     background: BackgroundTasks,
     session: SessionDep,
@@ -140,7 +143,12 @@ async def login(
     mailer: MailerDep,
 ) -> LoginResponse:
     step = await service.authenticate_password(
-        session, settings, ctx, body.identifier, body.password
+        session,
+        settings,
+        ctx,
+        body.identifier,
+        body.password,
+        device_token=request.cookies.get(DEVICE_COOKIE),
     )
     if step.mfa_required and step.email_code is not None:
         return _email_code_challenge(
@@ -149,14 +157,15 @@ async def login(
     if step.mfa_required:
         set_mfa_cookie(response, settings, create_mfa_pending_token(settings, user_id=step.user.id))
         return LoginResponse(status="mfa_required", mfa_method="totp")
-    issued = await service.issue_session(session, settings, ctx, step.user, mfa_verified=False)
+    verified = step.trusted_device
+    issued = await service.issue_session(session, settings, ctx, step.user, mfa_verified=verified)
     set_session_cookies(response, settings, issued.access_token, issued.refresh_token)
     permissions = await effective_permissions(session, step.user)
     return LoginResponse(
         status="authenticated",
         user=session_user(
             step.user,
-            mfa_verified=False,
+            mfa_verified=verified,
             permissions=permissions,
             mfa_required=mfa_required_for(settings, step.user),
             mfa_sugerido=mfa_sugerido_for(settings, step.user),
@@ -179,6 +188,9 @@ async def login_mfa(
     )
     issued = await service.issue_session(session, settings, ctx, user, mfa_verified=True)
     set_session_cookies(response, settings, issued.access_token, issued.refresh_token)
+    if body.recordar_equipo:
+        token = await service.register_trusted_device(session, settings, ctx, user)
+        set_device_cookie(response, settings, token)
     permissions = await effective_permissions(session, user)
     return LoginResponse(
         status="authenticated",

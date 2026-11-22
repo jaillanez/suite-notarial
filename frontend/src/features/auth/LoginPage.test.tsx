@@ -50,7 +50,7 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verificar e ingresar' }))
 
     expect(await screen.findByText('Inicio')).toBeInTheDocument()
-    expect(authApi.loginMfa).toHaveBeenCalledWith('123456')
+    expect(authApi.loginMfa).toHaveBeenCalledWith('123456', false)
   })
 
   it('pide el código que llegó por correo y permite reenviarlo', async () => {
@@ -86,9 +86,10 @@ describe('LoginPage', () => {
     fireEvent.change(screen.getByLabelText('Código del correo'), {
       target: { value: '12 34-56' },
     })
+    fireEvent.click(screen.getByLabelText('No volver a pedirlo en este equipo por 30 días'))
     fireEvent.click(screen.getByRole('button', { name: 'Verificar e ingresar' }))
     expect(await screen.findByText('Inicio')).toBeInTheDocument()
-    expect(authApi.loginMfa).toHaveBeenCalledWith('123456')
+    expect(authApi.loginMfa).toHaveBeenCalledWith('123456', true)
   })
 
   it('muestra el error genérico del servidor', async () => {

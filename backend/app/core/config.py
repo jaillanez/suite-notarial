@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # la aplicación de autenticación recibe un código de 6 dígitos en su correo. Solo se puede
     # apagar en development/test.
     LOGIN_EMAIL_CODE: bool = True
+    # «No volver a pedir el código en este equipo»: días que el navegador queda registrado.
+    TRUSTED_DEVICE_DAYS: Annotated[int, Field(gt=0, le=90)] = 30
 
     SMTP_HOST: str = "localhost"
     SMTP_PORT: Annotated[int, Field(gt=0, lt=65536)] = 1025

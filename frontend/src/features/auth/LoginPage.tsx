@@ -18,6 +18,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [useRecovery, setUseRecovery] = useState(false)
+  const [recordar, setRecordar] = useState(false)
   // Con mfa_required: si el código llega por correo y a qué dirección (enmascarada).
   const [porCorreo, setPorCorreo] = useState<string | null>(null)
   const queryClient = useQueryClient()
@@ -41,7 +42,7 @@ export function LoginPage() {
     onSuccess: finish,
   })
   const mfaStep = useMutation({
-    mutationFn: () => loginMfa(code),
+    mutationFn: () => loginMfa(code, recordar),
     onSuccess: finish,
   })
   const reenvio = useMutation({
@@ -122,6 +123,17 @@ export function LoginPage() {
             className="[&_input]:tracking-[0.2em] [&_input]:tabular-nums"
             required
           />
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-medium text-ink">
+            <input
+              type="checkbox"
+              checked={recordar}
+              onChange={(e) => {
+                setRecordar(e.target.checked)
+              }}
+              className="size-5 cursor-pointer accent-brand-800"
+            />
+            No volver a pedirlo en este equipo por 30 días
+          </label>
           <Button
             type="submit"
             variant="primary"
@@ -202,6 +214,17 @@ export function LoginPage() {
             className="[&_input]:tracking-[0.2em] [&_input]:tabular-nums"
             required
           />
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-medium text-ink">
+            <input
+              type="checkbox"
+              checked={recordar}
+              onChange={(e) => {
+                setRecordar(e.target.checked)
+              }}
+              className="size-5 cursor-pointer accent-brand-800"
+            />
+            No volver a pedirlo en este equipo por 30 días
+          </label>
           <Button
             type="submit"
             variant="primary"

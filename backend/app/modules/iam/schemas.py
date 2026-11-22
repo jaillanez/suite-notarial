@@ -23,6 +23,9 @@ class LoginRequest(BaseModel):
 
 class MfaLoginRequest(BaseModel):
     code: OtpInput = Field(description="Código TOTP de 6 dígitos o código de recuperación")
+    recordar_equipo: bool = Field(
+        default=False, description="No volver a pedir el segundo paso en este navegador"
+    )
 
 
 class SessionUser(BaseModel):
