@@ -151,7 +151,6 @@ export function RegistroFormDialog({
             {...bind('numero_registro')}
           />
         )}
-        <Field label="Nombre de fantasía (opcional)" {...bind('nombre_fantasia')} />
         <Select
           label="Circunscripción"
           value={circunscripcionId}
@@ -183,7 +182,6 @@ export function RegistroFormDialog({
         )}
         <Field label="Teléfono" type="tel" {...bind('telefono')} />
         <Field label="Correo de la oficina" type="email" {...bind('email')} />
-        <Field label="Fecha de creación (opcional)" type="date" {...bind('fecha_creacion')} />
       </div>
     </Dialog>
   )

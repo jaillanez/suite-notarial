@@ -11,6 +11,7 @@ import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
 import {
   createCuenta,
+  addCargoAnterior,
   assignCargo,
   changeEstado,
   closeCargo,
@@ -257,6 +258,134 @@ export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
           value={resolucion}
           onChange={(e) => {
             setResolucion(e.target.value)
+          }}
+        />
+      </div>
+    </Dialog>
+  )
+}
+
+/** Cargo que ya terminó, anterior a lo registrado (p. ej. adscripto antes de ser titular). */
+export function CargoAnteriorDialog({ escribano, open, onClose }: Props) {
+  const refresh = useRefresh(escribano.id)
+  const registros = useQuery({
+    queryKey: ['padron', 'registros', 'todos'],
+    queryFn: () => fetchRegistros({ page: 1, pageSize: 100, q: '', departamento: '', estado: '' }),
+    enabled: open,
+  })
+  const todos = registros.data?.items ?? []
+  const [registroId, setRegistroId] = useState('')
+  const [cargo, setCargo] = useState<Cargo>('ADSCRIPTO')
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+  const [resolucion, setResolucion] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const elegido = registroId || todos[0]?.id || ''
+  const fechasMal = Boolean(desde && hasta && hasta < desde)
+  const cerrar = () => {
+    save.reset()
+    setDesde('')
+    setHasta('')
+    setResolucion('')
+    setMotivo('')
+    onClose()
+  }
+  const save = useMutation({
+    mutationFn: () =>
+      addCargoAnterior(escribano.id, {
+        registro_id: elegido,
+        cargo,
+        fecha_desde: desde,
+        fecha_hasta: hasta,
+        resolucion_designacion: orNull(resolucion),
+        motivo_cierre: orNull(motivo),
+      }),
+    onSuccess: async () => {
+      await refresh()
+      cerrar()
+    },
+  })
+  return (
+    <Dialog
+      open={open}
+      onClose={cerrar}
+      title="Cargar un cargo anterior"
+      description="Para un cargo que ya terminó, por ejemplo el de adscripto antes de ser titular. Queda cerrado, con sus fechas, y no puede superponerse con otros cargos del escribano."
+      footer={
+        <>
+          <Button onClick={cerrar}>Cancelar</Button>
+          <Button
+            variant="primary"
+            icon={Save}
+            busy={save.isPending}
+            busyLabel="Guardando…"
+            disabled={!elegido || !desde || !hasta || fechasMal}
+            onClick={() => {
+              save.mutate()
+            }}
+          >
+            Guardar cargo
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select
+            label="Registro notarial"
+            value={elegido}
+            onChange={(e) => {
+              setRegistroId(e.target.value)
+            }}
+            options={todos.map((r) => ({
+              value: r.id,
+              label: `Nº ${String(r.numero_registro)} · ${departamentoTexto(r.departamento)}`,
+            }))}
+          />
+          <Select
+            label="Cargo"
+            value={cargo}
+            onChange={(e) => {
+              setCargo(e.target.value as Cargo)
+            }}
+            options={CARGOS_PROPIOS.map((c) => ({ value: c, label: CARGO[c] }))}
+          />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Desde"
+            type="date"
+            value={desde}
+            max={todayIso()}
+            onChange={(e) => {
+              setDesde(e.target.value)
+            }}
+          />
+          <Field
+            label="Hasta"
+            type="date"
+            value={hasta}
+            max={todayIso()}
+            error={fechasMal ? 'No puede ser anterior a la fecha desde.' : undefined}
+            onChange={(e) => {
+              setHasta(e.target.value)
+            }}
+          />
+        </div>
+        <Field
+          label="Resolución de designación (opcional)"
+          value={resolucion}
+          onChange={(e) => {
+            setResolucion(e.target.value)
+          }}
+        />
+        <Field
+          label="Motivo del cierre (opcional)"
+          value={motivo}
+          placeholder="Por ejemplo: pasó a ser titular"
+          onChange={(e) => {
+            setMotivo(e.target.value)
           }}
         />
       </div>

@@ -41,7 +41,6 @@ export function RegistroPage() {
     ['Domicilio legal', r.domicilio_legal],
     ['Teléfono', r.telefono ?? '—'],
     ['Correo', r.email ?? '—'],
-    ['Creación', formatDate(r.fecha_creacion)],
   ]
 
   return (

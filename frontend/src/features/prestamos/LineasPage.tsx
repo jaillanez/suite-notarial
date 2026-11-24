@@ -262,6 +262,7 @@ export function LineasPage() {
   const navigate = useNavigate()
   // El personal las administra; el escribano las consulta y solicita desde acá.
   const gestiona = can('prestamos:manage')
+  const solicita = can('prestamos:read_own')
   const query = useQuery({ queryKey: ['prestamos', 'lineas'], queryFn: fetchLineas })
   const lineas = (query.data ?? []).filter((l) => gestiona || l.is_active)
   const [editando, setEditando] = useState<{ open: boolean; item?: Linea }>({ open: false })
@@ -338,7 +339,7 @@ export function LineasPage() {
                   >
                     Editar
                   </Button>
-                ) : (
+                ) : solicita ? (
                   <Button
                     icon={FilePlus2}
                     onClick={() => {
@@ -347,7 +348,7 @@ export function LineasPage() {
                   >
                     Solicitar
                   </Button>
-                )}
+                ) : null}
               </div>
             </li>
           ))}

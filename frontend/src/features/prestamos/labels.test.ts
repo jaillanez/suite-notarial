@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Linea } from './api'
-import { fueraDeLinea } from './labels'
+import { fueraDeLinea, topeCapital, topeCuotas } from './labels'
 
 const LINEA = {
   monto_minimo: '1000.00',
@@ -19,5 +19,19 @@ describe('topes de la línea', () => {
     expect(fueraDeLinea(LINEA, '10000', 25).cuotas).toBe('Hasta 24 cuotas.')
     // A medio tipear no se marca nada.
     expect(fueraDeLinea(LINEA, '', Number.NaN)).toEqual({})
+  })
+})
+
+describe('topes de la línea al tipear (pedido de la Caja, 23/11/2026)', () => {
+  it('el capital nunca supera el máximo', () => {
+    expect(topeCapital(LINEA, '600000')).toBe(LINEA.monto_maximo)
+    expect(topeCapital(LINEA, '499999.99')).toBe('499999.99')
+    expect(topeCapital(undefined, '9999999')).toBe('9999999')
+  })
+
+  it('las cuotas nunca superan el plazo máximo', () => {
+    expect(topeCuotas(LINEA, '36')).toBe('24')
+    expect(topeCuotas(LINEA, '1x2')).toBe('12')
+    expect(topeCuotas(LINEA, '')).toBe('')
   })
 })

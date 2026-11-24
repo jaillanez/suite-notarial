@@ -54,35 +54,39 @@ export function PrestamosPage() {
         className={saldo.data && saldo.data.monedas.length > 0 ? 'mt-6' : ''}
         title={personal ? 'Préstamos' : 'Mis préstamos'}
         actions={
+          // El personal de la Caja consulta, aprueba y define líneas; simular y solicitar es
+          // del escribano (pedido de la Caja, 23/11/2026).
           <>
-            <Button
-              icon={Calculator}
-              onClick={() => {
-                void navigate('/prestamos/simular')
-              }}
-            >
-              Simular
-            </Button>
+            {propios && (
+              <Button
+                icon={Calculator}
+                onClick={() => {
+                  void navigate('/prestamos/simular')
+                }}
+              >
+                Simular
+              </Button>
+            )}
             {(gestiona || propios) && (
-              <>
-                <Button
-                  icon={gestiona ? Settings2 : ListChecks}
-                  onClick={() => {
-                    void navigate('/prestamos/lineas')
-                  }}
-                >
-                  {gestiona ? 'Líneas' : 'Líneas y requisitos'}
-                </Button>
-                <Button
-                  variant="primary"
-                  icon={FilePlus2}
-                  onClick={() => {
-                    void navigate('/prestamos/nueva')
-                  }}
-                >
-                  {gestiona ? 'Nueva solicitud' : 'Solicitar préstamo'}
-                </Button>
-              </>
+              <Button
+                icon={gestiona ? Settings2 : ListChecks}
+                onClick={() => {
+                  void navigate('/prestamos/lineas')
+                }}
+              >
+                {gestiona ? 'Líneas' : 'Líneas y requisitos'}
+              </Button>
+            )}
+            {propios && (
+              <Button
+                variant="primary"
+                icon={FilePlus2}
+                onClick={() => {
+                  void navigate('/prestamos/nueva')
+                }}
+              >
+                Solicitar préstamo
+              </Button>
             )}
           </>
         }

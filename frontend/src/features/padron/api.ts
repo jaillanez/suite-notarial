@@ -335,6 +335,21 @@ export async function assignCargo(
   return (await api.post<EscribanoDetalle>(`${P}/escribanos/${id}/cargos`, data)).data
 }
 
+/** Cargo ya terminado, anterior a lo registrado: se carga cerrado. */
+export async function addCargoAnterior(
+  id: string,
+  data: {
+    registro_id: string
+    cargo: Cargo
+    fecha_desde: string
+    fecha_hasta: string
+    resolucion_designacion: string | null
+    motivo_cierre: string | null
+  },
+): Promise<EscribanoDetalle> {
+  return (await api.post<EscribanoDetalle>(`${P}/escribanos/${id}/cargos/anteriores`, data)).data
+}
+
 export async function closeCargo(id: string, fechaHasta: string, motivo: string) {
   return (
     await api.post<CargoItem>(`${P}/cargos/${id}/cierre`, { fecha_hasta: fechaHasta, motivo })
