@@ -420,6 +420,7 @@ export async function rectificar(id: string): Promise<DeclaracionDetalle> {
 /** Descarga el PDF por el cliente HTTP (renueva la sesión si venció) y lo guarda. */
 export interface RenglonPlanilla {
   acto_id: string | null
+  fecha_acto: string | null
   numero_escritura: number
   orden_en_escritura: number
   folio: number | null

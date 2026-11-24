@@ -171,6 +171,7 @@ function planillaDe(
       const variable = a.categoria === 'ESCRITURA_CON_VALOR'
       return {
         acto_id: a.id,
+        fecha_acto: a.fecha_acto,
         numero_escritura: a.numero_escritura,
         orden_en_escritura: a.orden_en_escritura,
         folio: a.folio,

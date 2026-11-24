@@ -654,6 +654,7 @@ def planilla_out(datos: service.DatosPlanilla) -> PlanillaOut:
                 renglones=[
                     RenglonPlanillaOut(
                         acto_id=r.acto_id,
+                        fecha_acto=r.fecha_acto,
                         numero_escritura=r.numero_escritura,
                         orden_en_escritura=r.orden_en_escritura,
                         folio=r.folio,

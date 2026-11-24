@@ -3,7 +3,7 @@ import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'rea
 
 import { Button } from '../../components/ui/Button'
 import { formatMoney } from '../../lib/decimal'
-import { CARGO } from '../padron/labels'
+import { CARGO, formatDate } from '../padron/labels'
 import type {
   Acto,
   ControlProtocolo,
@@ -197,6 +197,9 @@ function ProtocoloGrilla({
               <tr key={r.acto_id ?? numeroRenglon(r)}>
                 <td className={`${TD} pl-6 whitespace-nowrap tabular-nums`}>
                   <span className="block font-semibold text-ink">N° {numeroRenglon(r)}</span>
+                  {r.fecha_acto && (
+                    <span className="block text-ink-muted">{formatDate(r.fecha_acto)}</span>
+                  )}
                   {r.folio !== null && (
                     <span className="block text-ink-muted">Folio {r.folio}</span>
                   )}
@@ -241,6 +244,9 @@ function ProtocoloGrilla({
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-semibold text-ink tabular-nums">
                 N° {numeroRenglon(r)}
+                {r.fecha_acto && (
+                  <span className="font-normal text-ink-muted"> · {formatDate(r.fecha_acto)}</span>
+                )}
                 {r.folio !== null && (
                   <span className="font-normal text-ink-muted"> · Folio {r.folio}</span>
                 )}

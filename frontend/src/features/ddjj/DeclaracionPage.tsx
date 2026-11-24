@@ -76,7 +76,7 @@ import { useVademecumDelPeriodo } from './vademecum'
 import {
   CRITERIO_PLURALIDAD,
   ESTADO_BOLETA,
-  ESTADO_DDJJ,
+  estadoDeclaracion,
   PROTOCOLO,
   formatCodigo,
   formatPeriodo,
@@ -1356,8 +1356,8 @@ export function DeclaracionPage() {
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <span className="text-ink-muted">{registroLabel(ddjj.registro)}</span>
                 <StatusIndicator
-                  tone={ESTADO_DDJJ[ddjj.estado].tone}
-                  label={ESTADO_DDJJ[ddjj.estado].label}
+                  tone={estadoDeclaracion(ddjj).tone}
+                  label={estadoDeclaracion(ddjj).label}
                 />
               </div>
             </div>
@@ -1376,9 +1376,9 @@ export function DeclaracionPage() {
           </div>
 
           {ddjj.estado === 'RECTIFICADA' && (
-            <Alert tone="info" title="Declaración reemplazada">
-              Fue corregida por una rectificativa del mismo período. Se conserva como antecedente;
-              sus boletas quedaron anuladas.
+            <Alert tone="info" title="Declaración reemplazada por una rectificativa">
+              Fue presentada y después corregida por una rectificativa del mismo período, que es la
+              que vale. Se conserva como antecedente; sus boletas quedaron anuladas.
             </Alert>
           )}
           {ddjj.rectifica_a_id && (

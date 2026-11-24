@@ -427,6 +427,7 @@ class VademecumOut(BaseModel):
 
 class RenglonPlanillaOut(BaseModel):
     acto_id: uuid.UUID | None
+    fecha_acto: date | None
     numero_escritura: int
     orden_en_escritura: int
     folio: int | None

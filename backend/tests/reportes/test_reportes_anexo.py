@@ -12,14 +12,16 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.migracion.models import Corrida, HistoricoBoleta, HistoricoPago
 from app.modules.reportes import catalogo
-from tests.ddjj.conftest import HOY, Escenario
+from tests.conftest import CSRF_HEADERS
+from tests.ddjj.conftest import HOY, Escenario, escritura
 from tests.iam.factories import make_user
+from tests.iam.test_rbac import login
 from tests.reportes.test_reportes import _pantalla, verificar_paridad
 
 D = Decimal
@@ -45,6 +47,8 @@ def hoy_reportes(monkeypatch: pytest.MonkeyPatch) -> Callable[[date], None]:
         ("APORTES_PERIODO", {"agrupar": "ANIO"}),
         ("SIN_DDJJ_O_PAGO", {"periodo": "2026-09", "situacion": "TODOS"}),
         ("BOLETAS", {"atraso": "VENCIDA_IMPAGA"}),
+        ("PROTOCOLO", {}),
+        ("PROTOCOLO", {"anio": "2026", "protocolo": "GENERAL"}),
     ],
 )
 async def test_paridad_pantalla_xlsx_csv(
@@ -158,7 +162,7 @@ async def test_mis_aportes_solo_las_propias(
     notario: AsyncClient, auditor: AsyncClient, datos: dict[str, Any], escenario: Escenario
 ) -> None:
     disponibles = [r["codigo"] for r in (await notario.get("/api/v1/reportes")).json()]
-    assert disponibles == ["MIS_APORTES", "MIS_ACTOS_HISTORICOS"]
+    assert disponibles == ["MIS_APORTES", "MIS_ACTOS_HISTORICOS", "MI_PROTOCOLO"]
     mias = await _pantalla(notario, "MIS_APORTES")
     assert [f["boleta"] for f in mias["filas"]] == [
         str(datos["pendiente"]["numero"]),
@@ -326,3 +330,50 @@ async def test_deudores_del_sistema_anterior(
         auditor, "SIN_DDJJ_O_PAGO", periodo="2026-05", registro=registro, situacion="SIN_DDJJ"
     )
     assert sin_ddjj["total"] == 0
+
+
+async def test_protocolo_con_la_ddjj_de_cada_escritura(
+    app: Any,
+    notario: AsyncClient,
+    auditor: AsyncClient,
+    datos: dict[str, Any],
+    escenario: Escenario,
+    db_session: AsyncSession,
+) -> None:
+    """Todas las escrituras del registro, en orden, con la DDJJ donde se declaró cada una
+    (pedido de la Caja, 24/11/2026). Incluye los borradores; el adscripto ve el de su registro."""
+    borrador = (
+        await notario.post(
+            "/api/v1/ddjj/declaraciones",
+            json={"registro_id": str(escenario.registro.id), "periodo": "2026-10"},
+        )
+    ).json()
+    cargado = await notario.post(
+        f"/api/v1/ddjj/declaraciones/{borrador['id']}/actos",
+        json=escritura(escenario.titular, 12, "1000000.00", fecha_acto="2026-10-15"),
+    )
+    assert cargado.status_code == 201, cargado.text
+
+    del_titular = await _pantalla(notario, "MI_PROTOCOLO")
+    filas = [(f["escritura"], f["ddjj"], f["estado_ddjj"]) for f in del_titular["filas"]]
+    assert (10, "2026-08", "Presentada") in filas
+    assert (12, "2026-10", "En borrador") in filas
+    escrituras = [f["escritura"] for f in del_titular["filas"]]
+    assert escrituras == sorted(escrituras)
+
+    # El adscripto del registro ve las escrituras del titular (es el protocolo del registro).
+    user = await make_user(db_session)
+    escenario.adscripto.user_id = user.id
+    await db_session.commit()
+    transport = ASGITransport(app=app, client=("203.0.113.41", 54001))
+    async with AsyncClient(
+        transport=transport, base_url="https://test", headers=CSRF_HEADERS
+    ) as adscripto:
+        await login(adscripto, user)
+        del_adscripto = await _pantalla(adscripto, "MI_PROTOCOLO")
+    assert {f["escritura"] for f in del_adscripto["filas"]} >= {10, 11, 12}
+
+    # La Caja ve todos los registros y filtra por uno; el escribano no tiene el de la Caja.
+    caja = await _pantalla(auditor, "PROTOCOLO", registro=str(escenario.registro.numero_registro))
+    assert {f["escritura"] for f in caja["filas"]} >= {10, 11, 12}
+    assert (await notario.get("/api/v1/reportes/PROTOCOLO")).status_code == 403

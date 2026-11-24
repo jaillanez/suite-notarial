@@ -53,6 +53,7 @@ const NAV: NavItem[] = [
     permission: ['prestamos:read_own', 'prestamos:read_all', 'prestamos:manage'],
   },
   { to: '/reportes/MIS_APORTES', label: 'Mis aportes', permission: 'boletas:read_own' },
+  { to: '/reportes/MI_PROTOCOLO', label: 'Mi protocolo', permission: 'ddjj:read_own' },
   {
     to: '/reportes/MIS_ACTOS_HISTORICOS',
     label: 'Actos anteriores',

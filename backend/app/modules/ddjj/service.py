@@ -1749,6 +1749,7 @@ async def datos_planilla(
             escribano=nombre_escribano(a.escribano),
             cargo=Cargo(a.cargo),
             acto_id=a.id,
+            fecha_acto=a.fecha_acto,
             motivo_exencion=MotivoExencion(a.motivo_exencion) if a.motivo_exencion else None,
             detalle_exencion=a.detalle_exencion,
         )
