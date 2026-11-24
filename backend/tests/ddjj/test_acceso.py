@@ -2,11 +2,13 @@
 
 import pyotp
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.conftest import CSRF_HEADERS
 from tests.ddjj.conftest import Escenario, escritura
 from tests.iam.factories import make_user
 from tests.iam.test_rbac import login
@@ -58,20 +60,64 @@ async def test_ddjj_y_boletas_ajenas_no_se_ven(
     assert listado["total"] == 0
 
 
-async def test_la_caja_consulta_y_carga_cualquier_registro(
+async def test_la_caja_consulta_pero_no_carga_ni_rectifica(
     notario: AsyncClient, staff: AsyncClient, escenario: Escenario
 ) -> None:
+    """Solo el escribano opera su DDJJ; la Caja consulta (Caja, 24/11/2026)."""
     ddjj_id, _ = await _presentada(notario, escenario)
 
     listado = (await staff.get("/api/v1/ddjj/declaraciones", params={"periodo": "2026-09"})).json()
+    detalle = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj_id}")).json()
     ajeno = await staff.post(
         "/api/v1/ddjj/declaraciones",
         json={"registro_id": str(escenario.otro_registro.id), "periodo": "2026-09"},
     )
+    rectificar = await staff.post(f"/api/v1/ddjj/declaraciones/{ddjj_id}/rectificar")
 
     assert ddjj_id in [d["id"] for d in listado["items"]]
-    assert ajeno.status_code == 201
-    assert ajeno.json()["puede_operar"] is True
+    assert detalle["puede_operar"] is False
+    assert ajeno.status_code == 403
+    assert rectificar.status_code == 403
+    assert (await staff.get("/api/v1/ddjj/registros")).status_code == 403
+
+
+async def test_el_adscripto_consulta_pero_no_carga(
+    app: FastAPI, notario: AsyncClient, escenario: Escenario, db_session: AsyncSession
+) -> None:
+    """Solo el titular carga, presenta y rectifica (Caja, 24/11/2026)."""
+    ddjj_id, _ = await _presentada(notario, escenario)
+    user = await make_user(db_session)
+    escenario.adscripto.user_id = user.id
+    await db_session.commit()
+    transport = ASGITransport(app=app, client=("203.0.113.40", 54000))
+    async with AsyncClient(
+        transport=transport, base_url="https://test", headers=CSRF_HEADERS
+    ) as adscripto:
+        await login(adscripto, user)
+
+        detalle = await adscripto.get(f"/api/v1/ddjj/declaraciones/{ddjj_id}")
+        nueva = await adscripto.post(
+            "/api/v1/ddjj/declaraciones",
+            json={"registro_id": str(escenario.registro.id), "periodo": "2026-10"},
+        )
+        rectificar = await adscripto.post(f"/api/v1/ddjj/declaraciones/{ddjj_id}/rectificar")
+        suya = next(
+            b
+            for b in detalle.json()["boletas"]
+            if b["escribano"]["id"] == str(escenario.adscripto.id)
+        )
+        reemitida = await adscripto.post(
+            f"/api/v1/ddjj/declaraciones/{ddjj_id}/boletas",
+            json={"fecha_pago": "2026-10-27", "escribano_id": suya["escribano"]["id"]},
+        )
+
+    assert detalle.status_code == 200
+    assert detalle.json()["puede_operar"] is False
+    assert nueva.status_code == 403
+    assert "Solo el titular" in nueva.json()["detail"]
+    assert rectificar.status_code == 403
+    # Su propia boleta sí la reemite.
+    assert reemitida.status_code == 201, reemitida.text
 
 
 async def test_tesoreria_lee_pero_no_carga(
@@ -201,26 +247,24 @@ async def test_quien_dejo_el_registro_solo_ve_los_meses_en_que_tuvo_cargo(
 async def test_el_escribano_no_ve_correos_del_personal(
     notario: AsyncClient, staff: AsyncClient, escenario: Escenario
 ) -> None:
-    ddjj = (
-        await staff.post(
-            "/api/v1/ddjj/declaraciones",
-            json={"registro_id": str(escenario.registro.id), "periodo": "2026-09"},
-        )
-    ).json()
-    boleta = (
-        await staff.post(
-            f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar",
-            json={"fecha_pago": "2026-10-23"},
-        )
-    ).json()[0]
+    """La Caja reemite la boleta de un escribano sin cuenta: el escribano no ve su correo."""
+    ddjj_id, _ = await _presentada(notario, escenario)
+    boletas = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj_id}")).json()["boletas"]
+    del_titular = next(b for b in boletas if b["escribano"]["id"] == str(escenario.titular.id))
+    reemitida = await staff.post(
+        f"/api/v1/ddjj/declaraciones/{ddjj_id}/boletas",
+        json={"fecha_pago": "2026-10-27", "escribano_id": del_titular["escribano"]["id"]},
+    )
+    assert reemitida.status_code == 201, reemitida.text
 
-    visto_por_caja = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
-    visto_por_escribano = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
+    visto_por_caja = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj_id}")).json()
+    visto_por_escribano = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj_id}")).json()
 
-    assert "@" in boleta["emitida_por"]
-    assert "@" in visto_por_caja["presentada_por"]
-    assert visto_por_escribano["presentada_por"] == "Caja Notarial"
-    assert visto_por_escribano["boletas"][0]["emitida_por"] == "Caja Notarial"
+    numero = reemitida.json()["numero"]
+    por_caja = next(b for b in visto_por_caja["boletas"] if b["numero"] == numero)
+    por_escribano = next(b for b in visto_por_escribano["boletas"] if b["numero"] == numero)
+    assert "@" in por_caja["emitida_por"]
+    assert por_escribano["emitida_por"] == "Caja Notarial"
 
 
 @pytest.mark.parametrize("periodo", ["0000-01", "1999-12", "2101-01", "2026-13"])
@@ -233,3 +277,21 @@ async def test_periodo_fuera_de_rango(
     )
 
     assert response.status_code == 422
+
+
+async def test_la_caja_no_ve_borradores(
+    notario: AsyncClient, staff: AsyncClient, escenario: Escenario
+) -> None:
+    """El borrador es del escribano; la Caja consulta las presentadas (24/11/2026)."""
+    borrador = (
+        await notario.post(
+            "/api/v1/ddjj/declaraciones",
+            json={"registro_id": str(escenario.registro.id), "periodo": "2026-10"},
+        )
+    ).json()
+
+    de_la_caja = (await staff.get("/api/v1/ddjj/declaraciones")).json()["items"]
+    del_escribano = (await notario.get("/api/v1/ddjj/declaraciones")).json()["items"]
+
+    assert borrador["id"] not in [d["id"] for d in de_la_caja]
+    assert borrador["id"] in [d["id"] for d in del_escribano]

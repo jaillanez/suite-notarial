@@ -3,6 +3,7 @@ vínculo manual auditado, cálculo deshabilitado y reporte por ejercicio (parida
 
 import csv
 import io
+import re
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
@@ -157,10 +158,13 @@ async def test_html_del_informe(
 
     assert "CONFORME REGLAMENTACI" in html.upper()
     assert "Prueba, Ana Sintética" in html
-    assert "$ 82.466,67" in html and "97,639503" in html
-    assert "147,639503" in html and "05/11/2026" in html
+    assert "$ 82.466,67" in html and re.search(r">\s*98\s*<", html)
+    assert re.search(r">\s*148\s*<", html) and "05/11/2026" in html
+    assert "97,639503" not in html
     assert "Planilla sintética" in html
-    assert pdf.formato_puntos(Decimal("-1234567.5")) == "-1.234.567,500000"
+    assert pdf.formato_puntos(Decimal("-1234567.5")) == "-1.234.568"
+    assert pdf.formato_puntos(Decimal("10.5")) == "11"
+    assert pdf.formato_puntos(Decimal("10.4")) == "10"
 
 
 async def test_informe_vacio(caja: AsyncClient, db_session: AsyncSession) -> None:

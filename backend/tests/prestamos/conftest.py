@@ -30,6 +30,9 @@ from tests.iam.factories import make_user
 from tests.iam.test_rbac import login
 from tests.pagos.conftest import hoy_pagos, tesoreria  # noqa: F401
 
+# Aprobación de la Junta de Administración que registra el administrador (Caja, 24/11/2026).
+ACTA_JUNTA = {"acta_junta": "Acta 12/2026", "fecha_junta": "2026-10-01"}
+
 
 @pytest.fixture
 def reloj(monkeypatch: pytest.MonkeyPatch) -> Callable[[date], None]:

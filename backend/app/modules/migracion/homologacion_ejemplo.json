@@ -18,8 +18,8 @@
     "ACTIVO": "ACTIVO",
     "V": "VACANTE",
     "VACANTE": "VACANTE",
-    "C": "CERRADO",
-    "CERRADO": "CERRADO"
+    "C": "VACANTE",
+    "CERRADO": "VACANTE"
   },
   "cargo": {
     "T": "TITULAR",

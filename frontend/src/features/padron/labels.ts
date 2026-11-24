@@ -12,7 +12,6 @@ export const ESTADO_MATRICULA: Record<EstadoMatricula, { label: string; tone: To
 export const ESTADO_REGISTRO: Record<EstadoRegistro, { label: string; tone: Tone }> = {
   ACTIVO: { label: 'Con titular', tone: 'success' },
   VACANTE: { label: 'Vacante', tone: 'warning' },
-  CERRADO: { label: 'Cerrado', tone: 'unknown' },
 }
 
 export const CARGO: Record<Cargo, string> = {

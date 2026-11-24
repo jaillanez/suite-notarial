@@ -1,8 +1,9 @@
 """Escribano a cargo de un registro: designación con fecha desde y hasta.
 
 Cualquier escribano activo de la provincia puede quedar a cargo de cualquier registro, aunque
-tenga su propio cargo en otro (lo confirmó la Caja el 27/10/2026). La designación la carga el
-titular del registro desde su autogestión o el personal de la Caja. Según el ajuste
+tenga su propio cargo en otro (lo confirmó la Caja el 27/10/2026). La designación la carga, anula
+o termina solo el titular del registro desde su autogestión; el personal de la Caja la consulta
+(Caja, 24/11/2026) y fija qué paga el designado por sus actos. Según el ajuste
 `a_cargo_requiere_aprobacion`, la del titular espera la aprobación de la Caja o rige al cargarla
 (la Caja queda avisada); la que carga el personal rige siempre al cargarla.
 
@@ -31,7 +32,7 @@ from app.modules.ddjj.models import Acto, DeclaracionJurada
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
-from app.modules.padron.catalog import Cargo, EstadoDesignacion, EstadoMatricula, EstadoRegistro
+from app.modules.padron.catalog import Cargo, EstadoDesignacion, EstadoMatricula
 from app.modules.padron.models import (
     Adscripcion,
     AjustesPadron,
@@ -115,7 +116,8 @@ async def registros_del_titular(session: AsyncSession, principal: Principal) -> 
 async def puede_gestionar(
     session: AsyncSession, principal: Principal, registro_id: uuid.UUID
 ) -> bool:
-    return es_personal(principal) or registro_id in await registros_del_titular(session, principal)
+    """Designar, anular y terminar: solo el titular vigente del registro."""
+    return registro_id in await registros_del_titular(session, principal)
 
 
 async def _exigir_gestion(
@@ -124,7 +126,7 @@ async def _exigir_gestion(
     if not await puede_gestionar(session, principal, registro_id):
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
-            "Solo el titular del registro o la Caja pueden designar un escribano a cargo.",
+            "Solo el titular del registro designa un escribano a cargo.",
         )
 
 
@@ -357,12 +359,11 @@ async def listar(
 async def registros_gestionables(
     session: AsyncSession, principal: Principal
 ) -> list[RegistroNotarial]:
-    stmt = select(RegistroNotarial).where(RegistroNotarial.estado != EstadoRegistro.CERRADO.value)
-    if not es_personal(principal):
-        ids = await registros_del_titular(session, principal)
-        if not ids:
-            return []
-        stmt = stmt.where(RegistroNotarial.id.in_(ids))
+    stmt = select(RegistroNotarial)
+    ids = await registros_del_titular(session, principal)
+    if not ids:
+        return []
+    stmt = stmt.where(RegistroNotarial.id.in_(ids))
     result = await session.execute(stmt.order_by(RegistroNotarial.numero_registro))
     return list(result.unique().scalars())
 
@@ -430,8 +431,6 @@ async def designar(
     if registro is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "El registro notarial no existe.")
     await _exigir_gestion(session, principal, registro.id)
-    if registro.estado == EstadoRegistro.CERRADO.value:
-        raise _conflict("El registro está cerrado.")
     escribano = await session.get(Escribano, data.escribano_id)
     if escribano is None:
         raise ProblemError(HTTPStatus.NOT_FOUND, "El escribano no existe.")

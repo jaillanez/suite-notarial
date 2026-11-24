@@ -50,6 +50,7 @@ from app.modules.prestamos.schemas import (
     GaranteOut,
     LineaIn,
     LineaOut,
+    OtorgamientoIn,
     PagoIn,
     PersonaResumen,
     PrestamoDetalle,
@@ -220,6 +221,8 @@ async def prestamo_out(session: SessionDep, principal: Principal, p: Prestamo) -
         afectacion_maxima=p.afectacion_maxima,
         observaciones=None if reservado else p.observaciones,
         motivo_rechazo=p.motivo_rechazo,
+        acta_junta=p.acta_junta,
+        fecha_junta=p.fecha_junta,
         fecha_otorgamiento=p.fecha_otorgamiento,
         # A un escribano no se le muestran los correos del personal.
         creado_por=emails.get(p.creado_por_user_id, "Caja Notarial"),
@@ -453,6 +456,7 @@ async def simular(body: SimulacionIn, principal: CanRead, session: SessionDep) -
         escribano=escribano,
         ingreso_neto=body.ingreso_neto,
         garante_id=garante_id,
+        sistema_elegido=body.sistema,
     )
     return evaluacion_out(ev)
 
@@ -553,10 +557,15 @@ async def get_prestamo(
 
 @router.post("/{prestamo_id}/otorgar", response_model=PrestamoDetalle)
 async def otorgar(
-    prestamo_id: uuid.UUID, principal: CanApprove, session: SessionDep, ctx: RequestContextDep
+    prestamo_id: uuid.UUID,
+    body: OtorgamientoIn,
+    principal: CanApprove,
+    session: SessionDep,
+    ctx: RequestContextDep,
 ) -> PrestamoDetalle:
-    """Reevalúa con los datos de hoy y genera el plan de cuotas definitivo."""
-    p = await service.otorgar(session, ctx, principal, prestamo_id)
+    """Registra la aprobación de la Junta (acta y fecha), reevalúa con los datos de hoy y genera
+    el plan de cuotas definitivo."""
+    p = await service.otorgar(session, ctx, principal, prestamo_id, body)
     return await prestamo_detalle(session, principal, p)
 
 

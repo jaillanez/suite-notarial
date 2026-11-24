@@ -115,17 +115,18 @@ async def test_only_active_escribano_can_take_cargo(
     assert await _assign(caja, esc["id"], reg["id"], "ADSCRIPTO") == 409
 
 
-async def test_closed_registro_rejects_changes(caja: AsyncClient, registro: Factory) -> None:
+async def test_ya_no_se_cierra_un_registro(caja: AsyncClient, registro: Factory) -> None:
+    """«Cerrado» es lo mismo que vacante (Caja, 24/11/2026): no hay acción de cierre."""
     reg = await registro()
 
-    closed = await caja.post(
+    cierre = await caja.post(
         f"/api/v1/padron/registros/{reg['id']}/cierre", json={"motivo": "Supresión del registro"}
     )
     edit = await caja.patch(f"/api/v1/padron/registros/{reg['id']}", json={"telefono": "1"})
 
-    assert closed.status_code == 200
-    assert closed.json()["estado"] == "CERRADO"
-    assert edit.status_code == 409
+    assert cierre.status_code in (404, 405)
+    assert reg["estado"] == "VACANTE"
+    assert edit.status_code == 200
 
 
 async def test_registro_validations(

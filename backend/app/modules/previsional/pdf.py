@@ -1,7 +1,7 @@
 """«Informe de aportes y puntos» en PDF: equivalente al «Informe para Escribano» de la Caja."""
 
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import anyio
@@ -23,13 +23,15 @@ _env = Environment(
 
 
 def formato_puntos(valor: Decimal) -> str:
-    """97.639503 → «97,639503» (6 decimales, miles con punto), sin pasar por float."""
-    entero, _, decimales = f"{abs(valor):.6f}".partition(".")
+    """97.639503 → «98»: enteros redondeados desde la mitad (Caja, 24/11/2026), miles con
+    punto, sin pasar por float. Se guardan con 6 decimales; solo se muestran enteros."""
+    entero = str(abs(valor.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
     grupos: list[str] = []
     while entero:
         grupos.insert(0, entero[-3:])
         entero = entero[:-3]
-    return f"{'-' if valor < 0 else ''}{'.'.join(grupos)},{decimales}"
+    negativo = valor.quantize(Decimal("1"), rounding=ROUND_HALF_UP) < 0
+    return f"{'-' if negativo else ''}{'.'.join(grupos)}"
 
 
 def _fecha(valor: date) -> str:

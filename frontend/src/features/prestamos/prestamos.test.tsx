@@ -194,6 +194,8 @@ describe('ficha del préstamo', () => {
     afectacion_maxima: '30.0000',
     observaciones: null,
     motivo_rechazo: null,
+    acta_junta: null,
+    fecha_junta: null,
     fecha_otorgamiento: null,
     creado_por: 'caja@suite-notarial.example',
     resuelto_por: null,
@@ -235,7 +237,9 @@ describe('ficha del préstamo', () => {
     renderFicha(['prestamos:read_all', 'prestamos:approve'])
 
     expect(await screen.findByText('Préstamo N° 7')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Otorgar préstamo' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Registrar aprobación de la Junta' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByText(/la resuelve otra persona/)).toBeInTheDocument()
   })
 
@@ -258,7 +262,9 @@ describe('ficha del préstamo', () => {
   it('con permiso y otra persona, ofrece otorgar; Tesorería ve el cobro de la próxima cuota', async () => {
     vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({ ...BASE, puede_resolver: true })
     const { unmount } = renderFicha(['prestamos:read_all', 'prestamos:approve'])
-    expect(await screen.findByRole('button', { name: 'Otorgar préstamo' })).toBeEnabled()
+    expect(
+      await screen.findByRole('button', { name: 'Registrar aprobación de la Junta' }),
+    ).toBeEnabled()
     unmount()
 
     vi.mocked(apiModule.fetchPrestamo).mockResolvedValue({

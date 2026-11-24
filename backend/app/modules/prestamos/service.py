@@ -57,7 +57,7 @@ from app.modules.prestamos.catalog import (
     TipoDocumento,
 )
 from app.modules.prestamos.models import CuotaPrestamo, DocumentoPrestamo, Linea, Prestamo
-from app.modules.prestamos.schemas import LineaIn, SolicitudIn
+from app.modules.prestamos.schemas import LineaIn, OtorgamientoIn, SolicitudIn
 
 CERO = Decimal("0.00")
 # Matrículas que pueden tomar un préstamo. TODO(negocio): confirmar si JUBILADO solo accede a la
@@ -497,9 +497,15 @@ async def evaluar(
     garante_id: uuid.UUID | None,
     excluir: uuid.UUID | None = None,
     condiciones: tuple[Sistema, Decimal, bool] | None = None,
+    sistema_elegido: Sistema | None = None,
 ) -> Evaluacion:
-    """Plan y reglas de otorgamiento. `condiciones` fija sistema y tasa ya pactados (SNAP)."""
-    sistema, tna, ejemplo = condiciones or (Sistema(linea.sistema), linea.tna, linea.es_ejemplo)
+    """Plan y reglas de otorgamiento. `condiciones` fija sistema y tasa ya pactados (SNAP).
+    `sistema_elegido`: francés o alemán a elección del escribano; si no, el de la línea."""
+    sistema, tna, ejemplo = condiciones or (
+        sistema_elegido or Sistema(linea.sistema),
+        linea.tna,
+        linea.es_ejemplo,
+    )
     # La moneda de una línea no cambia si ya tiene préstamos: es también la del préstamo.
     moneda = Moneda(linea.moneda)
     impedimentos: list[str] = []
@@ -631,6 +637,7 @@ async def crear_solicitud(
         escribano=escribano,
         ingreso_neto=data.ingreso_neto,
         garante_id=data.garante_escribano_id,
+        sistema_elegido=data.sistema,
     )
     _rechazar_si_hay(
         ev.impedimentos_propios() if por_el_titular else ev.impedimentos,
@@ -809,8 +816,13 @@ async def _bloquear_escribano(session: AsyncSession, escribano_id: uuid.UUID) ->
 
 
 async def otorgar(
-    session: AsyncSession, ctx: RequestContext, principal: Principal, prestamo_id: uuid.UUID
+    session: AsyncSession,
+    ctx: RequestContext,
+    principal: Principal,
+    prestamo_id: uuid.UUID,
+    data: OtorgamientoIn,
 ) -> Prestamo:
+    """Registra la aprobación de la Junta de Administración (acta y fecha) y genera el plan."""
     prestamo = await get_prestamo(session, principal, prestamo_id, lock=True)
     if prestamo.estado != EstadoPrestamo.SOLICITADO.value:
         raise _conflict("La solicitud ya fue resuelta.")
@@ -838,8 +850,14 @@ async def otorgar(
     prestamo.otras_cuotas = ev.otras_cuotas
     prestamo.cuota_maxima = ev.cuota_maxima
     prestamo.afectacion = ev.afectacion
+    if data.fecha_junta > hoy:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "La fecha de la Junta no puede ser futura."
+        )
     prestamo.estado = VIGENTE
     prestamo.fecha_otorgamiento = hoy
+    prestamo.acta_junta = data.acta_junta
+    prestamo.fecha_junta = data.fecha_junta
     prestamo.resuelto_por_user_id = principal.user.id
     prestamo.resuelto_en = datetime.now(UTC)
     record_audit(
@@ -857,6 +875,8 @@ async def otorgar(
             "tna": f"{prestamo.tna:.4f}",
             "primer_vencimiento": ev.plan[0].vencimiento.isoformat(),
             "total_intereses": f"{sum((c.interes for c in ev.plan), CERO):.2f}",
+            "acta_junta": data.acta_junta,
+            "fecha_junta": data.fecha_junta.isoformat(),
         },
         details={"prestamo_id": str(prestamo.id), "numero": prestamo.numero},
     )

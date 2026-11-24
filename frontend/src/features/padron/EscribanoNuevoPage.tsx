@@ -25,9 +25,6 @@ const EMPTY = {
   email: '',
   telefono: '',
   domicilio_real: '',
-  matricula_numero: '',
-  tomo: '',
-  folio: '',
   fecha_matriculacion: '',
 }
 
@@ -137,9 +134,6 @@ export function EscribanoNuevoPage() {
       telefono: orNull(form.telefono),
       domicilio_real: orNull(form.domicilio_real),
     },
-    matricula_numero: Number(form.matricula_numero),
-    tomo: orNull(form.tomo),
-    folio: orNull(form.folio),
     fecha_matriculacion: form.fecha_matriculacion,
   })
   const create = useMutation({
@@ -205,7 +199,6 @@ export function EscribanoNuevoPage() {
     form.numero_documento &&
     form.apellido &&
     form.nombre &&
-    form.matricula_numero &&
     form.fecha_matriculacion
 
   const onSubmit = (event: SyntheticEvent) => {
@@ -295,16 +288,6 @@ export function EscribanoNuevoPage() {
         </Panel>
         <Panel title="Matrícula">
           <div className="grid gap-5 px-5 py-5 sm:grid-cols-4 sm:px-6">
-            <Field
-              label="Número de matrícula"
-              inputMode="numeric"
-              required
-              error={err('matricula_numero')}
-              className="sm:col-span-2 [&_input]:tabular-nums"
-              {...bind('matricula_numero')}
-            />
-            <Field label="Tomo" autoComplete="off" {...bind('tomo')} />
-            <Field label="Folio" autoComplete="off" {...bind('folio')} />
             <Field
               label="Fecha de juramento"
               type="date"

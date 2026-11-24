@@ -219,14 +219,13 @@ async def test_rechazo_con_motivo(
     assert otra.status_code == 201, otra.text
 
 
-async def test_la_que_carga_la_caja_rige_siempre(
+async def test_la_caja_no_designa(
     staff: AsyncClient, escenario: Escenario, designado: Designado
 ) -> None:
-    await staff.put("/api/v1/a-cargo/ajustes", json={"a_cargo_requiere_aprobacion": True})
+    """Designa solo el titular; la Caja consulta (Caja, 24/11/2026)."""
     creada = await _designar(staff, _designacion(escenario, designado))
-    assert creada.status_code == 201, creada.text
-    assert creada.json()["estado"] == "APROBADA"
-    assert creada.json()["cargada_por"] is not None
+    assert creada.status_code == 403
+    assert "Solo el titular" in creada.json()["detail"]
 
 
 async def test_validaciones(
@@ -241,7 +240,7 @@ async def test_validaciones(
     # Fechas al revés.
     reves = _designacion(escenario, designado, "2026-10-20", "2026-10-10")
     assert (await _designar(notario, reves)).status_code == 422
-    # Solo el titular del registro (o la Caja) designa: el designado no se designa solo.
+    # Solo el titular del registro designa: el designado no se designa solo.
     assert (await _designar(a_cargo_client, _designacion(escenario, designado))).status_code == 403
 
     assert (await _designar(notario, _designacion(escenario, designado))).status_code == 201
@@ -334,11 +333,10 @@ async def test_elegibles_y_registros(
         )
     ).json()
     assert [e["id"] for e in por_matricula] == [str(designado.escribano.id)]
-    # El titular solo designa en su registro; la Caja, en cualquiera.
+    # El titular solo designa en su registro; la Caja, en ninguno.
     propios = (await notario.get("/api/v1/a-cargo/registros")).json()
     assert [r["id"] for r in propios] == [str(escenario.registro.id)]
-    todos = {r["id"] for r in (await staff.get("/api/v1/a-cargo/registros")).json()}
-    assert {str(escenario.registro.id), str(escenario.otro_registro.id)} <= todos
+    assert (await staff.get("/api/v1/a-cargo/registros")).json() == []
 
 
 async def test_el_padron_ya_no_asigna_a_cargo_sin_fechas(
@@ -376,8 +374,8 @@ async def test_el_titular_no_designa_antes_de_su_propio_cargo(
     respuesta = await _designar(notario, previa)
     assert respuesta.status_code == 422
     assert "antes de tu cargo de titular" in respuesta.json()["detail"]
-    # La Caja sí puede registrar una designación histórica.
-    assert (await _designar(staff, previa)).status_code == 201
+    # La Caja tampoco: solo consulta.
+    assert (await _designar(staff, previa)).status_code == 403
 
 
 async def test_cerrar_al_titular_termina_sus_designaciones(
@@ -456,13 +454,9 @@ async def test_designa_adscripto_con_fecha_anterior_aunque_falte_el_juramento(
         "fecha_hasta": "2025-09-30",
         "motivo": "Licencia del titular",
     }
-    # La Caja la carga y rige.
-    creada = await _designar(staff, pasada)
-    assert creada.status_code == 201, creada.text
-    assert creada.json()["estado"] == "APROBADA"
     # La del titular, sin juramento con que controlar el límite, espera la aprobación de la Caja.
-    del_titular = await _designar(
-        notario, pasada | {"fecha_desde": "2025-10-01", "fecha_hasta": "2025-10-31"}
-    )
+    del_titular = await _designar(notario, pasada)
     assert del_titular.status_code == 201, del_titular.text
     assert del_titular.json()["estado"] == "PENDIENTE"
+    aprobada = await staff.post(f"/api/v1/a-cargo/{del_titular.json()['id']}/aprobar")
+    assert aprobada.status_code == 200, aprobada.text

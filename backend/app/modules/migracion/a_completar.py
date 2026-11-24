@@ -88,7 +88,7 @@ async def asignar_registro(
         details={
             "boletas": sorted(b.codigo_legado for b in boletas),
             "escribanos_origen": sorted({b.escribano_origen or "" for b in boletas}),
-            "registro_cerrado": registro.estado == EstadoRegistro.CERRADO,
+            "registro_vacante": registro.estado == EstadoRegistro.VACANTE,
         },
     )
     await session.commit()

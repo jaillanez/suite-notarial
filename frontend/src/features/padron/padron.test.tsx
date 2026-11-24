@@ -66,7 +66,7 @@ describe('padrón', () => {
     })
   })
 
-  it('da de alta un escribano con persona y matrícula', async () => {
+  it('da de alta un escribano sin número de matrícula', async () => {
     vi.mocked(padronApi.createEscribano).mockResolvedValue({
       id: 'nuevo',
     } as padronApi.EscribanoDetalle)
@@ -82,7 +82,6 @@ describe('padrón', () => {
     type('Nombre', 'Domingo')
     type('CUIT', '20-30111222-0')
     type('Número', '30111222')
-    type('Número de matrícula', '450')
     type('Fecha de juramento', '2020-05-15')
     const submit = screen.getByRole('button', { name: 'Dar de alta' })
     expect(submit).toBeEnabled()
@@ -92,8 +91,10 @@ describe('padrón', () => {
     })
 
     expect(padronApi.createEscribano).toHaveBeenCalledWith(
+      expect.not.objectContaining({ matricula_numero: expect.anything() as unknown }),
+    )
+    expect(padronApi.createEscribano).toHaveBeenCalledWith(
       expect.objectContaining({
-        matricula_numero: 450,
         fecha_matriculacion: '2020-05-15',
         persona: expect.objectContaining({ apellido: 'Sarmiento', email: null }) as unknown,
       }),
@@ -131,13 +132,7 @@ describe('padrón', () => {
       transiciones_con_resolucion: [],
       motivo_ultimo_cambio_estado: null,
       fecha_ultimo_cambio_estado: null,
-      a_completar: [
-        'matricula_numero',
-        'fecha_matriculacion',
-        'cuit',
-        'numero_documento',
-        'primera_escritura',
-      ],
+      a_completar: ['fecha_matriculacion', 'cuit', 'numero_documento', 'primera_escritura'],
       cargos: [],
       historial: [],
       primera_escritura: null,
@@ -148,8 +143,8 @@ describe('padrón', () => {
     vi.mocked(padronApi.fetchEscribano).mockResolvedValue(migrado)
     vi.mocked(padronApi.completarEscribano).mockResolvedValue({
       ...migrado,
-      matricula_numero: 512,
-      a_completar: ['fecha_matriculacion', 'cuit', 'numero_documento', 'primera_escritura'],
+      fecha_matriculacion: '2015-03-01',
+      a_completar: ['cuit', 'numero_documento', 'primera_escritura'],
     })
     renderWithProviders(
       <Routes>
@@ -162,20 +157,25 @@ describe('padrón', () => {
       },
     )
 
-    expect(await screen.findByText('Matrícula a completar')).toBeInTheDocument()
-    expect(screen.getByText('CUIT a completar')).toBeInTheDocument()
-    // Matrícula, juramento, CUIT, DNI, primera escritura y antigüedad.
-    expect(screen.getAllByText('A completar')).toHaveLength(6)
+    expect(await screen.findByText('CUIT a completar')).toBeInTheDocument()
+    // Sin número de matrícula (la Caja no lo usa): juramento, CUIT, DNI, primera escritura y
+    // antigüedad.
+    expect(screen.getAllByText('A completar')).toHaveLength(5)
+    expect(screen.queryByText(/Matrícula a completar/)).not.toBeInTheDocument()
     // Sin CUIT no se puede crear la cuenta de autogestión.
     expect(screen.getByRole('button', { name: 'Crear cuenta de autogestión' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Completar datos' }))
     const guardar = screen.getByRole('button', { name: 'Guardar datos' })
     expect(guardar).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('Matrícula'), { target: { value: '512' } })
+    fireEvent.change(screen.getByLabelText('Fecha de juramento'), {
+      target: { value: '2015-03-01' },
+    })
     fireEvent.click(guardar)
     await waitFor(() => {
-      expect(padronApi.completarEscribano).toHaveBeenCalledWith('e9', { matricula_numero: 512 })
+      expect(padronApi.completarEscribano).toHaveBeenCalledWith('e9', {
+        fecha_matriculacion: '2015-03-01',
+      })
     })
   })
 

@@ -35,7 +35,7 @@ async def test_propone_el_numero_que_sigue_en_el_anio(
 
 
 async def test_solo_cuenta_los_meses_que_quien_consulta_puede_ver(
-    app: FastAPI, staff: AsyncClient, escenario: Escenario, db_session: AsyncSession
+    app: FastAPI, notario: AsyncClient, escenario: Escenario, db_session: AsyncSession
 ) -> None:
     """Un ex adscripto ve sus DDJJ, pero no la numeración de los meses posteriores a su cargo."""
     user = await make_user(db_session)
@@ -51,12 +51,12 @@ async def test_solo_cuenta_los_meses_que_quien_consulta_puede_ver(
         )
     )
     await db_session.commit()
-    agosto = await _borrador(staff, escenario, "2026-08")
+    agosto = await _borrador(notario, escenario, "2026-08")
     acto = escritura(escenario.titular, 40, "1000", fecha_acto="2026-08-10")
-    assert (await _agregar(staff, agosto["id"], acto)).status_code == 201
-    setiembre = await _borrador(staff, escenario, "2026-09")
+    assert (await _agregar(notario, agosto["id"], acto)).status_code == 201
+    setiembre = await _borrador(notario, escenario, "2026-09")
     acto = escritura(escenario.titular, 60, "1000", fecha_acto="2026-09-10")
-    assert (await _agregar(staff, setiembre["id"], acto)).status_code == 201
+    assert (await _agregar(notario, setiembre["id"], acto)).status_code == 201
 
     async with await _client(app) as cliente:
         await login(cliente, user)

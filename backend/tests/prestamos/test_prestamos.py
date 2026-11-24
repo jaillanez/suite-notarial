@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.audit import AuditSecurityLog
 from tests.ddjj.conftest import Escenario
 from tests.pagos.conftest import PDF, boleta  # noqa: F401 - fixture compartida
+from tests.prestamos.conftest import ACTA_JUNTA
 
 D = Decimal
 
@@ -42,7 +43,7 @@ async def _otorgado(
             files={"archivo": ("certificado.pdf", PDF, "application/pdf")},
         )
         assert cargado.status_code == 201, cargado.text
-    otorgado = await admin.post(f"/api/v1/prestamos/{creado.json()['id']}/otorgar")
+    otorgado = await admin.post(f"/api/v1/prestamos/{creado.json()['id']}/otorgar", json=ACTA_JUNTA)
     assert otorgado.status_code == 200, otorgado.text
     body: dict[str, Any] = otorgado.json()
     return body
@@ -82,9 +83,11 @@ async def test_simular_otorgar_y_cobrar_hasta_cancelar(
     pid = creado.json()["id"]
     assert creado.json()["estado"] == "SOLICITADO"
     # Cuatro ojos: quien cargó no resuelve (y la Caja no tiene prestamos:approve).
-    assert (await staff.post(f"/api/v1/prestamos/{pid}/otorgar")).status_code == 403
+    assert (
+        await staff.post(f"/api/v1/prestamos/{pid}/otorgar", json=ACTA_JUNTA)
+    ).status_code == 403
 
-    otorgado = (await admin.post(f"/api/v1/prestamos/{pid}/otorgar")).json()
+    otorgado = (await admin.post(f"/api/v1/prestamos/{pid}/otorgar", json=ACTA_JUNTA)).json()
     assert otorgado["estado"] == "OTORGADO"
     assert otorgado["fecha_otorgamiento"] == "2026-10-23"
     assert otorgado["plan"][0]["vencimiento"] == "2026-11-23"
@@ -180,7 +183,7 @@ async def test_reglas_del_garante(
     assert con_deuda.status_code == 422
     assert "deuda de aportes" in con_deuda.json()["detail"]
     # Y al otorgar se reevalúa: la solicitud que era viable ya no se otorga.
-    otorgar = await admin.post(f"/api/v1/prestamos/{habil.json()['id']}/otorgar")
+    otorgar = await admin.post(f"/api/v1/prestamos/{habil.json()['id']}/otorgar", json=ACTA_JUNTA)
     assert otorgar.status_code == 409
     detalle = (await admin.get(f"/api/v1/prestamos/{habil.json()['id']}")).json()
     assert any("deuda de aportes" in i for i in detalle["impedimentos_actuales"])
@@ -249,7 +252,9 @@ async def test_rechazo_y_snap_de_condiciones(
     )
     assert corto.status_code == 422
     assert rechazado.json()["estado"] == "RECHAZADO"
-    assert (await admin.post(f"/api/v1/prestamos/{pedido['id']}/otorgar")).status_code == 409
+    assert (
+        await admin.post(f"/api/v1/prestamos/{pedido['id']}/otorgar", json=ACTA_JUNTA)
+    ).status_code == 409
 
 
 async def test_permisos(
@@ -368,7 +373,9 @@ async def test_no_resuelve_quien_es_titular_o_garante(
     async with await _client(app) as cliente:
         await login(cliente, usuario, secret)
         detalle = await cliente.get(f"/api/v1/prestamos/{propio.json()['id']}")
-        otorgar = await cliente.post(f"/api/v1/prestamos/{propio.json()['id']}/otorgar")
+        otorgar = await cliente.post(
+            f"/api/v1/prestamos/{propio.json()['id']}/otorgar", json=ACTA_JUNTA
+        )
 
     assert detalle.json()["puede_resolver"] is False
     assert otorgar.status_code == 403
@@ -499,3 +506,50 @@ async def test_la_solicitud_del_escribano_no_revela_al_garante(
     # Tampoco al volver a mirarla: ningún rastro de la habilidad del garante.
     visto = (await notario.get(f"/api/v1/prestamos/{r.json()['id']}")).json()
     assert visto["impedimentos_actuales"] == []
+
+
+async def test_el_escribano_elige_frances_o_aleman(
+    notario: AsyncClient, escenario: Escenario, crear_linea: Callable[..., Any]
+) -> None:
+    """Todas las líneas se pueden pedir con sistema francés o alemán (Caja, 24/11/2026)."""
+    linea = await crear_linea(sistema="FRANCES")
+    base = {"linea_id": linea["id"], "capital": "100000.00", "cuotas": 12}
+
+    frances = (await notario.post("/api/v1/prestamos/simular", json=base)).json()
+    aleman = (
+        await notario.post("/api/v1/prestamos/simular", json=base | {"sistema": "ALEMAN"})
+    ).json()
+
+    assert frances["sistema"] == "FRANCES"
+    assert aleman["sistema"] == "ALEMAN"
+    # En el alemán la primera cuota es la más alta y las siguientes bajan.
+    cuotas = [c["cuota"] for c in aleman["plan"]]
+    assert cuotas[0] > cuotas[-1]
+    solicitada = await notario.post(
+        "/api/v1/prestamos",
+        json=base | {"sistema": "ALEMAN", "ingreso_neto": "90000.00"},
+    )
+    assert solicitada.status_code == 201, solicitada.text
+    assert solicitada.json()["sistema"] == "ALEMAN"
+
+
+async def test_otorgar_registra_el_acta_de_la_junta(
+    staff: AsyncClient,
+    admin: AsyncClient,
+    escenario: Escenario,
+    crear_linea: Callable[..., Any],
+) -> None:
+    """Aprueba la Junta; el administrador registra el acta y la fecha (Caja, 24/11/2026)."""
+    linea = await crear_linea()
+    creado = (await staff.post("/api/v1/prestamos", json=solicitud(escenario, linea))).json()
+    url = f"/api/v1/prestamos/{creado['id']}/otorgar"
+
+    sin_acta = await admin.post(url)
+    futura = await admin.post(url, json={"acta_junta": "Acta 13", "fecha_junta": "2099-01-01"})
+    otorgado = await admin.post(url, json=ACTA_JUNTA | {"acta_junta": "Acta 13/2026"})
+
+    assert sin_acta.status_code == 422
+    assert futura.status_code == 422
+    assert otorgado.status_code == 200, otorgado.text
+    assert otorgado.json()["acta_junta"] == "Acta 13/2026"
+    assert otorgado.json()["fecha_junta"] == "2026-10-01"

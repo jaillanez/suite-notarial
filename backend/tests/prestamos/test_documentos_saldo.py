@@ -26,6 +26,7 @@ from app.modules.pagos.storage import upload_root
 from app.modules.prestamos.models import DocumentoPrestamo
 from tests.ddjj.conftest import Escenario
 from tests.pagos.conftest import PDF, png
+from tests.prestamos.conftest import ACTA_JUNTA
 from tests.prestamos.test_monedas import LINEA_USD
 from tests.prestamos.test_prestamos import _otorgado, solicitud
 
@@ -84,7 +85,7 @@ async def test_sin_la_documentacion_requerida_no_se_otorga(
         {"tipo": "CERTIFICADO_BIENES", "cargado": False},
     ]
     assert "Falta cargar el certificado de ingresos." in con_requisitos["impedimentos_actuales"]
-    sin_docs = await admin.post(f"/api/v1/prestamos/{pid}/otorgar")
+    sin_docs = await admin.post(f"/api/v1/prestamos/{pid}/otorgar", json=ACTA_JUNTA)
     assert sin_docs.status_code == 409
     assert "certificado de bienes" in sin_docs.json()["detail"]
 
@@ -117,7 +118,7 @@ async def test_sin_la_documentacion_requerida_no_se_otorga(
     }
     assert all(e.new_value and len(e.new_value["sha256"]) == 64 for e in cargados)
 
-    otorgado = await admin.post(f"/api/v1/prestamos/{pid}/otorgar")
+    otorgado = await admin.post(f"/api/v1/prestamos/{pid}/otorgar", json=ACTA_JUNTA)
     assert otorgado.status_code == 200, otorgado.text
     resuelto = otorgado.json()
     assert resuelto["puede_cargar_documentos"] is False

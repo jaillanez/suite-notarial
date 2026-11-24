@@ -2,7 +2,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Calculator, Link2, Search, TableProperties, Unlink } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
-import { matriculaTexto } from '../padron/labels'
 
 import { StatusIndicator } from '../../components/StatusIndicator'
 import { Alert } from '../../components/ui/Alert'
@@ -133,9 +132,7 @@ export function VincularDialog({
                 <dt className="mt-3 text-ink-muted">
                   {heredada ? 'Ya cuenta para' : 'Escribano sugerido (todavía no le cuenta)'}
                 </dt>
-                <dd className="font-semibold text-ink">
-                  {propuesto.apellido_nombre} · Mat. {matriculaTexto(propuesto.matricula_numero)}
-                </dd>
+                <dd className="font-semibold text-ink">{propuesto.apellido_nombre}</dd>
               </>
             )}
           </dl>
@@ -253,8 +250,7 @@ function SinVincularPanel() {
                         label={item.estado === 'HEREDADA' ? 'Heredado' : 'Sugerido'}
                       />
                       <Link to={`/padron/escribanos/${item.escribano.id}`}>
-                        {item.escribano.apellido_nombre} · Mat.{' '}
-                        {matriculaTexto(item.escribano.matricula_numero)}
+                        {item.escribano.apellido_nombre}
                       </Link>
                     </p>
                   )}

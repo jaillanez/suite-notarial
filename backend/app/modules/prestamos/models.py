@@ -164,6 +164,9 @@ class Prestamo(UUIDMixin, TimestampMixin, Base):
 
     observaciones: Mapped[str | None] = mapped_column(Text, nullable=True)
     motivo_rechazo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # La aprueba la Junta de Administración; el sistema registra en qué acta (Caja, 24/11/2026).
+    acta_junta: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fecha_junta: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_otorgamiento: Mapped[date | None] = mapped_column(Date, nullable=True)
     creado_por_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
