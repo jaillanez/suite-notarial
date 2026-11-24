@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import RequestContext
 from app.modules.migracion.extractor_web import leer_volcado
-from app.modules.padron.catalog import EstadoRegistro
 from app.modules.padron.models import RegistroNotarial
 from app.modules.padron.schemas import RegistroUpdate
 
@@ -120,7 +119,6 @@ class Carga:
     completados: list[int] = field(default_factory=list)
     sin_cambios: list[int] = field(default_factory=list)
     sin_registro: list[int] = field(default_factory=list)
-    cerrados: list[int] = field(default_factory=list)
     # (número, campo, valor en la Suite, valor del origen): no se pisa.
     diferencias: list[tuple[int, str, str, str]] = field(default_factory=list)
 
@@ -154,9 +152,6 @@ async def cargar(
         if not cambios:
             resultado.sin_cambios.append(c.numero_registro)
             continue
-        if registro.estado == EstadoRegistro.CERRADO:
-            resultado.cerrados.append(c.numero_registro)
-            continue
         resultado.completados.append(c.numero_registro)
         if aplicar:
             await padron.update_registro(
@@ -173,7 +168,6 @@ def _imprimir(r: Carga, *, aplicar: bool) -> None:
     sys.stdout.write(f"registros {verbo}: {len(r.completados)}\n")
     sys.stdout.write(f"  ya tenían esos datos: {len(r.sin_cambios)}\n")
     sys.stdout.write(f"  no están en la Suite: {numeros(r.sin_registro)}\n")
-    sys.stdout.write(f"  cerrados (no admiten cambios): {numeros(r.cerrados)}\n")
     for numero, campo, actual, nuevo in r.diferencias:
         sys.stdout.write(
             f"  registro {numero}: {campo} en la Suite «{actual}», en el origen «{nuevo}» "

@@ -104,6 +104,9 @@ export interface Prestamo {
   afectacion_maxima: string
   observaciones: string | null
   motivo_rechazo: string | null
+  /** Acta y fecha de la Junta de Administración que lo aprobó. */
+  acta_junta: string | null
+  fecha_junta: string | null
   fecha_otorgamiento: string | null
   creado_por: string | null
   resuelto_por: string | null
@@ -210,6 +213,8 @@ export interface SimulacionInput {
   linea_id: string
   capital: string
   cuotas: number
+  /** Francés o alemán, a elección del escribano; sin dato, el de la línea. */
+  sistema?: Sistema | null
   ingreso_neto: string | null
   escribano_id?: string | null
   garante_escribano_id?: string | null
@@ -256,6 +261,7 @@ export async function crearSolicitud(data: {
   linea_id: string
   capital: string
   cuotas: number
+  sistema: Sistema | null
   ingreso_neto: string
   garante_escribano_id: string | null
   observaciones: string | null
@@ -263,8 +269,12 @@ export async function crearSolicitud(data: {
   return (await api.post<PrestamoDetalle>(P, data)).data
 }
 
-export async function otorgar(id: string): Promise<PrestamoDetalle> {
-  return (await api.post<PrestamoDetalle>(`${P}/${id}/otorgar`)).data
+/** Registra la aprobación de la Junta de Administración (acta y fecha de la reunión). */
+export async function otorgar(
+  id: string,
+  junta: { acta_junta: string; fecha_junta: string },
+): Promise<PrestamoDetalle> {
+  return (await api.post<PrestamoDetalle>(`${P}/${id}/otorgar`, junta)).data
 }
 
 export async function rechazar(id: string, motivo: string): Promise<PrestamoDetalle> {

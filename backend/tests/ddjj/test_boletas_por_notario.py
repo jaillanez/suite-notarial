@@ -171,6 +171,7 @@ async def _fijar_aporte(client: AsyncClient, designacion_id: str, aporte: str) -
     ],
 )
 async def test_el_escribano_a_cargo_paga_lo_que_fija_la_caja(
+    notario: AsyncClient,
     staff: AsyncClient,
     escenario: Escenario,
     designado: Designado,  # noqa: F811
@@ -178,15 +179,15 @@ async def test_el_escribano_a_cargo_paga_lo_que_fija_la_caja(
     boleta_a_cargo: tuple[str, str, str, str] | None,
     protocolos_titular: str,
 ) -> None:
-    designacion = await _designar_septiembre(staff, escenario, designado)
+    designacion = await _designar_septiembre(notario, escenario, designado)
     if aporte != "SOLO_ACTOS":
         fijado = await _fijar_aporte(staff, designacion["id"], aporte)
         assert fijado.status_code == 200, fijado.text
         assert fijado.json()["aporte"] == aporte
-    ddjj = await _borrador(staff, escenario)
-    await _cargar(staff, ddjj["id"], escritura(designado.escribano, 1, "100000000.00"))
+    ddjj = await _borrador(notario, escenario)
+    await _cargar(notario, ddjj["id"], escritura(designado.escribano, 1, "100000000.00"))
 
-    emitidas = {b["escribano"]["cargo"]: b for b in await _presentar(staff, ddjj["id"])}
+    emitidas = {b["escribano"]["cargo"]: b for b in await _presentar(notario, ddjj["id"])}
 
     assert emitidas["TITULAR"]["total_protocolos"] == protocolos_titular
     assert emitidas["ADSCRIPTO"]["total_protocolos"] == "0.00"
@@ -205,16 +206,17 @@ async def test_el_escribano_a_cargo_paga_lo_que_fija_la_caja(
 
 
 async def test_cambiar_el_aporte_no_altera_las_boletas_emitidas(
+    notario: AsyncClient,
     staff: AsyncClient,
     escenario: Escenario,
     designado: Designado,  # noqa: F811
 ) -> None:
-    designacion = await _designar_septiembre(staff, escenario, designado)
-    ddjj = await _borrador(staff, escenario)
-    await _cargar(staff, ddjj["id"], escritura(designado.escribano, 1, "100000000.00"))
+    designacion = await _designar_septiembre(notario, escenario, designado)
+    ddjj = await _borrador(notario, escenario)
+    await _cargar(notario, ddjj["id"], escritura(designado.escribano, 1, "100000000.00"))
     a_cargo = next(
         b
-        for b in await _presentar(staff, ddjj["id"])
+        for b in await _presentar(notario, ddjj["id"])
         if b["escribano"]["cargo"] == "SUPLENTE_INTERINO"
     )
 
@@ -237,7 +239,7 @@ async def test_solo_la_caja_fija_el_aporte(
     designado: Designado,  # noqa: F811
     db_session: AsyncSession,
 ) -> None:
-    designacion = await _designar_septiembre(staff, escenario, designado)
+    designacion = await _designar_septiembre(notario, escenario, designado)
     vista = (await notario.get(f"/api/v1/a-cargo/{designacion['id']}")).json()
     assert vista["aporte"] == "SOLO_ACTOS"
     assert vista["puede_fijar_aporte"] is False

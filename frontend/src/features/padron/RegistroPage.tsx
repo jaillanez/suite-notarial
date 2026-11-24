@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Lock, MapPin, Pencil } from 'lucide-react'
+import { ArrowLeft, MapPin, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 
@@ -10,21 +10,14 @@ import { Panel } from '../../components/ui/Panel'
 import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { fetchRegistro } from './api'
-import {
-  A_COMPLETAR,
-  CARGO,
-  ESTADO_MATRICULA,
-  ESTADO_REGISTRO,
-  formatDate,
-  matriculaTexto,
-} from './labels'
-import { CambiarDomicilioDialog, CerrarRegistroDialog, RegistroFormDialog } from './RegistroDialogs'
+import { A_COMPLETAR, CARGO, ESTADO_MATRICULA, ESTADO_REGISTRO, formatDate } from './labels'
+import { CambiarDomicilioDialog, RegistroFormDialog } from './RegistroDialogs'
 
 export function RegistroPage() {
   const { id = '' } = useParams()
   const { can } = useSession()
   const query = useQuery({ queryKey: ['registro', id], queryFn: () => fetchRegistro(id) })
-  const [dialog, setDialog] = useState<'editar' | 'domicilio' | 'cerrar' | null>(null)
+  const [dialog, setDialog] = useState<'editar' | 'domicilio' | null>(null)
 
   if (query.isPending) {
     return <span className="block h-48 w-full animate-pulse rounded-panel bg-brand-50" />
@@ -33,8 +26,7 @@ export function RegistroPage() {
 
   const r = query.data
   const estado = ESTADO_REGISTRO[r.estado]
-  const cerrado = r.estado === 'CERRADO'
-  const canWrite = can('escribanos:write') && !cerrado
+  const canWrite = can('escribanos:write')
   const rows: [string, string][] = [
     ['Circunscripción', r.circunscripcion.nombre],
     ['Departamento', r.departamento ?? A_COMPLETAR],
@@ -80,15 +72,6 @@ export function RegistroPage() {
             >
               Cambiar domicilio
             </Button>
-            <Button
-              variant="danger"
-              icon={Lock}
-              onClick={() => {
-                setDialog('cerrar')
-              }}
-            >
-              Cerrar registro
-            </Button>
           </div>
         )}
       </div>
@@ -133,8 +116,7 @@ export function RegistroPage() {
                         {CARGO[c.cargo]}{' '}
                         {c.fecha_desde
                           ? `desde el ${formatDate(c.fecha_desde)}`
-                          : '(fecha desde a completar)'}{' '}
-                        · Mat. {matriculaTexto(c.matricula_numero)}
+                          : '(fecha desde a completar)'}
                       </span>
                     </span>
                     {c.estado_matricula !== 'ACTIVO' && (
@@ -188,13 +170,6 @@ export function RegistroPage() {
         key={`domicilio-${String(dialog === 'domicilio')}`}
         registro={r}
         open={dialog === 'domicilio'}
-        onClose={() => {
-          setDialog(null)
-        }}
-      />
-      <CerrarRegistroDialog
-        registro={r}
-        open={dialog === 'cerrar'}
         onClose={() => {
           setDialog(null)
         }}

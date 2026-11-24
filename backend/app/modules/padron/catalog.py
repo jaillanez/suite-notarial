@@ -67,7 +67,6 @@ class EstadoDesignacion(StrEnum):
 class EstadoRegistro(StrEnum):
     ACTIVO = "ACTIVO"
     VACANTE = "VACANTE"
-    CERRADO = "CERRADO"
 
 
 class TipoDocumento(StrEnum):

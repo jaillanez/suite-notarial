@@ -18,6 +18,7 @@ from app.modules.prestamos import service
 from app.modules.prestamos.catalog import AVISO_TIPO_CAMBIO
 from app.modules.prestamos.models import Linea, Prestamo
 from tests.ddjj.conftest import HOY, Escenario
+from tests.prestamos.conftest import ACTA_JUNTA
 from tests.prestamos.test_prestamos import _otorgado, solicitud
 
 D = Decimal
@@ -179,7 +180,7 @@ async def test_otorgado_en_otra_moneda_impide_otorgar_y_solicitado_solo_avisa(
     await db_session.commit()
     detalle = (await admin.get(f"/api/v1/prestamos/{creado.json()['id']}")).json()
     assert service.OTRA_MONEDA in detalle["impedimentos_actuales"]
-    otorgar = await admin.post(f"/api/v1/prestamos/{creado.json()['id']}/otorgar")
+    otorgar = await admin.post(f"/api/v1/prestamos/{creado.json()['id']}/otorgar", json=ACTA_JUNTA)
     assert otorgar.status_code == 409
     assert service.OTRA_MONEDA in otorgar.json()["impedimentos"]
 

@@ -68,7 +68,6 @@ from app.modules.padron.schemas import (
     PersonaOut,
     PrimeraEscrituraIn,
     PrimeraEscrituraOut,
-    RegistroCierre,
     RegistroDetalle,
     RegistroIn,
     RegistroOut,
@@ -387,21 +386,6 @@ async def cambiar_domicilio(
     """Nuevo domicilio del registro desde una fecha: el anterior queda en la historia."""
     item = await service.cambiar_domicilio(session, ctx, principal.user, registro_id, body)
     return await registro_detalle(session, item)
-
-
-@router.post("/registros/{registro_id}/cierre", response_model=RegistroOut)
-async def close_registro(
-    registro_id: uuid.UUID,
-    body: RegistroCierre,
-    principal: CanWrite,
-    session: SessionDep,
-    ctx: RequestContextDep,
-) -> RegistroOut:
-    item = await service.close_registro(session, ctx, principal.user, registro_id, body.motivo)
-    return registro_out(item, [])
-
-
-# --------------------------------------------------------------------------- escribanos
 
 
 @router.get("/escribanos", response_model=Page[EscribanoOut])

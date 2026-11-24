@@ -165,7 +165,7 @@ async def test_baja_logica_cierra_todo_y_desvincula_sin_borrar(
     )
     cuenta = await prueba.cuenta_por_email(db_session, email)
     assert registro is not None and escribano is not None and cargo is not None
-    assert registro.estado == "CERRADO"
+    assert registro.estado == "VACANTE"
     assert (cargo.is_current, cargo.fecha_hasta) == (False, HOY)
     assert escribano.estado_matricula == "CESANTE"
     assert escribano.user_id is None
@@ -185,6 +185,7 @@ async def test_la_baja_no_toca_un_registro_real(
     db_session: AsyncSession, escenario: Escenario
 ) -> None:
     operador = await make_user(db_session, roles=("ROLE_ADMIN",))
+    antes = escenario.registro.estado
 
     with pytest.raises(prueba.PruebaError, match="no es un registro de prueba"):
         await prueba.baja_registro_prueba(
@@ -195,7 +196,7 @@ async def test_la_baja_no_toca_un_registro_real(
             hoy=HOY,
             numero_registro=escenario.registro.numero_registro,
         )
-    assert escenario.registro.estado != "CERRADO"
+    assert escenario.registro.estado == antes
 
 
 async def test_vincular_cuenta_existente_con_su_escribano(

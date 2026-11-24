@@ -22,7 +22,7 @@ import { toProblem } from '../../lib/api'
 import { formatLocalDateTime } from '../../lib/datetime'
 import { formatPercent } from '../../lib/decimal'
 import { useSession } from '../auth/session'
-import { formatDate, matriculaTexto, todayIso } from '../padron/labels'
+import { formatDate, todayIso } from '../padron/labels'
 import { sincronizarPagoSPV } from '../pagos/api'
 import { ESTADO_PAGO_MP, ESTADO_PAGO_SPV } from '../pagos/labels'
 import {
@@ -65,8 +65,14 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
   const actualizar = useActualizar(p.id)
   const [dialogo, setDialogo] = useState<'otorgar' | 'rechazar' | null>(null)
   const [motivo, setMotivo] = useState('')
+  // La aprueba la Junta de Administración; acá se registra el acta (Caja, 24/11/2026).
+  const [acta, setActa] = useState('')
+  const [fechaJunta, setFechaJunta] = useState('')
   const accion = useMutation({
-    mutationFn: () => (dialogo === 'otorgar' ? otorgar(p.id) : rechazar(p.id, motivo.trim())),
+    mutationFn: () =>
+      dialogo === 'otorgar'
+        ? otorgar(p.id, { acta_junta: acta.trim(), fecha_junta: fechaJunta })
+        : rechazar(p.id, motivo.trim()),
     onSuccess: async () => {
       setDialogo(null)
       await actualizar()
@@ -79,7 +85,7 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
   return (
     <Panel
       title="Resolver la solicitud"
-      description="Al otorgar se vuelven a verificar el tope de afectación, la mora y el garante con los datos de hoy, y se genera el plan de cuotas definitivo."
+      description="La solicitud la aprueba o rechaza la Junta de Administración; acá se registra su decisión. Al otorgar se vuelven a verificar el tope de afectación, la mora y el garante con los datos de hoy, y se genera el plan de cuotas definitivo."
     >
       <div className="flex flex-wrap justify-end gap-3 px-5 py-4 sm:px-6">
         <Button
@@ -99,7 +105,7 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
             setDialogo('otorgar')
           }}
         >
-          Otorgar préstamo
+          Registrar aprobación de la Junta
         </Button>
       </div>
       <Dialog
@@ -107,12 +113,12 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
         onClose={cerrar}
         title={
           dialogo === 'otorgar'
-            ? `Otorgar el préstamo N° ${String(p.numero)}`
+            ? `Aprobación de la Junta · préstamo N° ${String(p.numero)}`
             : `Rechazar la solicitud N° ${String(p.numero)}`
         }
         description={
           dialogo === 'otorgar'
-            ? 'Queda vigente con el plan de cuotas que se muestra. No se puede deshacer.'
+            ? 'Indicá el acta y la fecha de la reunión de la Junta que lo aprobó. Queda vigente con el plan de cuotas que se muestra; no se puede deshacer.'
             : 'El motivo queda registrado y lo ve el escribano.'
         }
         footer={
@@ -124,6 +130,7 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
                 icon={CircleCheck}
                 busy={accion.isPending}
                 busyLabel="Otorgando…"
+                disabled={!acta.trim() || !fechaJunta}
                 onClick={() => {
                   accion.mutate()
                 }}
@@ -149,6 +156,27 @@ function Resolver({ p }: { p: PrestamoDetalle }) {
       >
         <div className="grid gap-4">
           {accion.isError && <Alert tone="danger">{toProblem(accion.error).detail}</Alert>}
+          {dialogo === 'otorgar' && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Acta de la Junta"
+                placeholder="Por ejemplo: Acta 12/2026"
+                value={acta}
+                onChange={(e) => {
+                  setActa(e.target.value)
+                }}
+              />
+              <Field
+                label="Fecha de la reunión"
+                type="date"
+                max={todayIso()}
+                value={fechaJunta}
+                onChange={(e) => {
+                  setFechaJunta(e.target.value)
+                }}
+              />
+            </div>
+          )}
           {dialogo === 'otorgar' ? (
             <dl className="divide-y divide-line rounded-control border border-line">
               {[
@@ -657,10 +685,7 @@ export function PrestamoPage() {
                 Préstamo N° {p.numero}
               </h1>
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <span className="text-ink-muted">
-                  {p.escribano.apellido_nombre} · Mat.{' '}
-                  {matriculaTexto(p.escribano.matricula_numero)}
-                </span>
+                <span className="text-ink-muted">{p.escribano.apellido_nombre}</span>
                 <StatusIndicator
                   tone={ESTADO_PRESTAMO[p.estado].tone}
                   label={ESTADO_PRESTAMO[p.estado].label}
@@ -739,15 +764,17 @@ export function PrestamoPage() {
                   {formatPercent(p.afectacion)} de {formatPercent(p.afectacion_maxima)}
                 </Dato>
               )}
-              <Dato label="Garante">
-                {p.garante
-                  ? `${p.garante.apellido_nombre} · Mat. ${matriculaTexto(p.garante.matricula_numero)}`
-                  : 'Sin garante'}
-              </Dato>
+              <Dato label="Garante">{p.garante ? p.garante.apellido_nombre : 'Sin garante'}</Dato>
               <Dato label="Saldo de capital">{importe(p.saldo_capital, p.moneda)}</Dato>
               <Dato label="Otorgado">
                 {p.fecha_otorgamiento ? formatDate(p.fecha_otorgamiento) : '—'}
               </Dato>
+              {p.acta_junta && (
+                <Dato label="Aprobó la Junta">
+                  {p.acta_junta}
+                  {p.fecha_junta ? ` · ${formatDate(p.fecha_junta)}` : ''}
+                </Dato>
+              )}
               <Dato label="Cargó">{p.creado_por ?? '—'}</Dato>
               <Dato label="Resolvió">
                 {p.resuelto_por ?? '—'}

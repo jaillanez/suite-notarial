@@ -34,10 +34,6 @@ function ultimosPeriodos(): string[] {
   return ultimosPeriodosDesde(todayIso())
 }
 
-function puedeCargarDDJJ(can: (permission: string) => boolean): boolean {
-  return can('ddjj:create_own') || can('ddjj:approve')
-}
-
 function NuevaDeclaracionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate()
   const periodos = ultimosPeriodos()
@@ -89,8 +85,8 @@ function NuevaDeclaracionDialog({ open, onClose }: { open: boolean; onClose: () 
         {problem && <Alert tone="danger">{problem.detail}</Alert>}
         {sinRegistros && (
           <Alert tone="warning">
-            No tenés un cargo vigente en ningún registro notarial. Si es un error, comunicate con la
-            Caja.
+            Solo el titular del registro (o quien designó a cargo) carga la declaración jurada. Si
+            es un error, comunicate con la Caja.
           </Alert>
         )}
         {registros.isError && <Alert tone="danger">{toProblem(registros.error).detail}</Alert>}
@@ -125,7 +121,13 @@ function NuevaDeclaracionDialog({ open, onClose }: { open: boolean; onClose: () 
 
 export function DeclaracionesPage() {
   const { can } = useSession()
-  const puedeCargar = puedeCargarDDJJ(can)
+  // Carga solo el titular del registro o quien designó a cargo; la Caja consulta (24/11/2026).
+  const operables = useQuery({
+    queryKey: ['ddjj', 'registros'],
+    queryFn: fetchRegistrosOperables,
+    enabled: can('ddjj:create_own'),
+  })
+  const puedeCargar = (operables.data?.length ?? 0) > 0
   const periodos = ultimosPeriodos()
   const [filters, setFilters] = useState({ page: 1, periodo: '', estado: '' as EstadoDDJJ | '' })
   const query = useQuery({

@@ -1,10 +1,12 @@
 """Declaraciones juradas mensuales y boletas (Módulo 5).
 
 Acceso por registro notarial:
-- Un escribano opera las DDJJ de los registros donde tiene un cargo vigente (`ddjj:create_own`,
-  que exige matrícula activa) y consulta las de los registros donde tuvo cargo (`ddjj:read_own`).
-- El personal de la Caja consulta todo (`ddjj:read_all`) y puede cargar y presentar en nombre
-  del registro (`ddjj:approve`), como hoy en el sistema actual.
+- Carga, presenta y rectifica la DDJJ solo el **titular** vigente del registro, o quien el
+  titular designó a cargo mientras dure la designación (`ddjj:create_own`, que exige matrícula
+  activa). El adscripto la consulta y reemite su propia boleta (Caja, 24/11/2026).
+- Cada escribano consulta las de los registros donde tuvo cargo (`ddjj:read_own`).
+- El personal de la Caja solo consulta (`ddjj:read_all`): no carga, presenta ni rectifica
+  (Caja, 24/11/2026; antes podía «en nombre del registro»).
 
 El cálculo se hace siempre en el servidor (`liquidacion.liquidar_por_escribano`) con las
 vigencias del primer día del período. La DDJJ es del registro, pero cada escribano del equipo
@@ -82,7 +84,7 @@ from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
 from app.modules.padron import a_cargo
-from app.modules.padron.catalog import AporteACargo, Cargo, EstadoRegistro
+from app.modules.padron.catalog import AporteACargo, Cargo
 from app.modules.padron.models import Adscripcion, Escribano, RegistroNotarial
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.pagos.models import Comprobante
@@ -145,14 +147,17 @@ async def _escribano_de(session: AsyncSession, user: User) -> Escribano | None:
 
 
 async def _registros_del_escribano(
-    session: AsyncSession, user: User, *, solo_vigentes: bool
+    session: AsyncSession, user: User, *, solo_vigentes: bool, solo_titular: bool = False
 ) -> set[uuid.UUID]:
+    """Registros del escribano. `solo_titular`: los que puede operar (titular, o a cargo)."""
     escribano = await _escribano_de(session, user)
     if escribano is None:
         return set()
     stmt = select(Adscripcion.registro_id).where(Adscripcion.escribano_id == escribano.id)
     if solo_vigentes:
         stmt = stmt.where(Adscripcion.is_current.is_(True))
+    if solo_titular:
+        stmt = stmt.where(Adscripcion.cargo == Cargo.TITULAR.value)
     propios = set((await session.scalars(stmt)).all())
     # A cargo de otro registro: solo entre las fechas de la designación aprobada.
     designaciones = await a_cargo.del_escribano(
@@ -165,36 +170,37 @@ def _es_staff_lectura(principal: Principal) -> bool:
     return Perm.DDJJ_READ_ALL.value in principal.permissions
 
 
-def _es_staff_carga(principal: Principal) -> bool:
-    return Perm.DDJJ_APPROVE.value in principal.permissions
-
-
 async def puede_reemitir(
     session: AsyncSession,
     principal: Principal,
     registro_id: uuid.UUID,
     escribano_id: uuid.UUID | None,
 ) -> bool:
-    """Reemitir anula la boleta pendiente: cada escribano reemite solo la suya (las boletas son
-    independientes) y la Caja, cualquiera. La boleta del registro (anterior a las boletas por
-    notario) la reemite quien opera el registro, como antes."""
-    if _es_staff_carga(principal):
-        return True
-    if not await puede_operar(session, principal, registro_id):
-        return False
-    if escribano_id is None:
-        return True
-    propio = await _escribano_de(session, principal.user)
-    return propio is not None and propio.id == escribano_id
-
-
-async def puede_operar(session: AsyncSession, principal: Principal, registro_id: uuid.UUID) -> bool:
-    if _es_staff_carga(principal):
+    """Reemitir anula la boleta pendiente: cada escribano del registro (también el adscripto)
+    reemite solo la suya; las boletas son independientes. La boleta del registro (anterior a
+    las boletas por notario) la reemite quien opera el registro. La Caja reemite cualquiera
+    (escribanos sin cuenta): no modifica la DDJJ."""
+    if Perm.DDJJ_APPROVE.value in principal.permissions:
         return True
     if Perm.DDJJ_CREATE_OWN.value not in principal.permissions:
         return False
+    if escribano_id is None:
+        return await puede_operar(session, principal, registro_id)
+    propio = await _escribano_de(session, principal.user)
+    return (
+        propio is not None
+        and propio.id == escribano_id
+        and registro_id
+        in await _registros_del_escribano(session, principal.user, solo_vigentes=True)
+    )
+
+
+async def puede_operar(session: AsyncSession, principal: Principal, registro_id: uuid.UUID) -> bool:
+    """Cargar, presentar y rectificar: el titular vigente o el escribano a cargo."""
+    if Perm.DDJJ_CREATE_OWN.value not in principal.permissions:
+        return False
     return registro_id in await _registros_del_escribano(
-        session, principal.user, solo_vigentes=True
+        session, principal.user, solo_vigentes=True, solo_titular=True
     )
 
 
@@ -289,7 +295,8 @@ async def _exigir_operacion(
     if not await puede_operar(session, principal, registro_id):
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
-            "No tenés un cargo vigente en este registro para operar su declaración jurada.",
+            "Solo el titular del registro (o quien designó a cargo) carga, presenta y "
+            "rectifica su declaración jurada.",
         )
 
 
@@ -299,16 +306,17 @@ async def _exigir_operacion(
 async def registros_operables(
     session: AsyncSession, principal: Principal
 ) -> list[RegistroNotarial]:
-    stmt = select(RegistroNotarial).where(RegistroNotarial.estado != EstadoRegistro.CERRADO.value)
-    if not _es_staff_carga(principal):
-        ids = (
-            await _registros_del_escribano(session, principal.user, solo_vigentes=True)
-            if Perm.DDJJ_CREATE_OWN.value in principal.permissions
-            else set()
+    stmt = select(RegistroNotarial)
+    ids = (
+        await _registros_del_escribano(
+            session, principal.user, solo_vigentes=True, solo_titular=True
         )
-        if not ids:
-            return []
-        stmt = stmt.where(RegistroNotarial.id.in_(ids))
+        if Perm.DDJJ_CREATE_OWN.value in principal.permissions
+        else set()
+    )
+    if not ids:
+        return []
+    stmt = stmt.where(RegistroNotarial.id.in_(ids))
     result = await session.execute(stmt.order_by(RegistroNotarial.numero_registro))
     return list(result.unique().scalars())
 
@@ -490,7 +498,10 @@ async def list_declaraciones(
 ) -> tuple[list[DeclaracionJurada], int]:
     stmt = select(DeclaracionJurada)
     alcance = await _alcance_ddjj(session, principal)
-    if alcance is not None:
+    if alcance is None:
+        # La Caja consulta solo las presentadas: el borrador es del escribano (24/11/2026).
+        stmt = stmt.where(DeclaracionJurada.estado != EstadoDDJJ.BORRADOR.value)
+    else:
         if not alcance:
             return [], 0
         stmt = stmt.where(
@@ -552,8 +563,6 @@ async def abrir_declaracion(
     )
     if existente is not None:
         return existente, False
-    if registro.estado == EstadoRegistro.CERRADO.value:
-        raise _conflict("El registro está cerrado.")
     item = DeclaracionJurada(
         id=uuid.uuid4(),
         registro_id=registro.id,
@@ -1467,7 +1476,6 @@ async def emitir_boleta(
     en las DDJJ presentadas antes de las boletas por notario.
     """
     ddjj = await get_declaracion(session, principal, ddjj_id, lock=True)
-    await _exigir_operacion(session, principal, ddjj.registro_id)
     if ddjj.estado != EstadoDDJJ.PRESENTADA.value:
         raise _conflict("Solo se emiten boletas de una declaración jurada presentada.")
     if not await puede_reemitir(session, principal, ddjj.registro_id, escribano_id):

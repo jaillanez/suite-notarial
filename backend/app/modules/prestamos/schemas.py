@@ -63,6 +63,9 @@ class SimulacionIn(BaseModel):
     linea_id: uuid.UUID
     capital: Annotated[Money, Field(gt=0)]
     cuotas: Plazo
+    # Francés o alemán, a elección del escribano en cualquier línea (Caja, 24/11/2026). Sin
+    # dato, el de la línea.
+    sistema: Sistema | None = None
     ingreso_neto: Annotated[Money, Field(gt=0)] | None = None
     # Solo personal: evaluar para un escribano. El escribano simula siempre para sí mismo.
     escribano_id: uuid.UUID | None = None
@@ -75,6 +78,7 @@ class SolicitudIn(BaseModel):
     linea_id: uuid.UUID
     capital: Annotated[Money, Field(gt=0)]
     cuotas: Plazo
+    sistema: Sistema | None = None
     ingreso_neto: Annotated[Money, Field(gt=0)]
     garante_escribano_id: uuid.UUID | None = None
     observaciones: Texto | None = None
@@ -90,6 +94,15 @@ class GaranteOut(BaseModel):
 
 class RechazoIn(BaseModel):
     motivo: Motivo
+
+
+class OtorgamientoIn(BaseModel):
+    """La solicitud la aprueba la Junta de Administración; acá se registra en qué acta."""
+
+    acta_junta: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+    ]
+    fecha_junta: date
 
 
 class PagoIn(BaseModel):
@@ -167,6 +180,8 @@ class PrestamoOut(BaseModel):
     afectacion_maxima: Rate
     observaciones: str | None
     motivo_rechazo: str | None
+    acta_junta: str | None
+    fecha_junta: date | None
     fecha_otorgamiento: date | None
     creado_por: str | None
     resuelto_por: str | None

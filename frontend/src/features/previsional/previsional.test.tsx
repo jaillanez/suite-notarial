@@ -74,8 +74,11 @@ beforeEach(() => {
 })
 
 describe('formatos', () => {
-  it('puntos con 6 decimales y columna DECIMAL del reporte', () => {
-    expect(formatPuntos('1234.5')).toBe('1.234,500000')
+  it('puntos enteros redondeados desde la mitad y columna DECIMAL del reporte', () => {
+    expect(formatPuntos('1234.5')).toBe('1.235')
+    expect(formatPuntos('10.499999')).toBe('10')
+    expect(formatPuntos('999.5')).toBe('1.000')
+    expect(formatPuntos('0.4')).toBe('0')
     expect(
       formatCelda(
         {
@@ -99,9 +102,9 @@ describe('mis puntos', () => {
       user: { ...ESCRIBANO, permissions: ['puntos:read_own'] },
     })
 
-    expect(await screen.findAllByText('97,639503')).not.toHaveLength(0)
+    expect(await screen.findAllByText('98')).not.toHaveLength(0)
     expect(screen.getAllByText('$ 82.567,17')).not.toHaveLength(0)
-    expect(screen.getAllByText('147,639503')).not.toHaveLength(0)
+    expect(screen.getAllByText('148')).not.toHaveLength(0)
     expect(screen.getAllByText('Total · 2 ejercicios')).not.toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'Informe en PDF' }))
     await waitFor(() => {

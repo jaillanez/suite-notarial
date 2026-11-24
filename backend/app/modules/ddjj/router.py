@@ -82,6 +82,12 @@ CanRead = Annotated[
     Depends(require_any_permission(Perm.DDJJ_READ_OWN, Perm.DDJJ_READ_ALL, Perm.DDJJ_APPROVE)),
 ]
 CanOperate = Annotated[
+    # Solo el escribano opera su DDJJ; el personal de la Caja consulta (Caja, 24/11/2026).
+    Principal, Depends(require_any_permission(Perm.DDJJ_CREATE_OWN))
+]
+# Reemitir una boleta (otra fecha de pago) no toca la DDJJ: cada escribano la suya, y la Caja
+# por quien no tiene cuenta de autogestión.
+CanReemitir = Annotated[
     Principal, Depends(require_any_permission(Perm.DDJJ_CREATE_OWN, Perm.DDJJ_APPROVE))
 ]
 CanReadBoletas = Annotated[
@@ -723,7 +729,7 @@ async def presentar(
 async def emitir_boleta(
     ddjj_id: uuid.UUID,
     body: EmitirBoletaIn,
-    principal: CanOperate,
+    principal: CanReemitir,
     session: SessionDep,
     ctx: RequestContextDep,
 ) -> BoletaOut:

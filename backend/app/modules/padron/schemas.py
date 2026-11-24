@@ -145,10 +145,6 @@ class RegistroUpdate(BaseModel):
         return None if value is None else _departamento(value)
 
 
-class RegistroCierre(BaseModel):
-    motivo: Motivo
-
-
 class CargoResumen(BaseModel):
     adscripcion_id: uuid.UUID
     escribano_id: uuid.UUID
@@ -205,8 +201,9 @@ Corto20 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, 
 
 class EscribanoIn(BaseModel):
     persona: PersonaIn
-    # Dato informativo: no identifica (el Colegio puede reasignarla). Identifica el CUIT.
-    matricula_numero: int = Field(gt=0, lt=1_000_000)
+    # Dato informativo y optativo: la Caja no lo considera confiable ni imprescindible
+    # (24/11/2026). Identifica el CUIT. Tomo y folio tampoco se piden.
+    matricula_numero: int | None = Field(default=None, gt=0, lt=1_000_000)
     tomo: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
     folio: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
     # Fecha de juramento (el campo conserva su nombre histórico).
@@ -262,7 +259,6 @@ class DatosACompletar(BaseModel):
     enviado tiene que estar hoy vacío (cambiar uno ya cargado no se hace por acá; la primera
     escritura se corrige desde su propia acción, con motivo)."""
 
-    matricula_numero: int | None = Field(default=None, gt=0, lt=1_000_000)
     fecha_matriculacion: date | None = Field(default=None, description="Fecha de juramento.")
     cuit: str | None = None
     numero_documento: Documento | None = None

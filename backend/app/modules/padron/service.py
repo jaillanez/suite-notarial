@@ -299,8 +299,6 @@ async def update_registro(
     data: RegistroUpdate,
 ) -> RegistroNotarial:
     item = await get_registro(session, registro_id)
-    if item.estado == EstadoRegistro.CERRADO:
-        raise _conflict("El registro está cerrado: no admite cambios.")
     changes = data.model_dump(exclude_unset=True)
     nuevo_domicilio = changes.pop("domicilio_legal", None)
     if nuevo_domicilio is not None and nuevo_domicilio != item.domicilio_legal:
@@ -332,34 +330,6 @@ async def update_registro(
     return item
 
 
-async def close_registro(
-    session: AsyncSession, ctx: RequestContext, actor: User, registro_id: uuid.UUID, motivo: str
-) -> RegistroNotarial:
-    item = await get_registro(session, registro_id)
-    if item.estado == EstadoRegistro.CERRADO:
-        raise _conflict("El registro ya está cerrado.")
-    cargos = (await current_cargos_for_registros(session, [item.id]))[item.id]
-    if cargos:
-        raise _conflict("El registro tiene cargos vigentes: cerralos antes de cerrar el registro.")
-    old_estado = item.estado
-    item.estado = EstadoRegistro.CERRADO.value
-    record_audit(
-        session,
-        ctx,
-        AuditEvent.PADRON_REGISTRO_CLOSED,
-        severity=Severity.WARNING,
-        actor_user_id=actor.id,
-        old_value={"estado": old_estado},
-        new_value={"estado": item.estado},
-        details={"registro_id": str(item.id), "motivo": motivo},
-    )
-    await session.commit()
-    return item
-
-
-# --------------------------------------------------------------------------- domicilios
-
-
 async def list_domicilios(
     session: AsyncSession, registro_id: uuid.UUID
 ) -> list[tuple[DomicilioRegistro, str | None]]:
@@ -389,8 +359,6 @@ async def cambiar_domicilio(
     registro = result.unique().scalars().first()
     if registro is None:
         raise _not_found("El registro notarial")
-    if registro.estado == EstadoRegistro.CERRADO:
-        raise _conflict("El registro está cerrado: no admite cambios.")
     if data.domicilio == registro.domicilio_legal:
         raise _conflict("Es el mismo domicilio que tiene hoy el registro.")
     if data.fecha_desde > today_local():
@@ -669,8 +637,8 @@ async def _exigir_matriculacion_antes_de_todo(
 
 
 # Campo a completar → (objeto que lo tiene, mensaje si ya está cargado).
+# El número de matrícula no se pide: la Caja no lo considera confiable (24/11/2026).
 _A_COMPLETAR = {
-    "matricula_numero": ("escribano", "La matrícula ya está cargada"),
     "fecha_matriculacion": ("escribano", "La fecha de juramento ya está cargada"),
     "cuit": ("persona", "El CUIT ya está cargado"),
     "numero_documento": ("persona", "El número de documento ya está cargado"),
@@ -1009,8 +977,6 @@ async def assign_cargo(
             "La designación no puede ser anterior al juramento.",
         )
     registro = await get_registro(session, data.registro_id)
-    if registro.estado == EstadoRegistro.CERRADO:
-        raise _conflict("El registro está cerrado.")
     vigente = await current_cargo(session, escribano.id)
     if vigente is not None:
         raise _conflict(

@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { toProblem, type Problem } from '../../lib/api'
 import { formatMoney } from '../../lib/decimal'
-import { CARGO, matriculaTexto, todayIso } from '../padron/labels'
+import { CARGO, todayIso } from '../padron/labels'
 import { actoCompleto, actoInput, actoSiguiente, actoSugerido, type ActoForm } from './acto'
 import { ActoCampos } from './ActoCampos'
 import { agregarActo, type CategoriaActo, type DeclaracionDetalle, type VademecumActo } from './api'
@@ -450,7 +450,7 @@ export function CargaPlanilla({
             }}
             options={ddjj.escribanos.map((e) => ({
               value: e.id,
-              label: `${e.apellido_nombre} · ${CARGO[e.cargo]} · Mat. ${matriculaTexto(e.matricula_numero)}`,
+              label: `${e.apellido_nombre} · ${CARGO[e.cargo]}`,
             }))}
           />
         )}

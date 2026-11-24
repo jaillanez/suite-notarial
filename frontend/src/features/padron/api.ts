@@ -3,7 +3,7 @@ import type { Page } from '../users/api'
 
 export type EstadoMatricula = 'ACTIVO' | 'SUSPENDIDO' | 'CESANTE' | 'JUBILADO' | 'FALLECIDO'
 export type Cargo = 'TITULAR' | 'ADSCRIPTO' | 'SUPLENTE_INTERINO'
-export type EstadoRegistro = 'ACTIVO' | 'VACANTE' | 'CERRADO'
+export type EstadoRegistro = 'ACTIVO' | 'VACANTE'
 
 export interface Circunscripcion {
   id: string
@@ -206,9 +206,6 @@ export interface PersonaInput {
 
 export interface EscribanoInput {
   persona: PersonaInput
-  matricula_numero: number
-  tomo: string | null
-  folio: string | null
   fecha_matriculacion: string
 }
 
@@ -409,8 +406,4 @@ export async function cambiarDomicilio(
       fecha_desde: fechaDesde,
     })
   ).data
-}
-
-export async function closeRegistro(id: string, motivo: string): Promise<Registro> {
-  return (await api.post<Registro>(`${P}/registros/${id}/cierre`, { motivo })).data
 }

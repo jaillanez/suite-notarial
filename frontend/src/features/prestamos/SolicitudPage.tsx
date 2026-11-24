@@ -14,7 +14,14 @@ import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { normalizeDecimalInput } from '../../lib/decimal'
 import { MAX_BYTES, TIPOS_ACEPTADOS } from '../pagos/labels'
-import { cargarDocumento, crearSolicitud, fetchLineas, simular, type TipoDocumento } from './api'
+import {
+  cargarDocumento,
+  crearSolicitud,
+  fetchLineas,
+  simular,
+  type Sistema,
+  type TipoDocumento,
+} from './api'
 import {
   CondicionesLinea,
   EscribanoPicker,
@@ -24,6 +31,7 @@ import {
 } from './componentes'
 import {
   LEYENDA_USD,
+  SISTEMA,
   MONEDA,
   TIPO_DOCUMENTO,
   documentosDeLinea,
@@ -62,6 +70,12 @@ export function SolicitudPage() {
     observaciones: '',
   })
   const linea = activas.find((l) => l.id === form.linea) ?? activas[0]
+  // Francés o alemán en cualquier línea (Caja, 24/11/2026); llega elegido desde el simulador.
+  const desdeSimulador = params.get('sistema')
+  const [sistemaElegido, setSistema] = useState<Sistema | ''>(
+    desdeSimulador === 'FRANCES' || desdeSimulador === 'ALEMAN' ? desdeSimulador : '',
+  )
+  const sistema: Sistema = sistemaElegido || linea?.sistema || 'FRANCES'
   const usd = linea?.moneda === 'USD'
   const simbolo = MONEDA[linea?.moneda ?? 'ARS'].simbolo
   const datos = useDeferredValue({
@@ -100,12 +114,13 @@ export function SolicitudPage() {
     datos.cuotas > 0 &&
     DECIMAL.test(datos.ingreso)
   const evaluacion = useQuery({
-    queryKey: ['prestamos', 'evaluacion', linea?.id, datos],
+    queryKey: ['prestamos', 'evaluacion', linea?.id, datos, sistema],
     queryFn: () =>
       simular({
         linea_id: linea?.id ?? '',
         capital: datos.capital,
         cuotas: datos.cuotas,
+        sistema,
         ingreso_neto: datos.ingreso,
         escribano_id: personal ? datos.escribano : null,
         garante_escribano_id: datos.garante || null,
@@ -121,6 +136,7 @@ export function SolicitudPage() {
         linea_id: linea?.id ?? '',
         capital: datos.capital,
         cuotas: datos.cuotas,
+        sistema,
         ingreso_neto: datos.ingreso,
         garante_escribano_id: form.garante || null,
         observaciones: form.observaciones.trim() || null,
@@ -213,6 +229,17 @@ export function SolicitudPage() {
                 }}
               />
             </div>
+            <Select
+              label="Sistema de amortización"
+              value={sistema}
+              onChange={(e) => {
+                setSistema(e.target.value as Sistema)
+              }}
+              options={(['FRANCES', 'ALEMAN'] as const).map((s) => ({
+                value: s,
+                label: SISTEMA[s].label,
+              }))}
+            />
             <Field
               label={`Ingreso neto mensual ${usd ? 'en dólares ' : ''}(${simbolo})`}
               inputMode="decimal"

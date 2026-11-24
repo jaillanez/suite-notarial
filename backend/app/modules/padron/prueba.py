@@ -322,7 +322,8 @@ async def baja_registro_prueba(
         raise PruebaError(
             f"El registro {numero_registro} no es un registro de prueba: no se da de baja."
         )
-    if registro.estado == EstadoRegistro.CERRADO:
+    # Dado de baja: sin titular (vacante) y con sus cargos cerrados.
+    if registro.estado == EstadoRegistro.VACANTE:
         raise PruebaError(f"El registro de prueba {numero_registro} ya está dado de baja.")
 
     cargos = list(
@@ -362,7 +363,7 @@ async def baja_registro_prueba(
         )
 
     old_estado = registro.estado
-    registro.estado = EstadoRegistro.CERRADO.value
+    registro.estado = EstadoRegistro.VACANTE.value
     record_audit(
         session,
         ctx,

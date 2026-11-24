@@ -12,7 +12,6 @@ import { toProblem } from '../../lib/api'
 import { A_COMPLETAR, todayIso } from './labels'
 import {
   cambiarDomicilio,
-  closeRegistro,
   createCircunscripcion,
   createRegistro,
   fetchCircunscripciones,
@@ -252,66 +251,6 @@ export function CambiarDomicilioDialog({
           onChange={(e) => {
             setDesde(e.target.value)
           }}
-        />
-      </div>
-    </Dialog>
-  )
-}
-
-export function CerrarRegistroDialog({
-  registro,
-  open,
-  onClose,
-}: {
-  registro: Registro
-  open: boolean
-  onClose: () => void
-}) {
-  const queryClient = useQueryClient()
-  const [motivo, setMotivo] = useState('')
-  const save = useMutation({
-    mutationFn: () => closeRegistro(registro.id, motivo.trim()),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['padron'] })
-      await queryClient.invalidateQueries({ queryKey: ['registro', registro.id] })
-      onClose()
-    },
-  })
-  return (
-    <Dialog
-      open={open}
-      onClose={() => {
-        save.reset()
-        onClose()
-      }}
-      title={`Cerrar el Registro ${String(registro.numero_registro)}`}
-      description="Un registro cerrado no admite cargos ni cambios. Requiere que no tenga cargos vigentes."
-      footer={
-        <>
-          <Button onClick={onClose}>Cancelar</Button>
-          <Button
-            variant="danger"
-            busy={save.isPending}
-            busyLabel="Cerrando…"
-            disabled={motivo.trim().length < 5}
-            onClick={() => {
-              save.mutate()
-            }}
-          >
-            Cerrar registro
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {save.isError && <Alert tone="danger">{toProblem(save.error).detail}</Alert>}
-        <TextArea
-          label="Motivo"
-          value={motivo}
-          onChange={(e) => {
-            setMotivo(e.target.value)
-          }}
-          hint="Obligatorio. Queda registrado en la auditoría."
         />
       </div>
     </Dialog>

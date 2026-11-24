@@ -130,12 +130,6 @@ export function EscribanoPage() {
             {e.apellido_nombre}
           </h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-ink-muted tabular-nums">
-            <span>
-              {e.matricula_numero === null
-                ? 'Matrícula a completar'
-                : `Matrícula ${String(e.matricula_numero)}`}
-            </span>
-            <span aria-hidden="true">·</span>
             <span>{e.cuit === null ? 'CUIT a completar' : `CUIT ${e.cuit}`}</span>
             <StatusIndicator tone={estado.tone} label={estado.label} />
             {e.en_licencia_desde && (
@@ -223,8 +217,6 @@ export function EscribanoPage() {
           <Panel title="Matrícula">
             <Rows
               items={[
-                ['Número', e.matricula_numero ?? <ACompletar />],
-                ['Tomo / folio', [e.tomo, e.folio].filter(Boolean).join(' / ') || '—'],
                 [
                   'Fecha de juramento',
                   e.fecha_matriculacion ? formatDate(e.fecha_matriculacion) : <ACompletar />,

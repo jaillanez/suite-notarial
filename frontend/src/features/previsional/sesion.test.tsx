@@ -79,12 +79,12 @@ describe('caché de «Mis puntos» por persona', () => {
       </QueryClientProvider>
     )
     const { rerender } = render(arbol(ANA))
-    expect((await screen.findAllByText('11,000000')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('11')).length).toBeGreaterThan(0)
 
     rerender(arbol(LUIS))
 
-    expect((await screen.findAllByText('22,000000')).length).toBeGreaterThan(0)
-    expect(screen.queryByText('11,000000')).not.toBeInTheDocument()
+    expect((await screen.findAllByText('22')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('11')).not.toBeInTheDocument()
     expect(apiModule.fetchMisPuntos).toHaveBeenCalledTimes(2)
   })
 })

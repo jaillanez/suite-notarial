@@ -152,12 +152,10 @@ async def elegibles(
     session: SessionDep,
     q: Annotated[str, Query(min_length=2, max_length=100, description="Apellido o matrícula")],
 ) -> list[EscribanoElegible]:
-    """Solo para quien puede designar: el titular de un registro o la Caja."""
-    if not a_cargo.es_personal(principal) and not await a_cargo.registros_del_titular(
-        session, principal
-    ):
+    """Solo para quien puede designar: el titular de un registro."""
+    if not await a_cargo.registros_del_titular(session, principal):
         raise ProblemError(
-            HTTPStatus.FORBIDDEN, "Solo el titular de un registro o la Caja designan a cargo."
+            HTTPStatus.FORBIDDEN, "Solo el titular de un registro designa un escribano a cargo."
         )
     return [
         EscribanoElegible(

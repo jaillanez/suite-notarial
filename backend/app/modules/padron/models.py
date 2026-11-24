@@ -69,7 +69,9 @@ class RegistroNotarial(UUIDMixin, TimestampMixin, AuthorMixin, Base):
     __tablename__ = "padron_registros_notariales"
     __table_args__ = (
         CheckConstraint("numero_registro > 0", name="numero_positivo"),
-        CheckConstraint("estado IN ('ACTIVO', 'VACANTE', 'CERRADO')", name="estado_valido"),
+        # Sin titular el registro no funciona: «cerrado» y «vacante» son lo mismo (Caja,
+        # 24/11/2026). Vuelve a ACTIVO cuando se nombra titular.
+        CheckConstraint("estado IN ('ACTIVO', 'VACANTE')", name="estado_valido"),
     )
 
     numero_registro: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)

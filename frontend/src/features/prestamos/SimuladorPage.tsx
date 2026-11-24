@@ -11,7 +11,7 @@ import { Select } from '../../components/ui/Select'
 import { toProblem } from '../../lib/api'
 import { normalizeDecimalInput } from '../../lib/decimal'
 import { useSession } from '../auth/session'
-import { fetchLineas, simular } from './api'
+import { fetchLineas, simular, type Sistema } from './api'
 import { CondicionesLinea, PlanCuotas, RequisitosLinea, ResumenEvaluacion } from './componentes'
 import {
   LEYENDA_USD,
@@ -34,6 +34,9 @@ export function SimuladorPage() {
   const [lineaId, setLineaId] = useState('')
   const linea = activas.find((l) => l.id === lineaId) ?? activas[0]
   const [form, setForm] = useState({ capital: '', cuotas: '' })
+  // Francés o alemán en cualquier línea (Caja, 24/11/2026); sin elegir, el de la línea.
+  const [sistemaElegido, setSistema] = useState<Sistema | ''>('')
+  const sistema: Sistema = sistemaElegido || linea?.sistema || 'FRANCES'
   const usd = linea?.moneda === 'USD'
   const simbolo = MONEDA[linea?.moneda ?? 'ARS'].simbolo
   const datos = useDeferredValue({
@@ -49,12 +52,13 @@ export function SimuladorPage() {
     !errores.capital &&
     !errores.cuotas
   const query = useQuery({
-    queryKey: ['prestamos', 'simulacion', linea?.id, datos],
+    queryKey: ['prestamos', 'simulacion', linea?.id, datos, sistema],
     queryFn: () =>
       simular({
         linea_id: linea?.id ?? '',
         capital: datos.capital,
         cuotas: datos.cuotas,
+        sistema,
         ingreso_neto: null,
       }),
     enabled: listo,
@@ -122,6 +126,17 @@ export function SimuladorPage() {
                 setForm((f) => ({ ...f, cuotas: topeCuotas(linea, e.target.value) }))
               }}
             />
+            <Select
+              label="Sistema de amortización"
+              value={sistema}
+              onChange={(e) => {
+                setSistema(e.target.value as Sistema)
+              }}
+              options={(['FRANCES', 'ALEMAN'] as const).map((s) => ({
+                value: s,
+                label: SISTEMA[s].label,
+              }))}
+            />
             {usd && <p className="text-sm text-ink-muted">{LEYENDA_USD}</p>}
           </div>
         </Panel>
@@ -150,6 +165,7 @@ export function SimuladorPage() {
                         linea: linea.id,
                         capital: datos.capital,
                         cuotas: String(datos.cuotas),
+                        sistema,
                       })
                       void navigate(`/prestamos/nueva?${q.toString()}`)
                     }}

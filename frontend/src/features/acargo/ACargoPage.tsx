@@ -12,7 +12,7 @@ import { PageHeader, Panel } from '../../components/ui/Panel'
 import { Select } from '../../components/ui/Select'
 import { TextArea } from '../../components/ui/TextArea'
 import { toProblem } from '../../lib/api'
-import { departamentoTexto, formatDate, matriculaTexto, todayIso } from '../padron/labels'
+import { departamentoTexto, formatDate, todayIso } from '../padron/labels'
 import {
   anular,
   aprobar,
@@ -72,7 +72,7 @@ export function ACargoPage() {
         title="Escribano a cargo"
         description={
           personal
-            ? 'Quién queda a cargo de cada registro y entre qué fechas. Cualquier escribano activo de la provincia puede quedar a cargo, aunque tenga su propio registro.'
+            ? 'Quién queda a cargo de cada registro y entre qué fechas. Las designa el titular de cada registro desde su autogestión; acá se consultan.'
             : 'Designá a otro escribano para que quede a cargo de tu registro entre dos fechas (licencia, viaje). En esos días carga y presenta las declaraciones juradas del registro.'
         }
       />
@@ -227,12 +227,7 @@ function Fila({ d, hoy, personal }: { d: Designacion; hoy: string; personal: boo
         </span>
       </span>
       <div className="min-w-0 flex-1">
-        <p className="font-semibold text-ink">
-          {d.apellido_nombre}{' '}
-          <span className="font-normal text-ink-muted tabular-nums">
-            · Mat. {matriculaTexto(d.matricula_numero)}
-          </span>
-        </p>
+        <p className="font-semibold text-ink">{d.apellido_nombre}</p>
         <p className="text-sm text-ink tabular-nums">
           Del {formatDate(d.fecha_desde)} al {formatDate(d.fecha_hasta)} ·{' '}
           {departamentoTexto(d.departamento)}
@@ -640,7 +635,7 @@ function DesignarDialog({
           <div>
             <Field
               label="Escribano que queda a cargo"
-              hint="Apellido o número de matrícula. Puede ser de cualquier departamento."
+              hint="Apellido del escribano. Puede ser de cualquier departamento."
               value={busqueda}
               trailing={<Search aria-hidden="true" className="size-4 text-ink-subtle" />}
               onChange={(e) => {
@@ -662,15 +657,15 @@ function DesignarDialog({
                       onClick={() => {
                         setElegido({
                           id: c.id,
-                          nombre: `${c.apellido_nombre} · Mat. ${matriculaTexto(c.matricula_numero)}`,
+                          nombre: c.apellido_nombre,
                         })
                       }}
                     >
                       <span className="font-semibold text-brand-800">{c.apellido_nombre}</span>
                       <span className="text-sm text-ink-muted tabular-nums">
-                        Mat. {matriculaTexto(c.matricula_numero)}
-                        {c.numero_registro !== null &&
-                          ` · Registro ${String(c.numero_registro)} (${c.departamento ?? ''})`}
+                        {c.numero_registro !== null
+                          ? `Registro ${String(c.numero_registro)} (${c.departamento ?? ''})`
+                          : 'Sin registro propio'}
                       </span>
                     </button>
                   </li>

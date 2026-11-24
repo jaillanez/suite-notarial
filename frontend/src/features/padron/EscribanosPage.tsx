@@ -12,7 +12,7 @@ import { Select } from '../../components/ui/Select'
 import { toProblem } from '../../lib/api'
 import { useSession } from '../auth/session'
 import { fetchDepartamentos, fetchEscribanos, type EscribanoFilters } from './api'
-import { A_COMPLETAR, CARGO, CUIT_A_COMPLETAR, ESTADO_MATRICULA, matriculaTexto } from './labels'
+import { A_COMPLETAR, CARGO, CUIT_A_COMPLETAR, ESTADO_MATRICULA } from './labels'
 
 const PAGE_SIZE = 20
 
@@ -43,7 +43,7 @@ export function EscribanosPage() {
   const rows = query.data?.items ?? []
   const filtered = filters.q || filters.estado || filters.registroNumero || filters.departamento
   const empty = filtered
-    ? 'Ningún escribano coincide con los filtros. Probá con el apellido, el CUIT o la matrícula.'
+    ? 'Ningún escribano coincide con los filtros. Probá con el apellido, el CUIT o el DNI.'
     : 'Todavía no hay escribanos en el padrón.'
 
   return (
@@ -71,7 +71,7 @@ export function EscribanosPage() {
             className="col-span-2 lg:col-span-1"
             label="Buscar"
             type="search"
-            placeholder="Apellido, CUIT, DNI o matrícula"
+            placeholder="Apellido, CUIT o DNI"
             value={filters.q}
             onChange={(e) => {
               set({ q: e.target.value })
@@ -138,7 +138,7 @@ export function EscribanosPage() {
                   <span className="min-w-0">
                     <span className="block font-semibold">{row.apellido_nombre}</span>
                     <span className="block text-sm text-ink-muted tabular-nums">
-                      Mat. {matriculaTexto(row.matricula_numero)} · {row.cuit ?? CUIT_A_COMPLETAR}
+                      CUIT {row.cuit ?? CUIT_A_COMPLETAR}
                     </span>
                   </span>
                   <span className="flex flex-col items-end gap-1">
@@ -166,8 +166,8 @@ export function EscribanosPage() {
             <caption className="sr-only">Padrón de escribanos</caption>
             <thead className="sticky top-0 z-10 bg-surface-sunken text-xs font-semibold text-ink-muted">
               <tr className="border-b border-line">
-                <th scope="col" className="w-24 px-5 py-3 sm:px-6">
-                  Matrícula
+                <th scope="col" className="w-40 px-5 py-3 sm:px-6">
+                  CUIT
                 </th>
                 <th scope="col" className="px-3 py-3">
                   Escribano
@@ -202,7 +202,7 @@ export function EscribanosPage() {
               {rows.map((row) => (
                 <tr key={row.id} className="group hover:bg-brand-50">
                   <td className="px-5 py-3 font-semibold text-ink tabular-nums sm:px-6">
-                    {matriculaTexto(row.matricula_numero)}
+                    {row.cuit ?? CUIT_A_COMPLETAR}
                   </td>
                   <td className="px-3 py-3">
                     <Link

@@ -176,7 +176,7 @@ export function AsignarCargoDialog({ escribano, open, onClose }: Props) {
     queryFn: () => fetchRegistros({ page: 1, pageSize: 100, q: '', departamento: '', estado: '' }),
     enabled: open,
   })
-  const abiertos = (registros.data?.items ?? []).filter((r) => r.estado !== 'CERRADO')
+  const abiertos = registros.data?.items ?? []
   const [registroId, setRegistroId] = useState('')
   const [cargo, setCargo] = useState<Cargo>('ADSCRIPTO')
   const [fecha, setFecha] = useState(todayIso())
@@ -550,14 +550,10 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
     email: p.email ?? '',
     telefono: p.telefono ?? '',
     domicilio_real: p.domicilio_real ?? '',
-    tomo: escribano.tomo ?? '',
-    folio: escribano.folio ?? '',
   })
   const save = useMutation({
     mutationFn: () =>
       updateEscribano(escribano.id, {
-        tomo: orNull(form.tomo),
-        folio: orNull(form.folio),
         persona: {
           apellido: form.apellido.trim(),
           nombre: form.nombre.trim(),
@@ -592,7 +588,7 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
         onClose()
       }}
       title="Editar datos"
-      description="El CUIT identifica al escribano y no se edita; la matrícula y la fecha de juramento tampoco se cambian por acá (si faltan, se cargan desde «Completar datos»). Cada cambio queda auditado."
+      description="El CUIT identifica al escribano y no se edita; la fecha de juramento tampoco se cambia por acá (si faltan, se cargan desde «Completar datos»). Cada cambio queda auditado."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -629,10 +625,6 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
           {...bind('email')}
         />
         <Field label="Teléfono" type="tel" {...bind('telefono')} />
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Tomo" {...bind('tomo')} />
-          <Field label="Folio" {...bind('folio')} />
-        </div>
         <TextArea
           label="Domicilio real"
           rows={2}
@@ -703,14 +695,13 @@ export function CuentaDialog({ escribano, open, onClose }: Props) {
 }
 
 /**
- * Carga, una sola vez, los datos que faltan (matrícula, fecha de juramento, CUIT, DNI y la
+ * Carga, una sola vez, los datos que faltan (fecha de juramento, CUIT, DNI y la
  * primera escritura, que llega después de la afiliación).
  */
 export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
   const refresh = useRefresh(escribano.id)
   const faltan = escribano.a_completar
   const [form, setForm] = useState({
-    matricula_numero: '',
     fecha_matriculacion: '',
     cuit: '',
     numero_documento: '',
@@ -719,11 +710,9 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
   const conPrimera = primeraEmpezada(primera)
   const save = useMutation({
     mutationFn: () => {
-      const matricula = form.matricula_numero.trim()
       const cuit = form.cuit.trim()
       const documento = form.numero_documento.trim()
       return completarEscribano(escribano.id, {
-        ...(matricula ? { matricula_numero: Number(matricula) } : {}),
         ...(form.fecha_matriculacion ? { fecha_matriculacion: form.fecha_matriculacion } : {}),
         ...(cuit ? { cuit } : {}),
         ...(documento ? { numero_documento: documento } : {}),
@@ -778,13 +767,6 @@ export function CompletarDatosDialog({ escribano, open, onClose }: Props) {
           <div className="sm:col-span-2">
             <Alert tone="danger">{problem.detail}</Alert>
           </div>
-        )}
-        {faltan.includes('matricula_numero') && (
-          <Field
-            label={CAMPO_A_COMPLETAR.matricula_numero}
-            inputMode="numeric"
-            {...bind('matricula_numero')}
-          />
         )}
         {faltan.includes('fecha_matriculacion') && (
           <Field

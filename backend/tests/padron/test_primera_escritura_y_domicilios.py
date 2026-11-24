@@ -203,19 +203,7 @@ async def test_la_edicion_general_no_cambia_el_domicilio(
     assert igual.status_code == 200, igual.text
 
 
-async def test_domicilio_de_registro_cerrado_o_inexistente(
-    caja: AsyncClient, registro: Factory
-) -> None:
-    reg = await registro()
-    cierre = await caja.post(
-        f"/api/v1/padron/registros/{reg['id']}/cierre", json={"motivo": "Registro suprimido"}
-    )
-    assert cierre.status_code == 200, cierre.text
-    cerrado = await caja.post(
-        f"/api/v1/padron/registros/{reg['id']}/domicilio",
-        json={"domicilio": "Calle 2", "fecha_desde": "2024-01-01"},
-    )
-    assert cerrado.status_code == 409
+async def test_domicilio_de_registro_inexistente(caja: AsyncClient) -> None:
     inexistente = await caja.post(
         f"/api/v1/padron/registros/{uuid.uuid4()}/domicilio",
         json={"domicilio": "Calle 2", "fecha_desde": "2024-01-01"},

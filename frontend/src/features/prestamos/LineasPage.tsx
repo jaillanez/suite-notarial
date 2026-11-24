@@ -177,7 +177,7 @@ function LineaDialog({
         )}
         <Select
           className="sm:col-span-2"
-          label="Sistema de amortización"
+          label="Sistema sugerido (el escribano puede elegir el otro)"
           value={f.sistema}
           onChange={(e) => {
             setF((x) => ({ ...x, sistema: e.target.value as Sistema }))

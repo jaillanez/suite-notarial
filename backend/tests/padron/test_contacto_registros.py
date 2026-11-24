@@ -71,23 +71,19 @@ async def test_cargar_completa_solo_lo_vacio_y_audita(
     operador = await make_user(db_session, roles=("ROLE_ADMIN",))
     vacio = await registro(901)
     corregido = await registro(903, telefono="4299999")
-    cerrado = await registro(905)
-    cierre = await caja.post(
-        f"/api/v1/padron/registros/{cerrado['id']}/cierre", json={"motivo": "Cierre de prueba"}
-    )
-    assert cierre.status_code == 200, cierre.text
+    # «Cerrado» ya no existe (= vacante, Caja 24/11/2026): el 905 se completa como cualquiera.
+    await registro(905)
     contactos = contacto.extraer(VOLCADO).contactos
 
     previa = await contacto.cargar(db_session, operador.email, contactos, aplicar=False)
-    assert previa.completados == [901]
+    assert previa.completados == [901, 905]
     assert (await _get(caja, vacio))["telefono"] is None  # sin --aplicar no guarda
 
     r = await contacto.cargar(db_session, operador.email, contactos, aplicar=True)
-    assert r.completados == [901]
+    assert r.completados == [901, 905]
     assert r.sin_cambios == [903]
     assert r.diferencias == [(903, "telefono", "4299999", "4200003")]
     assert r.sin_registro == [904]
-    assert r.cerrados == [905]
 
     datos = await _get(caja, vacio)
     assert (datos["telefono"], datos["email"]) == ("4200001", "uno@ejemplo.com.ar")

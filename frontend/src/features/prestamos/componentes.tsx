@@ -8,7 +8,7 @@ import { Field } from '../../components/ui/Field'
 import { Select } from '../../components/ui/Select'
 import { compararDecimal, formatPercent } from '../../lib/decimal'
 import { fetchEscribanos } from '../padron/api'
-import { formatDate, matriculaTexto } from '../padron/labels'
+import { formatDate } from '../padron/labels'
 import {
   fetchGarantes,
   type Cuota,
@@ -254,9 +254,9 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
 export function CondicionesLinea({ linea }: { linea: Linea }) {
   return (
     <p className="text-sm text-ink-muted tabular-nums">
-      {MONEDA[linea.moneda].label} · {SISTEMA[linea.sistema].label} · TNA {formatPercent(linea.tna)}{' '}
-      · de {importe(linea.monto_minimo, linea.moneda)} a {importe(linea.monto_maximo, linea.moneda)}{' '}
-      · {linea.plazo_minimo} a {linea.plazo_maximo} cuotas · tope{' '}
+      {MONEDA[linea.moneda].label} · Francés o alemán · TNA {formatPercent(linea.tna)} · de{' '}
+      {importe(linea.monto_minimo, linea.moneda)} a {importe(linea.monto_maximo, linea.moneda)} ·{' '}
+      {linea.plazo_minimo} a {linea.plazo_maximo} cuotas · tope{' '}
       {formatPercent(linea.afectacion_maxima)} del ingreso
     </p>
   )
@@ -350,7 +350,7 @@ export function EscribanoPicker({
           },
           ...opciones.map((e) => ({
             value: e.id,
-            label: `${e.apellido_nombre} · Mat. ${matriculaTexto(e.matricula_numero)}${e.estado_matricula !== 'ACTIVO' ? ` · ${e.estado_matricula.toLowerCase()}` : ''}`,
+            label: `${e.apellido_nombre}${e.estado_matricula !== 'ACTIVO' ? ` · ${e.estado_matricula.toLowerCase()}` : ''}`,
           })),
         ]}
       />
