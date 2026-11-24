@@ -28,6 +28,8 @@ import {
   TIPO_DOCUMENTO,
   documentosDeLinea,
   fueraDeLinea,
+  topeCapital,
+  topeCuotas,
   importe,
 } from './labels'
 
@@ -196,7 +198,7 @@ export function SolicitudPage() {
                 error={errores.capital}
                 value={form.capital}
                 onChange={(e) => {
-                  set('capital')(e.target.value)
+                  set('capital')(topeCapital(linea, e.target.value))
                 }}
               />
               <Field
@@ -207,7 +209,7 @@ export function SolicitudPage() {
                 error={errores.cuotas}
                 value={form.cuotas}
                 onChange={(e) => {
-                  set('cuotas')(e.target.value)
+                  set('cuotas')(topeCuotas(linea, e.target.value))
                 }}
               />
             </div>

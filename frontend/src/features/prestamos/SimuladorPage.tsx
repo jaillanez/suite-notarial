@@ -13,7 +13,15 @@ import { normalizeDecimalInput } from '../../lib/decimal'
 import { useSession } from '../auth/session'
 import { fetchLineas, simular } from './api'
 import { CondicionesLinea, PlanCuotas, RequisitosLinea, ResumenEvaluacion } from './componentes'
-import { LEYENDA_USD, MONEDA, SISTEMA, fueraDeLinea, importe } from './labels'
+import {
+  LEYENDA_USD,
+  MONEDA,
+  SISTEMA,
+  fueraDeLinea,
+  importe,
+  topeCapital,
+  topeCuotas,
+} from './labels'
 
 const DECIMAL = /^\d+(\.\d{1,2})?$/
 
@@ -100,7 +108,7 @@ export function SimuladorPage() {
               error={errores.capital}
               value={form.capital}
               onChange={(e) => {
-                setForm((f) => ({ ...f, capital: e.target.value }))
+                setForm((f) => ({ ...f, capital: topeCapital(linea, e.target.value) }))
               }}
             />
             <Field
@@ -111,7 +119,7 @@ export function SimuladorPage() {
               error={errores.cuotas}
               value={form.cuotas}
               onChange={(e) => {
-                setForm((f) => ({ ...f, cuotas: e.target.value }))
+                setForm((f) => ({ ...f, cuotas: topeCuotas(linea, e.target.value) }))
               }}
             />
             {usd && <p className="text-sm text-ink-muted">{LEYENDA_USD}</p>}

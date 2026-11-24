@@ -4,6 +4,7 @@ import {
   CalendarOff,
   ClipboardPen,
   FilePen,
+  History,
   Pencil,
   RefreshCw,
   ShieldPlus,
@@ -24,6 +25,7 @@ import { PuntosPanel } from '../previsional/PuntosPanel'
 import { fetchEscribano, type CargoItem, type EstadoDesignacion, type LicenciaItem } from './api'
 import {
   AsignarCargoDialog,
+  CargoAnteriorDialog,
   CerrarCargoDialog,
   FechaDesdeCargoDialog,
   CompletarDatosDialog,
@@ -75,7 +77,15 @@ function Rows({ items }: { items: [string, ReactNode][] }) {
 }
 
 type DialogName =
-  'editar' | 'estado' | 'cargo' | 'cuenta' | 'completar' | 'primera' | 'licencia' | null
+  | 'editar'
+  | 'estado'
+  | 'cargo'
+  | 'cargoAnterior'
+  | 'cuenta'
+  | 'completar'
+  | 'primera'
+  | 'licencia'
+  | null
 
 export function EscribanoPage() {
   const { id = '' } = useParams()
@@ -209,52 +219,60 @@ export function EscribanoPage() {
             ]}
           />
         </Panel>
-        <Panel title="Matrícula">
-          <Rows
-            items={[
-              ['Número', e.matricula_numero ?? <ACompletar />],
-              ['Tomo / folio', [e.tomo, e.folio].filter(Boolean).join(' / ') || '—'],
-              [
-                'Fecha de juramento',
-                e.fecha_matriculacion ? formatDate(e.fecha_matriculacion) : <ACompletar />,
-              ],
-              [
-                'Cuenta de autogestión',
-                e.tiene_cuenta ? (
-                  <span className="inline-flex items-center gap-1.5 text-success-700">
-                    <UserCheck aria-hidden="true" className="size-4" strokeWidth={2.25} />
-                    Creada
-                  </span>
-                ) : (
-                  'Sin cuenta'
-                ),
-              ],
-            ]}
-          />
-          {!e.tiene_cuenta && can('escribanos:write') && can('users:write') && (
-            <div className="space-y-3 border-t border-line px-5 py-4 sm:px-6">
-              <Button
-                icon={UserPlus}
-                disabled={!e.persona.email || e.persona.cuit === null}
-                onClick={() => {
-                  setDialog('cuenta')
-                }}
-              >
-                Crear cuenta de autogestión
-              </Button>
-              {e.persona.cuit === null && (
-                <p className="text-sm text-ink-muted">
-                  Completá su CUIT para poder crearle la cuenta.
-                </p>
-              )}
-              {!e.persona.email && (
-                <p className="text-sm text-ink-muted">
-                  Cargá su correo en “Editar datos” para poder crearle la cuenta.
-                </p>
-              )}
-            </div>
-          )}
-        </Panel>
+        <div className="space-y-6">
+          <Panel title="Matrícula">
+            <Rows
+              items={[
+                ['Número', e.matricula_numero ?? <ACompletar />],
+                ['Tomo / folio', [e.tomo, e.folio].filter(Boolean).join(' / ') || '—'],
+                [
+                  'Fecha de juramento',
+                  e.fecha_matriculacion ? formatDate(e.fecha_matriculacion) : <ACompletar />,
+                ],
+              ]}
+            />
+          </Panel>
+          <Panel title="Cuenta de autogestión">
+            <Rows
+              items={[
+                [
+                  'Estado',
+                  e.tiene_cuenta ? (
+                    <span className="inline-flex items-center gap-1.5 text-success-700">
+                      <UserCheck aria-hidden="true" className="size-4" strokeWidth={2.25} />
+                      Creada
+                    </span>
+                  ) : (
+                    'Sin cuenta'
+                  ),
+                ],
+              ]}
+            />
+            {!e.tiene_cuenta && can('escribanos:write') && can('users:write') && (
+              <div className="space-y-3 border-t border-line px-5 py-4 sm:px-6">
+                <Button
+                  icon={UserPlus}
+                  disabled={!e.persona.email || e.persona.cuit === null}
+                  onClick={() => {
+                    setDialog('cuenta')
+                  }}
+                >
+                  Crear cuenta de autogestión
+                </Button>
+                {e.persona.cuit === null && (
+                  <p className="text-sm text-ink-muted">
+                    Completá su CUIT para poder crearle la cuenta.
+                  </p>
+                )}
+                {!e.persona.email && (
+                  <p className="text-sm text-ink-muted">
+                    Cargá su correo en “Editar datos” para poder crearle la cuenta.
+                  </p>
+                )}
+              </div>
+            )}
+          </Panel>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -377,16 +395,28 @@ export function EscribanoPage() {
             : 'Sin cargo vigente.'
         }
         actions={
-          canWrite && !vigente && e.estado_matricula === 'ACTIVO' ? (
-            <Button
-              variant="primary"
-              icon={ShieldPlus}
-              onClick={() => {
-                setDialog('cargo')
-              }}
-            >
-              Asignar cargo
-            </Button>
+          canWrite ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                icon={History}
+                onClick={() => {
+                  setDialog('cargoAnterior')
+                }}
+              >
+                Cargar cargo anterior
+              </Button>
+              {!vigente && e.estado_matricula === 'ACTIVO' && (
+                <Button
+                  variant="primary"
+                  icon={ShieldPlus}
+                  onClick={() => {
+                    setDialog('cargo')
+                  }}
+                >
+                  Asignar cargo
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
       >
@@ -481,8 +511,8 @@ export function EscribanoPage() {
 
       <Panel
         className="mt-6"
-        title="Historial de estados"
-        description="Registro inmutable de cada cambio de estado de la matrícula."
+        title="Historial de la matrícula"
+        description="Cada cambio de estado de la matrícula (activo, suspendido, cesante), con su fecha y motivo. No se puede modificar."
       >
         {e.historial.length === 0 ? (
           <p className="px-5 py-6 text-sm text-ink-muted sm:px-6">
@@ -540,6 +570,13 @@ export function EscribanoPage() {
       <AsignarCargoDialog
         escribano={e}
         open={dialog === 'cargo'}
+        onClose={() => {
+          setDialog(null)
+        }}
+      />
+      <CargoAnteriorDialog
+        escribano={e}
+        open={dialog === 'cargoAnterior'}
         onClose={() => {
           setDialog(null)
         }}

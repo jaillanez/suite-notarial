@@ -41,6 +41,7 @@ from app.modules.padron.models import (
 )
 from app.modules.padron.schemas import (
     AntiguedadOut,
+    CargoAnterior,
     CargoAsignacion,
     CargoCierre,
     CargoFechaDesde,
@@ -557,6 +558,23 @@ async def assign_cargo(
     ctx: RequestContextDep,
 ) -> EscribanoDetalle:
     await service.assign_cargo(session, ctx, principal.user, escribano_id, body)
+    return await escribano_detalle(session, await service.get_escribano(session, escribano_id))
+
+
+@router.post(
+    "/escribanos/{escribano_id}/cargos/anteriores",
+    response_model=EscribanoDetalle,
+    status_code=201,
+)
+async def add_cargo_anterior(
+    escribano_id: uuid.UUID,
+    body: CargoAnterior,
+    principal: CanWrite,
+    session: SessionDep,
+    ctx: RequestContextDep,
+) -> EscribanoDetalle:
+    """Cargo ya terminado, anterior a lo registrado (se carga cerrado)."""
+    await service.add_cargo_anterior(session, ctx, principal.user, escribano_id, body)
     return await escribano_detalle(session, await service.get_escribano(session, escribano_id))
 
 

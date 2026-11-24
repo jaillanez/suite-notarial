@@ -294,6 +294,18 @@ class CargoAsignacion(BaseModel):
     resolucion_designacion: Corto | None = None
 
 
+class CargoAnterior(BaseModel):
+    """Cargo ya terminado, anterior a lo registrado (pedido de la Caja, 23/11/2026): se carga
+    cerrado, con fecha desde y hasta."""
+
+    registro_id: uuid.UUID
+    cargo: Cargo
+    fecha_desde: date
+    fecha_hasta: date
+    resolucion_designacion: Corto | None = None
+    motivo_cierre: Corto | None = None
+
+
 class CargoFechaDesde(BaseModel):
     """Fecha de designación de un cargo migrado sin ella: se carga una sola vez."""
 

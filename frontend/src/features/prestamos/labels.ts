@@ -56,9 +56,25 @@ export function requisitosLinea(l: Linea): string[] {
   return r
 }
 
-/** Leyenda de las líneas en dólares (criterio de la Caja, 20/11/2026). */
+/** Leyenda de las líneas en dólares (criterio de la Caja, 20/11 y 23/11/2026). */
 export const LEYENDA_USD =
-  'Los ingresos se declaran en dólares, al tipo de cambio comprador del Banco de la Nación Argentina.'
+  'Línea en dólares: los ingresos mínimos informados están expresados en dólares, y los ingresos se declaran en dólares al tipo de cambio comprador del Banco de la Nación Argentina.'
+
+/** Capital tipeado: nunca más que el máximo de la línea (pedido de la Caja, 23/11/2026). Lo
+ * que no es un número se deja como está: lo marca el error del campo. */
+export function topeCapital(l: Linea | undefined, valor: string): string {
+  if (l && /^\d+(\.\d{0,2})?$/.test(valor) && compararDecimal(valor, l.monto_maximo) > 0) {
+    return l.monto_maximo
+  }
+  return valor
+}
+
+/** Cuotas tipeadas: solo dígitos, y nunca más que el plazo máximo de la línea. */
+export function topeCuotas(l: Linea | undefined, valor: string): string {
+  const limpio = valor.replace(/\D/g, '')
+  if (l && limpio && Number(limpio) > l.plazo_maximo) return String(l.plazo_maximo)
+  return limpio
+}
 
 /** Documentos que la línea exige para otorgar (igual que service.documentacion_requerida). */
 export function documentosDeLinea(l: Linea): TipoDocumento[] {

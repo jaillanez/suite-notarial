@@ -189,17 +189,21 @@ const router = createBrowserRouter([
             ),
             children: [
               { path: '/prestamos', element: <PrestamosPage /> },
-              { path: '/prestamos/simular', element: <SimuladorPage /> },
               { path: '/prestamos/:id', element: <PrestamoPage /> },
             ],
           },
           {
-            // El escribano también: ve las líneas con sus requisitos y solicita a su nombre.
-            element: <RequirePermission permission={['prestamos:manage', 'prestamos:read_own']} />,
+            // Simular y solicitar es del escribano; el personal de la Caja no (pedido del 23/11).
+            element: <RequirePermission permission="prestamos:read_own" />,
             children: [
+              { path: '/prestamos/simular', element: <SimuladorPage /> },
               { path: '/prestamos/nueva', element: <SolicitudPage /> },
-              { path: '/prestamos/lineas', element: <LineasPage /> },
             ],
+          },
+          {
+            // Líneas: el personal las define; el escribano ve sus requisitos.
+            element: <RequirePermission permission={['prestamos:manage', 'prestamos:read_own']} />,
+            children: [{ path: '/prestamos/lineas', element: <LineasPage /> }],
           },
           {
             element: <RequirePermission permission="migracion:read" />,

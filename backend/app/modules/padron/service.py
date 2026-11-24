@@ -40,6 +40,7 @@ from app.modules.padron.models import (
     RegistroNotarial,
 )
 from app.modules.padron.schemas import (
+    CargoAnterior,
     CargoAsignacion,
     CargoCierre,
     CargoFechaDesde,
@@ -1045,6 +1046,99 @@ async def assign_cargo(
             "matricula_numero": escribano.matricula_numero,
             "numero_registro": registro.numero_registro,
             "registro_estado": {"antes": old_estado, "despues": registro.estado},
+        },
+    )
+    await _commit_unique(session)
+    await session.refresh(item, attribute_names=["registro"])
+    return item
+
+
+def _se_superponen(desde: date, hasta: date, otro: Adscripcion) -> bool:
+    """Los períodos se pisan. El traspaso el mismo día (uno termina y el otro empieza) vale."""
+    fin_otro = otro.fecha_hasta or date.max
+    return desde < fin_otro and otro.inicio < hasta
+
+
+async def add_cargo_anterior(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    escribano_id: uuid.UUID,
+    data: CargoAnterior,
+) -> Adscripcion:
+    """Registra un cargo que ya terminó (historial anterior a lo cargado)."""
+    if data.cargo == Cargo.SUPLENTE_INTERINO:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "El escribano a cargo se registra como designación (Escribano a cargo).",
+        )
+    if data.fecha_hasta < data.fecha_desde:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "La fecha hasta no puede ser anterior a la fecha desde.",
+        )
+    if data.fecha_hasta > today_local():
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "Un cargo anterior tiene que haber terminado: la fecha hasta no puede ser futura.",
+        )
+    escribano = await get_escribano(session, escribano_id)
+    if escribano.fecha_matriculacion and data.fecha_desde < escribano.fecha_matriculacion:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "La designación no puede ser anterior al juramento."
+        )
+    registro = await get_registro(session, data.registro_id)
+    propios = (
+        await session.scalars(select(Adscripcion).where(Adscripcion.escribano_id == escribano.id))
+    ).all()
+    pisado = next(
+        (c for c in propios if _se_superponen(data.fecha_desde, data.fecha_hasta, c)), None
+    )
+    if pisado is not None:
+        raise _conflict(
+            f"Se superpone con su cargo en el Registro {pisado.registro.numero_registro}: "
+            "revisá las fechas."
+        )
+    if data.cargo == Cargo.TITULAR:
+        titulares = (
+            await session.scalars(
+                select(Adscripcion).where(
+                    Adscripcion.registro_id == registro.id,
+                    Adscripcion.cargo == Cargo.TITULAR.value,
+                )
+            )
+        ).all()
+        otro = next(
+            (c for c in titulares if _se_superponen(data.fecha_desde, data.fecha_hasta, c)), None
+        )
+        if otro is not None:
+            raise _conflict(
+                f"En ese período el Registro {registro.numero_registro} ya tenía titular: "
+                f"{otro.escribano.persona.apellido}, {otro.escribano.persona.nombre}."
+            )
+    item = Adscripcion(
+        id=uuid.uuid4(),
+        escribano_id=escribano.id,
+        registro_id=registro.id,
+        cargo=data.cargo.value,
+        resolucion_designacion=data.resolucion_designacion,
+        fecha_desde=data.fecha_desde,
+        fecha_hasta=data.fecha_hasta,
+        motivo_cierre=data.motivo_cierre,
+        is_current=False,
+        created_by_user_id=actor.id,
+    )
+    session.add(item)
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.PADRON_CARGO_ASSIGNED,
+        actor_user_id=actor.id,
+        new_value=_snapshot(item, CARGO_FIELDS),
+        details={
+            "escribano_id": str(escribano.id),
+            "numero_registro": registro.numero_registro,
+            "cargo_anterior": True,
         },
     )
     await _commit_unique(session)

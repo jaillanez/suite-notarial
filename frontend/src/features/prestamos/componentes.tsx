@@ -216,7 +216,10 @@ export function ResumenEvaluacion({ ev, conIngreso }: { ev: Evaluacion; conIngre
             {importe(ev.otras_cuotas, ev.moneda)}
           </Par>
         )}
-        <Par label="Ingreso neto mensual mínimo" fuerte>
+        <Par
+          label={`Ingreso neto mensual mínimo${ev.moneda === 'USD' ? ' (en dólares)' : ''}`}
+          fuerte
+        >
           {importe(ev.ingreso_minimo, ev.moneda)}
         </Par>
         {ev.afectacion !== null && (
