@@ -120,14 +120,15 @@ class Settings(BaseSettings):
         "https://apitst.supervielle.com.ar/supervielletest/apibank/apibank/banca-comercial/"
         "recaudaciones"
     )
-    # TODO(banco): el documento muestra dos direcciones del token para pruebas; esta es la del
-    # ejemplo con curl. Confirmarla, y la de producción (.../apibank/auth2/b2b/v2/token).
+    # Producción (confirmado por el banco el 25/11/2026):
+    # https://api.supervielle.com.ar/supervielle/apibank/auth2/b2b/token
     SUPERVIELLE_AUTH_URL: str = (
         "https://apitst.supervielle.com.ar/auth/realms/b2b/protocol/openid-connect/token"
     )
-    # TODO(banco): valor para producción (el documento solo da el de pruebas).
+    # Producción (confirmado por el banco el 25/11/2026): idpaut.supervielle.com.ar
     SUPERVIELLE_FORWARDED_HOST: str = "idpauttst.supervielle.com.ar"
-    SUPERVIELLE_SCOPE: str = "boton-pago.publicar"
+    # El banco no pide scope (25/11/2026); vacío no se manda.
+    SUPERVIELLE_SCOPE: str = ""
     SUPERVIELLE_TIMEOUT_S: Annotated[int, Field(gt=0, le=120)] = 30
 
     # Migración (Fase 10): simulacros cuadrados exigidos antes de la carga definitiva

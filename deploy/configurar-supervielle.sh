@@ -37,10 +37,13 @@ echo "Botón de pagos Supervielle. Enter deja el valor actual."
 read -r -p "Ambiente del banco [pruebas/produccion]: " ambiente
 case $ambiente in
   produccion)
-    echo "Direcciones de producción (las confirma el banco):"
-    preguntar SUPERVIELLE_API_URL "URL de la API (…/banca-comercial/recaudaciones)"
-    preguntar SUPERVIELLE_AUTH_URL "URL del token"
-    preguntar SUPERVIELLE_FORWARDED_HOST "X-Forwarded-Host"
+    # Producción: la API, según la documentación del banco; el token y el host, confirmados
+    # por el banco el 25/11/2026.
+    guardar SUPERVIELLE_API_URL \
+      "https://api.supervielle.com.ar/supervielle/apibank/apibank/banca-comercial/recaudaciones"
+    guardar SUPERVIELLE_AUTH_URL "https://api.supervielle.com.ar/supervielle/apibank/auth2/b2b/token"
+    guardar SUPERVIELLE_FORWARDED_HOST "idpaut.supervielle.com.ar"
+    echo "Direcciones de producción del banco cargadas."
     ;;
   pruebas)
     # Sin estas variables rigen las del ambiente de pruebas (valores por defecto de la Suite).
