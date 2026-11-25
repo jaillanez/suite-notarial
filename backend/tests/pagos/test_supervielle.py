@@ -206,7 +206,7 @@ async def test_publicar_arma_el_pedido_del_banco(transporte: _Transporte) -> Non
     assert publicacion.link_pago.startswith("https://")
     token, pedido = transporte.pedidos
     assert b"grant_type=password" in token.content
-    assert b"scope=boton-pago.publicar" in token.content
+    assert b"scope" not in token.content  # el banco no lo pide
     assert token.headers["x-forwarded-host"] == "idpauttst.supervielle.com.ar"
     assert pedido.headers["authorization"] == "Bearer tok-1"
     assert pedido.headers["x-ibm-client-id"] == "ibm-test"

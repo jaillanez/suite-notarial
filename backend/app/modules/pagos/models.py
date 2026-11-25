@@ -263,10 +263,10 @@ class PagoSupervielle(UUIDMixin, Base):
     La deuda es de una boleta o de una cuota de préstamo en pesos, nunca de las dos. Se publica
     cuando el escribano pide pagar, por el importe exacto (la comisión la absorbe la Caja): el
     total de la boleta con vencimiento en su fecha de pago, o la cuota del plan. El banco no
-    permite anularla (TODO(banco): confirmar), así que mientras siga vigente se reutiliza su
-    link en lugar de publicar otra. El `id` viaja en
-    `identificadores` y el banco identifica la deuda con `hash`. El estado y el importe del pago
-    se toman siempre de la API del banco.
+    permite anularla (confirmado el 25/11/2026: caduca al vencer), así que mientras siga
+    vigente se reutiliza su link en lugar de publicar otra. El `id` viaja en `identificadores`
+    y el banco identifica la deuda con `hash`. El estado y el importe del pago se toman siempre
+    de la API del banco.
 
     Una cuota no tiene comprobante en la mesa de Tesorería (la mesa es de boletas): el pago hecho
     queda a confirmar y Tesorería lo confirma desde el préstamo (`confirmado_por_user_id`,
