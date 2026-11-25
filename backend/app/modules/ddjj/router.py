@@ -299,6 +299,7 @@ async def declaracion_detalle(
         boletas=[await boleta_out(session, principal, b) for b in boletas],
         escribanos=_unicos(cargos),
         puede_operar=await service.puede_operar(session, principal, d.registro_id),
+        rectificativa_en_curso_id=await service.rectificativa_en_curso(session, d.id),
         controles={i: [control_out(c) for c in cs] for i, cs in por_acto.items()},
         huecos=[
             HuecoOut(
@@ -654,6 +655,7 @@ def planilla_out(datos: service.DatosPlanilla) -> PlanillaOut:
                 renglones=[
                     RenglonPlanillaOut(
                         acto_id=r.acto_id,
+                        fecha_acto=r.fecha_acto,
                         numero_escritura=r.numero_escritura,
                         orden_en_escritura=r.orden_en_escritura,
                         folio=r.folio,

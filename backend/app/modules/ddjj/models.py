@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    ColumnElement,
     Date,
     DateTime,
     ForeignKey,
@@ -25,10 +26,11 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, aliased, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
@@ -59,13 +61,21 @@ class DeclaracionJurada(UUIDMixin, TimestampMixin, Base):
             "estado IN ('BORRADOR', 'PRESENTADA', 'RECTIFICADA')", name="estado_valido"
         ),
         CheckConstraint("numero_rectificativa >= 0", name="rectificativa"),
-        # Una sola DDJJ en curso (borrador o presentada) por registro y período.
+        # Por registro y período: una sola presentada que vale y un solo borrador. Mientras se
+        # prepara la rectificativa (borrador), la original sigue presentada y vale (Caja, 25/11).
         Index(
-            "uq_ddjj_declaraciones_registro_periodo_vigente",
+            "uq_ddjj_declaraciones_registro_periodo_presentada",
             "registro_id",
             "periodo",
             unique=True,
-            postgresql_where=text("estado <> 'RECTIFICADA'"),
+            postgresql_where=text("estado = 'PRESENTADA'"),
+        ),
+        Index(
+            "uq_ddjj_declaraciones_registro_periodo_borrador",
+            "registro_id",
+            "periodo",
+            unique=True,
+            postgresql_where=text("estado = 'BORRADOR'"),
         ),
         Index(
             "uq_ddjj_declaraciones_registro_periodo_rect",
@@ -104,6 +114,18 @@ class DeclaracionJurada(UUIDMixin, TimestampMixin, Base):
     # Totales congelados al presentar.
     total_protocolos: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     cantidad_actos: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+def sin_reemplazo() -> ColumnElement[bool]:
+    """DDJJ que cuenta para el protocolo: la que ninguna rectificativa reemplaza (ni presentada
+    ni en borrador). Con una rectificativa abierta, los actos que valen son los de ella: la
+    copia que se está corrigiendo."""
+    rectificativa = aliased(DeclaracionJurada)
+    return ~(
+        select(rectificativa.id)
+        .where(rectificativa.rectifica_a_id == DeclaracionJurada.id)
+        .exists()
+    )
 
 
 class VademecumActo(UUIDMixin, Base):

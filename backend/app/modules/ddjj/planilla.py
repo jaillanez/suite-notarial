@@ -14,6 +14,7 @@ del encabezado, y el aporte fijo y los rangos del Resumen se escribían a mano.
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 
 from app.common.money import to_money
@@ -41,6 +42,8 @@ class ActoPlanilla:
     escribano: str
     cargo: Cargo
     acto_id: uuid.UUID | None = None
+    # Fecha de la escritura: va en la vista previa y el PDF (pedido de la Caja, 24/11/2026).
+    fecha_acto: date | None = None
     # Un acto exento declara por qué (va en la declaración jurada).
     motivo_exencion: MotivoExencion | None = None
     detalle_exencion: str | None = None
@@ -49,6 +52,7 @@ class ActoPlanilla:
 @dataclass(frozen=True)
 class Renglon:
     acto_id: uuid.UUID | None
+    fecha_acto: date | None
     numero_escritura: int
     orden_en_escritura: int
     folio: int | None
@@ -123,6 +127,7 @@ def armar(actos: Sequence[ActoPlanilla], aportes: Sequence[AporteActo] | None) -
             fijo = acto.categoria in FIJOS
             renglon = Renglon(
                 acto_id=acto.acto_id,
+                fecha_acto=acto.fecha_acto,
                 numero_escritura=acto.numero_escritura,
                 orden_en_escritura=acto.orden_en_escritura,
                 folio=acto.folio,

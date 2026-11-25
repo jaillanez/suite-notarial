@@ -14,7 +14,25 @@ import type {
 export const ESTADO_DDJJ: Record<EstadoDDJJ, { label: string; tone: Tone }> = {
   BORRADOR: { label: 'Borrador', tone: 'warning' },
   PRESENTADA: { label: 'Presentada', tone: 'success' },
-  RECTIFICADA: { label: 'Rectificada', tone: 'unknown' },
+  // La presentada que una rectificativa reemplazó (Caja, 24/11/2026: «Rectificada» confundía).
+  RECTIFICADA: { label: 'Reemplazada por rectificativa', tone: 'unknown' },
+}
+
+/** Estado para mostrar: distingue la rectificativa (en borrador o presentada) de la original
+ * que reemplazó, para que no parezca que un mes tiene «un borrador y una rectificada». */
+export function estadoDeclaracion(d: { estado: EstadoDDJJ; numero_rectificativa: number }): {
+  label: string
+  tone: Tone
+} {
+  const base = ESTADO_DDJJ[d.estado]
+  if (d.numero_rectificativa === 0 || d.estado === 'RECTIFICADA') return base
+  return {
+    ...base,
+    label:
+      d.estado === 'BORRADOR'
+        ? `Rectificativa ${String(d.numero_rectificativa)} · borrador`
+        : `Rectificativa ${String(d.numero_rectificativa)} · presentada`,
+  }
 }
 
 export const ESTADO_BOLETA: Record<EstadoBoleta, { label: string; tone: Tone }> = {

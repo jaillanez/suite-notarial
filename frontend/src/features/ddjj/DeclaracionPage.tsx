@@ -76,7 +76,7 @@ import { useVademecumDelPeriodo } from './vademecum'
 import {
   CRITERIO_PLURALIDAD,
   ESTADO_BOLETA,
-  ESTADO_DDJJ,
+  estadoDeclaracion,
   PROTOCOLO,
   formatCodigo,
   formatPeriodo,
@@ -97,6 +97,29 @@ function sumarDias(iso: string, dias: number): string {
   const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + dias)
   return d.toISOString().slice(0, 10)
+}
+
+/** Sábado o domingo: los pagos solo se acreditan en días hábiles (Caja, 25/11/2026). */
+function esFinDeSemana(iso: string): boolean {
+  const dia = new Date(`${iso}T00:00:00Z`).getUTCDay()
+  return dia === 0 || dia === 6
+}
+
+/** El primer día de lunes a viernes desde esa fecha (feriados: a definir con la Caja). */
+function diaHabilDesde(iso: string): string {
+  let fecha = iso
+  while (esFinDeSemana(fecha)) fecha = sumarDias(fecha, 1)
+  return fecha
+}
+
+const SOLO_HABILES = 'Los pagos se acreditan en días hábiles: elegí de lunes a viernes.'
+
+function errorFechaPago(fecha: string, hoy: string): string | undefined {
+  if (!fecha) return 'Elegí la fecha de pago.'
+  if (fecha < hoy || fecha > sumarDias(hoy, MAX_DIAS_PAGO))
+    return `Entre hoy y ${String(MAX_DIAS_PAGO)} días más.`
+  if (esFinDeSemana(fecha)) return SOLO_HABILES
+  return undefined
 }
 
 function useInvalidate(id: string) {
@@ -308,8 +331,9 @@ function LiquidacionBorrador({
   onPresentar: (fechaPago: string, liq: Liquidacion) => void
 }) {
   const hoy = todayIso()
-  const [fechaPago, setFechaPago] = useState(hoy)
-  const valida = fechaPago >= hoy && fechaPago <= sumarDias(hoy, MAX_DIAS_PAGO)
+  const [fechaPago, setFechaPago] = useState(() => diaHabilDesde(hoy))
+  const errorFecha = errorFechaPago(fechaPago, hoy)
+  const valida = errorFecha === undefined
   const query = useQuery({
     queryKey: ['ddjj', 'declaracion', ddjj.id, 'liquidacion', fechaPago, ddjj.actos.length],
     queryFn: () => fetchLiquidacion(ddjj.id, fechaPago),
@@ -338,7 +362,7 @@ function LiquidacionBorrador({
           min={hoy}
           max={sumarDias(hoy, MAX_DIAS_PAGO)}
           value={fechaPago}
-          error={valida ? undefined : `Entre hoy y ${String(MAX_DIAS_PAGO)} días más.`}
+          error={errorFecha}
           onChange={(e) => {
             setFechaPago(e.target.value)
           }}
@@ -1115,7 +1139,11 @@ function PresentarDialog({
       open={pedido !== null}
       onClose={onClose}
       title={`Presentar la DDJJ ${formatPeriodo(ddjj.periodo)}`}
-      description="Los aportes de cada acto quedan fijos y se emite una boleta por escribano. Para corregir algo después, hay que rectificar la declaración."
+      description={
+        ddjj.rectifica_a_id
+          ? 'Los aportes de cada acto quedan fijos y se emite una boleta por escribano. La declaración anterior del período queda reemplazada y su boleta pendiente se anula.'
+          : 'Los aportes de cada acto quedan fijos y se emite una boleta por escribano. Para corregir algo después, hay que rectificar la declaración.'
+      }
       footer={
         <>
           <Button onClick={onClose}>Revisar de nuevo</Button>
@@ -1185,7 +1213,8 @@ function NuevaBoletaDialog({
 }) {
   const invalidate = useInvalidate(ddjj.id)
   const hoy = todayIso()
-  const [fechaPago, setFechaPago] = useState(hoy)
+  const [fechaPago, setFechaPago] = useState(() => diaHabilDesde(hoy))
+  const errorFecha = errorFechaPago(fechaPago, hoy)
   const escribano = pedido?.escribano ?? null
   const save = useMutation({
     mutationFn: () => emitirBoleta(ddjj.id, fechaPago, escribano?.id ?? null),
@@ -1211,7 +1240,7 @@ function NuevaBoletaDialog({
             icon={ReceiptText}
             busy={save.isPending}
             busyLabel="Emitiendo…"
-            disabled={!fechaPago}
+            disabled={errorFecha !== undefined}
             onClick={() => {
               save.mutate()
             }}
@@ -1230,6 +1259,7 @@ function NuevaBoletaDialog({
           min={hoy}
           max={sumarDias(hoy, MAX_DIAS_PAGO)}
           value={fechaPago}
+          error={errorFecha}
           hint={
             ddjj.vencimiento ? `El período vence el ${formatDate(ddjj.vencimiento)}.` : undefined
           }
@@ -1269,7 +1299,7 @@ function RectificarDialog({
         onClose()
       }}
       title={`Rectificar la DDJJ ${formatPeriodo(ddjj.periodo)}`}
-      description="Se abre una rectificativa en borrador con una copia de los actos para corregirlos. Esta declaración queda como antecedente y su boleta pendiente se anula."
+      description="Se abre una rectificativa en borrador con una copia de los actos para corregirlos. Hasta que la presentes, esta declaración sigue valiendo, con su boleta."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -1291,7 +1321,8 @@ function RectificarDialog({
         <Alert tone="danger">{toProblem(save.error).detail}</Alert>
       ) : (
         <p className="text-sm text-ink-muted">
-          La nueva boleta se emite cuando presentes la rectificativa.
+          Al presentar la rectificativa, esta declaración queda reemplazada, su boleta pendiente se
+          anula y se emite la nueva.
         </p>
       )}
     </Dialog>
@@ -1356,29 +1387,40 @@ export function DeclaracionPage() {
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <span className="text-ink-muted">{registroLabel(ddjj.registro)}</span>
                 <StatusIndicator
-                  tone={ESTADO_DDJJ[ddjj.estado].tone}
-                  label={ESTADO_DDJJ[ddjj.estado].label}
+                  tone={estadoDeclaracion(ddjj).tone}
+                  label={estadoDeclaracion(ddjj).label}
                 />
               </div>
             </div>
-            {ddjj.estado === 'PRESENTADA' && ddjj.puede_operar && !enRevision(ddjj.boletas) && (
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  icon={FilePenLine}
-                  onClick={() => {
-                    setRectificando(true)
-                  }}
-                >
-                  Rectificar
-                </Button>
-              </div>
-            )}
+            {ddjj.estado === 'PRESENTADA' &&
+              ddjj.puede_operar &&
+              !ddjj.rectificativa_en_curso_id &&
+              !enRevision(ddjj.boletas) && (
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    icon={FilePenLine}
+                    onClick={() => {
+                      setRectificando(true)
+                    }}
+                  >
+                    Rectificar
+                  </Button>
+                </div>
+              )}
           </div>
 
+          {ddjj.rectificativa_en_curso_id && (
+            <Alert tone="info" title="Rectificativa en preparación">
+              Hay una{' '}
+              <Link to={`/ddjj/${ddjj.rectificativa_en_curso_id}`}>rectificativa en borrador</Link>{' '}
+              de esta declaración. Hasta que se presente, esta sigue valiendo y su boleta se puede
+              pagar.
+            </Alert>
+          )}
           {ddjj.estado === 'RECTIFICADA' && (
-            <Alert tone="info" title="Declaración reemplazada">
-              Fue corregida por una rectificativa del mismo período. Se conserva como antecedente;
-              sus boletas quedaron anuladas.
+            <Alert tone="info" title="Declaración reemplazada por una rectificativa">
+              Fue presentada y después corregida por una rectificativa del mismo período, que es la
+              que vale. Se conserva como antecedente; sus boletas quedaron anuladas.
             </Alert>
           )}
           {ddjj.rectifica_a_id && (

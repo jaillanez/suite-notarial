@@ -28,7 +28,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.common.audit import AuditSecurityLog, Severity
 from app.common.dates import LOCAL_TZ, today_local
 from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ
-from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada
+from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, sin_reemplazo
 from app.modules.ia.catalog import EstadoSugerencia, TipoSugerencia
 from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
@@ -1457,6 +1457,136 @@ MIS_ACTOS_HISTORICOS = Reporte(
 )
 
 
+# --------------------------------------------------------------------------- protocolo
+
+ESTADO_EN_PROTOCOLO = {
+    EstadoDDJJ.PRESENTADA.value: "Presentada",
+    EstadoDDJJ.BORRADOR.value: "En borrador",
+}
+
+
+def _protocolo_base(f: Filtros) -> Consulta:
+    """Cada escritura del protocolo con la DDJJ donde está declarada (pedido de la Caja,
+    24/11/2026). Cuenta lo vigente: presentadas y borradores; una DDJJ reemplazada por una
+    rectificativa, aunque esté en borrador, no figura (la rectificativa trae sus actos)."""
+    estado = case(ESTADO_EN_PROTOCOLO, value=DeclaracionJurada.estado, else_="")
+    stmt = (
+        select(
+            RegistroNotarial.numero_registro.label("registro"),
+            case(PROTOCOLO_TEXTO, value=Acto.tipo_protocolo, else_=Acto.tipo_protocolo).label(
+                "protocolo"
+            ),
+            Acto.numero_escritura.label("escritura"),
+            Acto.orden_en_escritura.label("acto"),
+            Acto.folio.label("folio"),
+            Acto.fecha_acto.label("fecha_acto"),
+            Acto.naturaleza.label("naturaleza"),
+            _nombre(Persona).label("escribano"),
+            case(CARGO_TEXTO, value=Acto.cargo, else_=Acto.cargo).label("cargo"),
+            DeclaracionJurada.periodo.label("ddjj"),
+            case(
+                (
+                    DeclaracionJurada.numero_rectificativa > 0,
+                    func.concat(
+                        "Rectificativa ", DeclaracionJurada.numero_rectificativa, " · ", estado
+                    ),
+                ),
+                else_=estado,
+            ).label("estado_ddjj"),
+        )
+        .join(DeclaracionJurada, DeclaracionJurada.id == Acto.ddjj_id)
+        .join(RegistroNotarial, RegistroNotarial.id == DeclaracionJurada.registro_id)
+        .join(Escribano, Escribano.id == Acto.escribano_id)
+        .join(Persona, Persona.id == Escribano.persona_id)
+        .where(
+            DeclaracionJurada.estado.in_(tuple(ESTADO_EN_PROTOCOLO)),
+            sin_reemplazo(),
+            Acto.is_active.is_(True),
+        )
+    )
+    if "anio" in f:
+        stmt = stmt.where(func.extract("year", Acto.fecha_acto) == f["anio"])
+    if "registro" in f:
+        stmt = stmt.where(RegistroNotarial.numero_registro == f["registro"])
+    if "protocolo" in f:
+        stmt = stmt.where(Acto.tipo_protocolo == f["protocolo"])
+    if "escritura" in f:
+        stmt = stmt.where(Acto.numero_escritura == f["escritura"])
+    return stmt.order_by(
+        RegistroNotarial.numero_registro,
+        func.extract("year", Acto.fecha_acto).desc(),
+        Acto.tipo_protocolo,
+        Acto.numero_escritura,
+        Acto.orden_en_escritura,
+        Acto.id,
+    )
+
+
+def _protocolo(f: Filtros) -> Consulta:
+    return _protocolo_base(f)
+
+
+def _mi_protocolo(f: Filtros) -> Consulta:
+    # El protocolo de los registros donde tuvo cargo, en los meses en que lo tuvo.
+    propio = f.get(ESCRIBANO_PROPIO, SIN_ESCRIBANO)
+    return _protocolo_base(f).where(
+        or_(
+            Acto.escribano_id == propio,
+            _con_cargo(
+                DeclaracionJurada.registro_id, DeclaracionJurada.periodo, Escribano.id == propio
+            ),
+        )
+    )
+
+
+_COLUMNAS_PROTOCOLO = (
+    Columna("registro", "Registro", Tipo.ENTERO),
+    Columna("protocolo", "Protocolo"),
+    Columna("escritura", "Escritura", Tipo.ENTERO),
+    Columna("acto", "Acto N°", Tipo.ENTERO, visible=False),
+    Columna("folio", "Folio", Tipo.ENTERO, vacio="—"),
+    Columna("fecha_acto", "Fecha", Tipo.FECHA),
+    Columna("naturaleza", "Naturaleza"),
+    Columna("escribano", "Escribano autorizante"),
+    Columna("cargo", "Cargo", visible=False),
+    Columna("ddjj", "DDJJ", Tipo.PERIODO),
+    Columna("estado_ddjj", "Estado de la DDJJ"),
+)
+
+
+def _filtros_protocolo(*, con_registro: bool) -> tuple[Filtro, ...]:
+    return (
+        Filtro("anio", "Año de la escritura", TipoFiltro.ENTERO, ayuda="Por ejemplo, 2026"),
+        *((Filtro("registro", "N° de registro", TipoFiltro.ENTERO),) if con_registro else ()),
+        Filtro("protocolo", "Protocolo", TipoFiltro.OPCIONES, tuple(PROTOCOLO_TEXTO.items())),
+        Filtro("escritura", "N° de escritura", TipoFiltro.ENTERO),
+    )
+
+
+PROTOCOLO = Reporte(
+    codigo="PROTOCOLO",
+    construir=_protocolo,
+    titulo="Protocolo de los registros",
+    descripcion="Todas las escrituras de cada registro, en orden de protocolo y número, con la "
+    "declaración jurada donde se declaró cada una.",
+    permiso=Perm.DDJJ_READ_ALL,
+    columnas=_COLUMNAS_PROTOCOLO,
+    filtros=_filtros_protocolo(con_registro=True),
+)
+
+MI_PROTOCOLO = Reporte(
+    codigo="MI_PROTOCOLO",
+    construir=_mi_protocolo,
+    titulo="Protocolo de mi registro",
+    descripcion="Todas las escrituras de tu registro, en orden de protocolo y número, con la "
+    "declaración jurada donde se declaró cada una (presentada o en borrador).",
+    permiso=Perm.DDJJ_READ_OWN,
+    propio=True,
+    columnas=_COLUMNAS_PROTOCOLO,
+    filtros=_filtros_protocolo(con_registro=True),
+)
+
+
 REPORTES: dict[str, Reporte] = {
     r.codigo: r
     for r in (
@@ -1475,5 +1605,7 @@ REPORTES: dict[str, Reporte] = {
         PUNTOS_EJERCICIOS,
         MIS_APORTES,
         MIS_ACTOS_HISTORICOS,
+        PROTOCOLO,
+        MI_PROTOCOLO,
     )
 }

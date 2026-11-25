@@ -142,6 +142,7 @@ const DDJJ: apiModule.DeclaracionDetalle = {
     },
   ],
   puede_operar: true,
+  rectificativa_en_curso_id: null,
   controles: {},
   huecos: [],
   proximos_numeros: { GENERAL: 1, AUXILIAR: 1 },
@@ -171,6 +172,7 @@ function planillaDe(
       const variable = a.categoria === 'ESCRITURA_CON_VALOR'
       return {
         acto_id: a.id,
+        fecha_acto: a.fecha_acto,
         numero_escritura: a.numero_escritura,
         orden_en_escritura: a.orden_en_escritura,
         folio: a.folio,
@@ -552,6 +554,45 @@ describe('ficha de la DDJJ', () => {
     expect(screen.getByRole('button', { name: 'Descargar PDF' })).toBeInTheDocument()
     expect(screen.getByText('Pendiente de pago')).toBeInTheDocument()
     expect(apiModule.fetchLiquidacion).not.toHaveBeenCalled()
+  })
+
+  it('con una rectificativa en borrador, la original sigue valiendo y no se rectifica dos veces', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue({
+      ...DDJJ,
+      estado: 'PRESENTADA',
+      fecha_presentacion: '2026-10-23T12:00:00Z',
+      actos: [{ ...ACTO, aporte: '400000.00', vigencia_id: 'v1' }],
+      boletas: [BOLETA],
+      rectificativa_en_curso_id: 'd2',
+    })
+
+    renderFicha()
+
+    expect(await screen.findByText('Rectificativa en preparación')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'rectificativa en borrador' })).toHaveAttribute(
+      'href',
+      '/ddjj/d2',
+    )
+    expect(screen.queryByRole('button', { name: 'Rectificar' })).not.toBeInTheDocument()
+    expect(screen.getByText('Pendiente de pago')).toBeInTheDocument()
+  })
+
+  it('no deja elegir sábado ni domingo como fecha de pago', async () => {
+    vi.mocked(apiModule.fetchDeclaracion).mockResolvedValue(DDJJ)
+    vi.mocked(apiModule.fetchLiquidacion).mockResolvedValue(liquidacion())
+    const sabado = new Date()
+    sabado.setDate(sabado.getDate() + ((6 - sabado.getDay() + 7) % 7 || 7))
+    const iso = `${String(sabado.getFullYear())}-${String(sabado.getMonth() + 1).padStart(2, '0')}-${String(sabado.getDate()).padStart(2, '0')}`
+
+    renderFicha()
+
+    const campo = (await screen.findAllByLabelText('Fecha de pago'))[0]
+    if (!campo) throw new Error('Falta el campo de fecha de pago')
+    fireEvent.change(campo, { target: { value: iso } })
+
+    expect(
+      await screen.findByText('Los pagos se acreditan en días hábiles: elegí de lunes a viernes.'),
+    ).toBeInTheDocument()
   })
 })
 

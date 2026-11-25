@@ -71,6 +71,7 @@ from app.modules.ddjj.models import (
     DeclaracionJurada,
     VademecumActo,
     Vencimiento,
+    sin_reemplazo,
 )
 from app.modules.ddjj.pdf import DatosBoleta, EscribanoBoleta
 from app.modules.ddjj.schemas import (
@@ -544,6 +545,23 @@ async def get_declaracion(
     return item
 
 
+async def _en_curso(
+    session: AsyncSession, registro_id: uuid.UUID, periodo: str
+) -> DeclaracionJurada | None:
+    """La DDJJ en curso del registro y período: la rectificativa en borrador si hay una
+    abierta (la original sigue presentada hasta que se presente), si no la única que hay."""
+    return await session.scalar(
+        select(DeclaracionJurada)
+        .where(
+            DeclaracionJurada.registro_id == registro_id,
+            DeclaracionJurada.periodo == periodo,
+            DeclaracionJurada.estado != EstadoDDJJ.RECTIFICADA.value,
+        )
+        .order_by(DeclaracionJurada.numero_rectificativa.desc())
+        .limit(1)
+    )
+
+
 async def abrir_declaracion(
     session: AsyncSession, ctx: RequestContext, principal: Principal, data: DeclaracionIn
 ) -> tuple[DeclaracionJurada, bool]:
@@ -554,13 +572,7 @@ async def abrir_declaracion(
     await _exigir_operacion(session, principal, registro.id)
     if data.periodo > periodo_de(today_local()):
         raise _invalid("No se puede declarar un período que todavía no empezó.")
-    existente = await session.scalar(
-        select(DeclaracionJurada).where(
-            DeclaracionJurada.registro_id == registro.id,
-            DeclaracionJurada.periodo == data.periodo,
-            DeclaracionJurada.estado != EstadoDDJJ.RECTIFICADA.value,
-        )
-    )
+    existente = await _en_curso(session, registro.id, data.periodo)
     if existente is not None:
         return existente, False
     item = DeclaracionJurada(
@@ -588,13 +600,7 @@ async def abrir_declaracion(
     except IntegrityError:
         # Otra sesión abrió el mismo borrador en paralelo: se devuelve ese.
         await session.rollback()
-        otro = await session.scalar(
-            select(DeclaracionJurada).where(
-                DeclaracionJurada.registro_id == registro.id,
-                DeclaracionJurada.periodo == data.periodo,
-                DeclaracionJurada.estado != EstadoDDJJ.RECTIFICADA.value,
-            )
-        )
+        otro = await _en_curso(session, registro.id, data.periodo)
         if otro is None:
             raise
         return otro, False
@@ -849,7 +855,7 @@ async def actos_del_anio(
     session: AsyncSession, registro_id: uuid.UUID, anio: int
 ) -> list[protocolo.ActoDeclarado]:
     """Actos vigentes del registro con fecha en el año, en DDJJ no reemplazadas por una
-    rectificativa (los de la rectificada viven en su rectificativa)."""
+    rectificativa (los de la original viven en su rectificativa, aun en borrador)."""
     filas = await session.execute(
         select(
             Acto.id,
@@ -863,7 +869,7 @@ async def actos_del_anio(
         .join(DeclaracionJurada, DeclaracionJurada.id == Acto.ddjj_id)
         .where(
             DeclaracionJurada.registro_id == registro_id,
-            DeclaracionJurada.estado != EstadoDDJJ.RECTIFICADA.value,
+            sin_reemplazo(),
             Acto.is_active.is_(True),
             Acto.fecha_acto >= date(anio, 1, 1),
             Acto.fecha_acto <= date(anio, 12, 31),
@@ -954,6 +960,12 @@ async def controles_ddjj(
         await _visible(session, principal, ddjj.registro_id),
     )
     por_acto: dict[uuid.UUID, list[protocolo.Control]] = {}
+    if await session.scalar(
+        select(DeclaracionJurada.id).where(DeclaracionJurada.rectifica_a_id == ddjj.id).limit(1)
+    ):
+        # Reemplazada (o por reemplazarse) por una rectificativa: sus actos están copiados en
+        # ella, y compararlos con esa copia los marcaría a todos como repetidos.
+        return por_acto, protocolo.huecos(vista)
     for a in actos:
         candidato = protocolo.Candidato(
             a.tipo_protocolo,
@@ -1185,6 +1197,14 @@ def _validar_fecha_pago(fecha_pago: date) -> None:
         raise _invalid(
             f"La fecha de pago puede ser, como máximo, dentro de {MAX_DIAS_VALIDEZ_BOLETA} días."
         )
+    # Los pagos se acreditan en días hábiles: la boleta no se calcula para sábado o domingo
+    # (Caja, 25/11/2026). TODO(negocio): feriados, cuando la Caja pase su calendario.
+    if fecha_pago.weekday() >= protocolo.SABADO:
+        dia = "sábado" if fecha_pago.weekday() == protocolo.SABADO else "domingo"
+        raise _invalid(
+            f"La fecha de pago cae {dia}: los pagos se acreditan en días hábiles. Elegí un día "
+            "de lunes a viernes."
+        )
 
 
 # --------------------------------------------------------------------------- boletas
@@ -1393,6 +1413,8 @@ async def presentar(
         acto.aporte_individual = aporte.aporte_individual
         acto.vigencia_pluralidad_id = aporte.pluralidad.vigencia_id if aporte.pluralidad else None
     await session.flush()
+    if ddjj.rectifica_a_id is not None:
+        await _reemplazar_original(session, ctx, principal.user, ddjj)
     ddjj.estado = EstadoDDJJ.PRESENTADA.value
     ddjj.fecha_presentacion = datetime.now(UTC)
     ddjj.presentada_por_user_id = principal.user.id
@@ -1533,33 +1555,86 @@ async def emitir_boleta(
     return boleta
 
 
+async def rectificativa_en_curso(session: AsyncSession, ddjj_id: uuid.UUID) -> uuid.UUID | None:
+    """La rectificativa en borrador que va a reemplazar a esta DDJJ, si hay una abierta."""
+    return await session.scalar(
+        select(DeclaracionJurada.id).where(
+            DeclaracionJurada.rectifica_a_id == ddjj_id,
+            DeclaracionJurada.estado == EstadoDDJJ.BORRADOR.value,
+        )
+    )
+
+
+async def _exigir_original_sin_pagos(session: AsyncSession, ddjj_id: uuid.UUID) -> None:
+    if await session.scalar(
+        select(func.count()).where(
+            Boleta.ddjj_id == ddjj_id, Boleta.estado == EstadoBoleta.PAGADA.value
+        )
+    ):
+        raise _conflict(
+            "La declaración jurada original tiene boletas pagas: la rectificación con pago a "
+            "cuenta todavía no está disponible."
+        )
+    await _exigir_sin_comprobante_en_revision(session, ddjj_id)
+
+
+async def _reemplazar_original(
+    session: AsyncSession,
+    ctx: RequestContext,
+    actor: User,
+    rectificativa: DeclaracionJurada,
+) -> None:
+    """Al presentar la rectificativa, la original deja de valer: queda RECTIFICADA y sus
+    boletas pendientes se anulan (la nueva boleta sale de la rectificativa)."""
+    assert rectificativa.rectifica_a_id is not None  # noqa: S101 - lo garantiza quien llama
+    original = await session.get(
+        DeclaracionJurada, rectificativa.rectifica_a_id, with_for_update=True
+    )
+    if original is None or original.estado != EstadoDDJJ.PRESENTADA.value:
+        raise _conflict("La declaración jurada que esta rectificativa corrige ya no está vigente.")
+    await _exigir_original_sin_pagos(session, original.id)
+    motivo = f"Reemplazada por la rectificativa {rectificativa.numero_rectificativa}."
+    for pendiente in await _boletas_pendientes(session, original.id):
+        _anular(session, ctx, actor, pendiente, motivo)
+    original.estado = EstadoDDJJ.RECTIFICADA.value
+    # Antes de que la rectificativa pase a PRESENTADA: una sola presentada por período.
+    await session.flush()
+    record_audit(
+        session,
+        ctx,
+        AuditEvent.DDJJ_RECTIFICADA,
+        severity=Severity.WARNING,
+        actor_user_id=actor.id,
+        old_value={"estado": EstadoDDJJ.PRESENTADA.value},
+        new_value={"estado": EstadoDDJJ.RECTIFICADA.value},
+        details={
+            "ddjj_id": str(original.id),
+            "rectificativa_id": str(rectificativa.id),
+            "numero_rectificativa": rectificativa.numero_rectificativa,
+            "periodo": original.periodo,
+        },
+    )
+
+
 async def rectificar(
     session: AsyncSession, ctx: RequestContext, principal: Principal, ddjj_id: uuid.UUID
 ) -> DeclaracionJurada:
     """Abre la rectificativa de una DDJJ presentada, con una copia editable de sus actos.
 
-    La original pasa a RECTIFICADA (queda intacta como antecedente) y sus boletas pendientes se
-    anulan. TODO(negocio): rectificar una DDJJ con alguna boleta paga requiere definir cómo se
-    imputa lo pagado.
+    La original sigue PRESENTADA, con sus boletas, hasta que se presente la rectificativa
+    (Caja, 25/11/2026): recién ahí queda RECTIFICADA y se anulan sus boletas pendientes. Hay
+    una sola rectificativa abierta por DDJJ. TODO(negocio): rectificar una DDJJ con alguna
+    boleta paga requiere definir cómo se imputa lo pagado (boleta por la diferencia o crédito).
     """
     original = await get_declaracion(session, principal, ddjj_id, lock=True)
     await _exigir_operacion(session, principal, original.registro_id)
     if original.estado != EstadoDDJJ.PRESENTADA.value:
         raise _conflict("Solo se rectifica una declaración jurada presentada.")
-    if await session.scalar(
-        select(func.count()).where(
-            Boleta.ddjj_id == original.id, Boleta.estado == EstadoBoleta.PAGADA.value
-        )
-    ):
+    if await rectificativa_en_curso(session, original.id) is not None:
         raise _conflict(
-            "La declaración jurada tiene boletas pagas: la rectificación con pago a cuenta "
-            "todavía no está disponible."
+            "Esta declaración jurada ya tiene una rectificativa en borrador: seguí con esa."
         )
-    await _exigir_sin_comprobante_en_revision(session, original.id)
-    for pendiente in await _boletas_pendientes(session, original.id):
-        _anular(session, ctx, principal.user, pendiente, "DDJJ en rectificación.")
-    original.estado = EstadoDDJJ.RECTIFICADA.value
-    await session.flush()
+    await _exigir_original_sin_pagos(session, original.id)
     nueva = DeclaracionJurada(
         id=uuid.uuid4(),
         registro_id=original.registro_id,
@@ -1600,8 +1675,6 @@ async def rectificar(
         AuditEvent.DDJJ_RECTIFICATIVA_ABIERTA,
         severity=Severity.WARNING,
         actor_user_id=principal.user.id,
-        old_value={"estado": EstadoDDJJ.PRESENTADA.value},
-        new_value={"estado": EstadoDDJJ.RECTIFICADA.value},
         details={
             "ddjj_id": str(original.id),
             "rectificativa_id": str(nueva.id),
@@ -1749,6 +1822,7 @@ async def datos_planilla(
             escribano=nombre_escribano(a.escribano),
             cargo=Cargo(a.cargo),
             acto_id=a.id,
+            fecha_acto=a.fecha_acto,
             motivo_exencion=MotivoExencion(a.motivo_exencion) if a.motivo_exencion else None,
             detalle_exencion=a.detalle_exencion,
         )
@@ -1757,7 +1831,8 @@ async def datos_planilla(
     # Una DDJJ rectificada no vale: el PDF dice qué rectificativa la reemplazó.
     reemplazo = await session.scalar(
         select(DeclaracionJurada.numero_rectificativa).where(
-            DeclaracionJurada.rectifica_a_id == ddjj.id
+            DeclaracionJurada.rectifica_a_id == ddjj.id,
+            DeclaracionJurada.estado != EstadoDDJJ.BORRADOR.value,
         )
     )
     return DatosPlanilla(

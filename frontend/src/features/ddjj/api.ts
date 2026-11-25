@@ -191,6 +191,8 @@ export interface DeclaracionDetalle extends Declaracion {
   boletas: Boleta[]
   escribanos: EscribanoResumen[]
   puede_operar: boolean
+  /** Rectificativa en borrador que la va a reemplazar; mientras, esta sigue valiendo. */
+  rectificativa_en_curso_id: string | null
   /** Solo los actos que tienen algún control, por id. */
   controles: Record<string, ControlProtocolo[]>
   huecos: Hueco[]
@@ -420,6 +422,7 @@ export async function rectificar(id: string): Promise<DeclaracionDetalle> {
 /** Descarga el PDF por el cliente HTTP (renueva la sesión si venció) y lo guarda. */
 export interface RenglonPlanilla {
   acto_id: string | null
+  fecha_acto: string | null
   numero_escritura: number
   orden_en_escritura: number
   folio: number | null

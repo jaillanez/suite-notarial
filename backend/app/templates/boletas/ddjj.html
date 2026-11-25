@@ -91,6 +91,7 @@
     <thead>
       <tr>
         <th>Escritura N°</th>
+        <th>Fecha</th>
         <th>Folio</th>
         <th style="width: 26%">Naturaleza del acto</th>
         <th class="der">Base imponible</th>
@@ -106,6 +107,7 @@
       {% for r in p.renglones %}
       <tr>
         <td class="num">{{ r.numero_escritura }}{% if r.orden_en_escritura > 1 %} · acto {{ r.orden_en_escritura }}{% endif %}</td>
+        <td class="num">{{ r.fecha_acto.strftime("%d/%m/%Y") if r.fecha_acto else "" }}</td>
         <td class="num">{{ r.folio if r.folio is not none else "" }}</td>
         <td>{{ r.naturaleza }}{% if r.motivo_exencion %}<br><span class="detalle">Exento · {{ r.detalle_exencion if r.motivo_exencion == "OTRO" and r.detalle_exencion else motivo_exencion[r.motivo_exencion] }}</span>{% endif %}{% if r.incluido_en_otro %}<br><span class="detalle">Incluido en el acto principal</span>{% endif %}</td>
         <td class="der num">{{ r.base_imponible|pesos if r.base_imponible is not none else "" }}</td>
@@ -117,11 +119,11 @@
         {% endfor %}
       </tr>
       {% else %}
-      <tr><td colspan="10" class="vacio">Sin escrituras en este protocolo.</td></tr>
+      <tr><td colspan="11" class="vacio">Sin escrituras en este protocolo.</td></tr>
       {% endfor %}
       {% if p.renglones %}
       <tr class="totales">
-        <td colspan="4">Totales</td>
+        <td colspan="5">Totales</td>
         <td class="der num">{{ p.totales.aporte_variable|pesos }}</td>
         <td class="der num">{{ p.totales.aporte_fijo|pesos }}</td>
         <td></td>

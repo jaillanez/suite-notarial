@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronRight, FilePlus2 } from 'lucide-react'
+import { BookOpen, ChevronRight, FilePlus2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
@@ -23,6 +23,7 @@ import {
 import { AnterioresPanel } from './DDJJAnteriores'
 import {
   ESTADO_DDJJ,
+  estadoDeclaracion,
   formatPeriodo,
   registroLabel,
   ultimosPeriodos as ultimosPeriodosDesde,
@@ -137,6 +138,12 @@ export function DeclaracionesPage() {
   })
   const [creating, setCreating] = useState(false)
   const rows = query.data?.items ?? []
+  // Todas las escrituras del protocolo con la DDJJ de cada una (pedido de la Caja, 24/11/2026).
+  const protocolo = can('ddjj:read_all')
+    ? '/reportes/PROTOCOLO'
+    : can('ddjj:read_own')
+      ? '/reportes/MI_PROTOCOLO'
+      : null
 
   return (
     <>
@@ -147,17 +154,28 @@ export function DeclaracionesPage() {
       <Panel
         title="Declaraciones"
         actions={
-          puedeCargar ? (
-            <Button
-              variant="primary"
-              icon={FilePlus2}
-              onClick={() => {
-                setCreating(true)
-              }}
-            >
-              Nueva declaración
-            </Button>
-          ) : undefined
+          <div className="flex flex-wrap gap-2">
+            {protocolo && (
+              <Link
+                to={protocolo}
+                className="inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-brand-800 no-underline hover:border-brand-700 hover:bg-brand-50"
+              >
+                <BookOpen aria-hidden="true" className="size-4" strokeWidth={2.25} />
+                Ver el protocolo
+              </Link>
+            )}
+            {puedeCargar && (
+              <Button
+                variant="primary"
+                icon={FilePlus2}
+                onClick={() => {
+                  setCreating(true)
+                }}
+              >
+                Nueva declaración
+              </Button>
+            )}
+          </div>
         }
       >
         <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-2 sm:px-6">
@@ -217,8 +235,6 @@ export function DeclaracionesPage() {
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold text-brand-800 group-hover:underline">
                     {registroLabel(d.registro)}
-                    {d.numero_rectificativa > 0 &&
-                      ` · Rectificativa ${String(d.numero_rectificativa)}`}
                   </span>
                   <span className="block text-sm text-ink-muted tabular-nums">
                     {d.cantidad_actos} {d.cantidad_actos === 1 ? 'acto' : 'actos'}
@@ -228,8 +244,8 @@ export function DeclaracionesPage() {
                   </span>
                 </span>
                 <StatusIndicator
-                  tone={ESTADO_DDJJ[d.estado].tone}
-                  label={ESTADO_DDJJ[d.estado].label}
+                  tone={estadoDeclaracion(d).tone}
+                  label={estadoDeclaracion(d).label}
                 />
                 <ChevronRight
                   aria-hidden="true"
