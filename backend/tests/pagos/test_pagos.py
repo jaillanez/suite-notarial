@@ -320,3 +320,29 @@ async def test_un_asiento_no_se_modifica(
         with pytest.raises(DBAPIError, match=r"permission denied|no se modifica"):
             async with db_session.begin_nested():
                 await db_session.execute(text(statement))
+
+
+async def test_la_rectificativa_espera_y_no_pisa_un_pago_de_la_original(
+    notario: AsyncClient, tesoreria: AsyncClient, boleta: dict[str, Any]
+) -> None:
+    """La original sigue vigente mientras se prepara la rectificativa (Caja, 25/11/2026): su
+    boleta se puede pagar, y entonces la rectificativa no se presenta hasta definir cómo se
+    imputa lo pagado. TODO(negocio): boleta por la diferencia o crédito."""
+    original = f"/api/v1/ddjj/declaraciones/{boleta['ddjj_id']}"
+    rect = (await notario.post(f"{original}/rectificar")).json()
+    presentar = f"/api/v1/ddjj/declaraciones/{rect['id']}/presentar"
+    comprobante = (await adjuntar(notario, boleta)).json()
+
+    en_revision = await notario.post(presentar, json={"fecha_pago": "2026-10-23"})
+    aprobado = await tesoreria.post(
+        f"/api/v1/pagos/comprobantes/{comprobante['id']}/aprobar",
+        json={"importe_confirmado": boleta["total_a_pagar"], "fecha_acreditacion": "2026-10-23"},
+    )
+    pagada = await notario.post(presentar, json={"fecha_pago": "2026-10-23"})
+
+    assert en_revision.status_code == 409
+    assert "revisión" in en_revision.json()["detail"]
+    assert aprobado.status_code == 200, aprobado.text
+    assert pagada.status_code == 409
+    assert "boletas pagas" in pagada.json()["detail"]
+    assert (await notario.get(original)).json()["estado"] == "PRESENTADA"

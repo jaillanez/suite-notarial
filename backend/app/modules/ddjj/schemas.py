@@ -318,6 +318,8 @@ class DeclaracionDetalle(DeclaracionOut):
     boletas: list[BoletaOut]
     escribanos: list[EscribanoResumen]
     puede_operar: bool
+    # Rectificativa en borrador que va a reemplazar a esta DDJJ (mientras, esta sigue valiendo).
+    rectificativa_en_curso_id: uuid.UUID | None = None
     # Controles del libro de protocolo: por acto (solo los que tienen algo) y números salteados.
     controles: dict[uuid.UUID, list[ControlOut]]
     huecos: list[HuecoOut]

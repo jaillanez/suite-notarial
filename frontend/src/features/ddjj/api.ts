@@ -191,6 +191,8 @@ export interface DeclaracionDetalle extends Declaracion {
   boletas: Boleta[]
   escribanos: EscribanoResumen[]
   puede_operar: boolean
+  /** Rectificativa en borrador que la va a reemplazar; mientras, esta sigue valiendo. */
+  rectificativa_en_curso_id: string | null
   /** Solo los actos que tienen algún control, por id. */
   controles: Record<string, ControlProtocolo[]>
   huecos: Hueco[]

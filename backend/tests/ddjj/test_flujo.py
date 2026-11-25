@@ -201,15 +201,15 @@ async def test_reemision_fuera_de_termino_aplica_la_mora_y_anula_la_anterior(
     ddjj = await _cargar_1069(notario, escenario)
     (original,) = await _presentar(notario, ddjj["id"])
 
-    response = await _reemitir(notario, ddjj["id"], escenario.titular, "2026-11-07")
+    response = await _reemitir(notario, ddjj["id"], escenario.titular, "2026-11-06")
 
     assert response.status_code == 201, response.text
     nueva = response.json()
-    # Vence el 28/10; pagando el 07/11 son 10 días a la tasa vigente (4,25 % mensual, mes de
-    # 30 días, interés simple: confirmada por la Caja).
-    esperado = (D("1081699.06") * D("4.25") / D(100) / D(30) * D(10)).quantize(D("0.01"))
-    assert nueva["dias_mora"] == 10
-    assert nueva["interes_mora"] == f"{esperado:.2f}" == "15324.07"
+    # Vence el 28/10; pagando el viernes 06/11 son 9 días a la tasa vigente (4,25 % mensual,
+    # mes de 30 días, interés simple: confirmada por la Caja).
+    esperado = (D("1081699.06") * D("4.25") / D(100) / D(30) * D(9)).quantize(D("0.01"))
+    assert nueva["dias_mora"] == 9
+    assert nueva["interes_mora"] == f"{esperado:.2f}" == "13791.66"
     assert D(nueva["total_a_pagar"]) == D("1081699.06") + esperado
     assert nueva["numero"] == original["numero"] + 1
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
@@ -252,10 +252,17 @@ async def test_rectificativa(
     assert rect["rectifica_a_id"] == ddjj["id"]
     assert len(rect["actos"]) == 3
     assert all(a["aporte"] is None for a in rect["actos"])
-    vieja = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
-    assert vieja["estado"] == "RECTIFICADA"
-    assert vieja["boletas"][0]["estado"] == "ANULADA"
+    # Hasta presentar la rectificativa, la original sigue valiendo con su boleta (Caja, 25/11).
+    url_vieja = f"/api/v1/ddjj/declaraciones/{ddjj['id']}"
+    vieja = (await notario.get(url_vieja)).json()
+    assert vieja["estado"] == "PRESENTADA"
+    assert vieja["rectificativa_en_curso_id"] == rect["id"]
+    assert vieja["boletas"][0]["estado"] == "PENDIENTE"
     assert vieja["boletas"][0]["numero"] == original["numero"]
+    # Una sola rectificativa abierta; y la DDJJ en curso del período es la rectificativa.
+    otra = await notario.post(f"{url_vieja}/rectificar")
+    assert otra.status_code == 409
+    assert (await _borrador(notario, escenario))["id"] == rect["id"]
 
     acta = {
         **escritura(escenario.titular, 104, "0"),
@@ -267,6 +274,36 @@ async def test_rectificativa(
     (nueva,) = await _presentar(notario, rect["id"])
     assert nueva["total_protocolos"] == "994621.06"  # + 9.922 del poder
     assert nueva["numero_rectificativa"] == 1
+
+    vieja = (await notario.get(url_vieja)).json()
+    assert vieja["estado"] == "RECTIFICADA"
+    assert vieja["rectificativa_en_curso_id"] is None
+    assert vieja["boletas"][0]["estado"] == "ANULADA"
+    assert vieja["boletas"][0]["motivo_anulacion"] == "Reemplazada por la rectificativa 1."
+    eventos = list(
+        await db_session.scalars(
+            select(AuditSecurityLog.event_type).where(
+                AuditSecurityLog.event_type == "DDJJ_RECTIFICADA"
+            )
+        )
+    )
+    assert eventos == ["DDJJ_RECTIFICADA"]
+
+
+async def test_la_boleta_no_se_paga_sabado_ni_domingo(
+    notario: AsyncClient, escenario: Escenario
+) -> None:
+    ddjj = await _cargar_1069(notario, escenario)
+    url = f"/api/v1/ddjj/declaraciones/{ddjj['id']}/presentar"
+
+    sabado = await notario.post(url, json={"fecha_pago": "2026-10-24"})
+    domingo = await notario.post(url, json={"fecha_pago": "2026-10-25"})
+
+    assert sabado.status_code == 422
+    assert "sábado" in sabado.json()["detail"]
+    assert domingo.status_code == 422
+    assert "domingo" in domingo.json()["detail"]
+    assert len(await _presentar(notario, ddjj["id"], "2026-10-26")) == 2  # lunes
 
 
 async def test_borrador_es_unico_y_baja_de_actos(

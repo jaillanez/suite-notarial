@@ -87,7 +87,7 @@ async def test_cada_escribano_paga_su_boleta(
     assert detalle["total_protocolos"] == "880000.00"
 
     # Reemitir anula la pendiente: el titular no puede reemitir la del adscripto.
-    ajena = await _reemitir(notario, ddjj["id"], escenario.adscripto, "2026-11-07")
+    ajena = await _reemitir(notario, ddjj["id"], escenario.adscripto, "2026-11-06")
     assert ajena.status_code == 403
     assert [b["puede_reemitir"] for b in emitidas] == [True, False]
     vistas_por_la_caja = (await staff.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
@@ -95,10 +95,10 @@ async def test_cada_escribano_paga_su_boleta(
 
     # El adscripto paga en otra fecha (la reemite la Caja; él no tiene usuario en este
     # escenario) y la del titular no cambia.
-    tarde = await _reemitir(staff, ddjj["id"], escenario.adscripto, "2026-11-07")
+    tarde = await _reemitir(staff, ddjj["id"], escenario.adscripto, "2026-11-06")
     assert tarde.status_code == 201, tarde.text
     assert tarde.json()["escribano"]["id"] == str(escenario.adscripto.id)
-    assert tarde.json()["dias_mora"] == 10
+    assert tarde.json()["dias_mora"] == 9
     assert D(tarde.json()["interes_mora"]) > 0
     estados = {
         b["numero"]: b["estado"]

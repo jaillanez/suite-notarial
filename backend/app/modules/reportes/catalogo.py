@@ -28,7 +28,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.common.audit import AuditSecurityLog, Severity
 from app.common.dates import LOCAL_TZ, today_local
 from app.modules.ddjj.catalog import CategoriaActo, EstadoBoleta, EstadoDDJJ
-from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada
+from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, sin_reemplazo
 from app.modules.ia.catalog import EstadoSugerencia, TipoSugerencia
 from app.modules.ia.models import Sugerencia
 from app.modules.iam.catalog import Perm
@@ -1468,7 +1468,7 @@ ESTADO_EN_PROTOCOLO = {
 def _protocolo_base(f: Filtros) -> Consulta:
     """Cada escritura del protocolo con la DDJJ donde está declarada (pedido de la Caja,
     24/11/2026). Cuenta lo vigente: presentadas y borradores; una DDJJ reemplazada por una
-    rectificativa no figura (la rectificativa trae sus actos)."""
+    rectificativa, aunque esté en borrador, no figura (la rectificativa trae sus actos)."""
     estado = case(ESTADO_EN_PROTOCOLO, value=DeclaracionJurada.estado, else_="")
     stmt = (
         select(
@@ -1500,6 +1500,7 @@ def _protocolo_base(f: Filtros) -> Consulta:
         .join(Persona, Persona.id == Escribano.persona_id)
         .where(
             DeclaracionJurada.estado.in_(tuple(ESTADO_EN_PROTOCOLO)),
+            sin_reemplazo(),
             Acto.is_active.is_(True),
         )
     )

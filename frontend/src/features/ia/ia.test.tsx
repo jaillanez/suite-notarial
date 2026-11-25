@@ -42,6 +42,7 @@ const DDJJ: ddjjApi.DeclaracionDetalle = {
     },
   ],
   puede_operar: true,
+  rectificativa_en_curso_id: null,
   controles: {},
   huecos: [],
   proximos_numeros: { GENERAL: 1, AUXILIAR: 1 },

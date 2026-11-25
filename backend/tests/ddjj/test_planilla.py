@@ -184,6 +184,12 @@ async def test_exentos_y_rectificada_en_la_planilla(
     assert presentada.status_code == 201, presentada.text
     assert (await notario.get(f"{url}/planilla")).json()["reemplazada_por"] is None
     rect = (await notario.post(f"{url}/rectificar")).json()
+    # Mientras la rectificativa está en borrador, la original vale y no dice reemplazada.
+    assert (await notario.get(f"{url}/planilla")).json()["reemplazada_por"] is None
+    presentada = await notario.post(
+        f"/api/v1/ddjj/declaraciones/{rect['id']}/presentar", json={"fecha_pago": "2026-10-23"}
+    )
+    assert presentada.status_code == 201, presentada.text
     original = (await notario.get(f"{url}/planilla")).json()
     assert original["estado"] == "RECTIFICADA"
     assert original["reemplazada_por"] == rect["numero_rectificativa"] == 1
