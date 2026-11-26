@@ -45,7 +45,6 @@ def render_html(settings: Settings, informe: Informe, emitido: date) -> str:
         emitido=_fecha(emitido),
         e={
             "apellido_nombre": f"{e.persona.apellido}, {e.persona.nombre}",
-            "matricula_numero": e.matricula_numero or "a completar",
             "tipo_documento": e.persona.tipo_documento,
             "numero_documento": e.persona.numero_documento or "a completar",
         },

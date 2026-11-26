@@ -141,8 +141,9 @@ async def test_informe_pdf(
         assert r.headers["content-type"] == "application/pdf"
         assert r.content.startswith(b"%PDF")
         assert r.headers["cache-control"] == "no-store"
-    matricula = notario_ana.escribano.matricula_numero
-    assert f"matricula-{matricula}.pdf" in staff_pdf.headers["content-disposition"]
+    # Sin número de matrícula (Caja, 24/11/2026): el archivo lleva el documento.
+    disposicion = staff_pdf.headers["content-disposition"]
+    assert "informe-aportes-puntos-doc-" in disposicion and "matricula" not in disposicion
 
 
 async def test_html_del_informe(
@@ -326,7 +327,7 @@ async def test_reporte_por_ejercicio_paridad(
     (fila_91,) = body["items"]
     (fila_90,) = segunda.json()["items"]
     assert fila_91["anio"] == 1991
-    assert fila_90["suma_puntos"] == "200.000000"
+    assert fila_90["suma_puntos"] == "200"
     assert fila_90["cantidad_afiliados"] == "2.0000"
     assert fila_90["aporte_medio"] == "417.333336"
     assert fila_90["sin_vincular"] == 2
@@ -336,7 +337,7 @@ async def test_reporte_por_ejercicio_paridad(
         "sin_vincular": 4,
     }
     assert (
-        columnas["suma_puntos"]["tipo"] == "DECIMAL" and columnas["suma_puntos"]["decimales"] == 6
+        columnas["suma_puntos"]["tipo"] == "DECIMAL" and columnas["suma_puntos"]["decimales"] == 0
     )
     assert [f["anio"] for f in filtrado.json()["items"]] == [1991]
 
@@ -346,9 +347,9 @@ async def test_reporte_por_ejercicio_paridad(
     assert [f[0] for f in filas_xlsx[:2]] == [1991, 1990]
     assert Decimal(str(filas_xlsx[1][7])) == Decimal("200.000000")
     assert Decimal(str(filas_xlsx[2][3])) == Decimal("83567.17")
-    assert hoja.cell(row=7, column=8).number_format == "#,##0.000000"
+    assert hoja.cell(row=7, column=8).number_format == "#,##0"
     filas_csv = list(csv.reader(io.StringIO(csv_r.content.decode("utf-8-sig")), delimiter=";"))
-    assert filas_csv[2][7] == "200,000000" and filas_csv[2][5] == "2,0000"
+    assert filas_csv[2][7] == "200" and filas_csv[2][5] == "2,0000"
     assert filas_csv[-1][3] == "83567,17"
 
 

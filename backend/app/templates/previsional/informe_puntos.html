@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Informe de aportes y puntos · Matrícula {{ e.matricula_numero }}</title>
+<title>Informe de aportes y puntos · {{ e.apellido_nombre }}</title>
 <style>
   @page { size: A4; margin: 16mm 16mm 20mm; }
   * { box-sizing: border-box; }
@@ -43,7 +43,7 @@
   <div class="card">
     <p class="label">Notario</p>
     <p class="value">{{ e.apellido_nombre }}</p>
-    <p class="detalle num">Matrícula N° {{ e.matricula_numero }} · {{ e.tipo_documento }} {{ e.numero_documento }}</p>
+    <p class="detalle num">{{ e.tipo_documento }} {{ e.numero_documento }}</p>
   </div>
   <div class="card">
     <p class="label">Total de puntos</p>
@@ -82,6 +82,6 @@
 
 <p class="nota">Cada ejercicio va del 1 de septiembre al 31 de agosto y se identifica por el año de cierre. Datos según {{ origen }}.</p>
 
-<footer>{{ caja.CAJA_NOMBRE }} · Informe de aportes y puntos · Matrícula {{ e.matricula_numero }}</footer>
+<footer>{{ caja.CAJA_NOMBRE }} · Informe de aportes y puntos · {{ e.apellido_nombre }}</footer>
 </body>
 </html>

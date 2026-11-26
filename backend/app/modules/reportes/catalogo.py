@@ -1271,7 +1271,8 @@ PUNTOS_EJERCICIOS = Reporte(
         Columna("suma_aportes", "Suma por afiliado", Tipo.MONEDA, total=True, visible=False),
         Columna("cantidad_afiliados", "Afiliados", Tipo.DECIMAL, decimales=4),
         Columna("aporte_medio", "Aporte medio", Tipo.DECIMAL, decimales=6),
-        Columna("suma_puntos", "Suma de puntos", Tipo.DECIMAL, decimales=6),
+        # Puntos enteros, redondeados desde la mitad, también en el reporte (Caja, 26/11/2026).
+        Columna("suma_puntos", "Suma de puntos", Tipo.DECIMAL, decimales=0),
         Columna("con_puntos", "Afiliados con puntos", Tipo.ENTERO, visible=False),
         Columna("sin_vincular", "Sin vincular", Tipo.ENTERO, total=True),
         Columna("origen", "Origen", Tipo.TEXTO, visible=False),

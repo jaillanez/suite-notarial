@@ -81,11 +81,25 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
   })
   const definitivo = ESTADOS_DEFINITIVOS.includes(estado)
   const exigeResolucion = escribano.transiciones_con_resolucion.includes(estado)
+  // El botón no se apaga en silencio (la Caja no sabía por qué no podía pasar a cesante,
+  // 26/11/2026): al tocarlo, se marca lo que falta.
+  const [intentado, setIntentado] = useState(false)
+  const errores = {
+    motivo:
+      motivo.trim().length < 5 ? 'Escribí el motivo del cambio (mínimo 5 caracteres).' : undefined,
+    resolucion:
+      exigeResolucion && !resolucion.trim()
+        ? 'Indicá la resolución: es obligatoria para la reincorporación.'
+        : undefined,
+    fecha: !fecha ? 'Indicá la fecha efectiva.' : undefined,
+  }
+  const valido = !errores.motivo && !errores.resolucion && !errores.fecha
   return (
     <Dialog
       open={open}
       onClose={() => {
         save.reset()
+        setIntentado(false)
         onClose()
       }}
       title="Cambiar estado de la matrícula"
@@ -98,9 +112,9 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
             icon={Save}
             busy={save.isPending}
             busyLabel="Guardando…"
-            disabled={motivo.trim().length < 5 || !fecha || (exigeResolucion && !resolucion.trim())}
             onClick={() => {
-              save.mutate()
+              setIntentado(true)
+              if (valido) save.mutate()
             }}
           >
             Cambiar a {ESTADO_MATRICULA[estado].label.toLowerCase()}
@@ -140,12 +154,14 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
             setMotivo(e.target.value)
           }}
           hint="Obligatorio. Mínimo 5 caracteres."
+          error={intentado ? errores.motivo : undefined}
           maxLength={1000}
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label={exigeResolucion ? 'Resolución' : 'Resolución (opcional)'}
             hint={exigeResolucion ? 'Obligatoria para la reincorporación.' : undefined}
+            error={intentado ? errores.resolucion : undefined}
             placeholder="Res. Directorio 145/2026"
             value={resolucion}
             onChange={(e) => {
@@ -156,6 +172,7 @@ export function EstadoDialog({ escribano, open, onClose }: Props) {
             label="Fecha efectiva"
             type="date"
             value={fecha}
+            error={intentado ? errores.fecha : undefined}
             onChange={(e) => {
               setFecha(e.target.value)
             }}
