@@ -197,6 +197,11 @@ function Cotejo({ c }: { c: Comprobante }) {
         <Par label="Total de la boleta">
           <span className="font-semibold">{formatMoney(c.boleta.total_a_pagar)}</span>
         </Par>
+        {c.boleta.saldo_a_pagar !== c.boleta.total_a_pagar && (
+          <Par label="Queda pagar, con ajustes">
+            <span className="font-semibold">{formatMoney(c.boleta.saldo_a_pagar)}</span>
+          </Par>
+        )}
         <Par label="Importe declarado">
           <span className="font-semibold">{formatMoney(c.importe_declarado)}</span>
         </Par>
@@ -399,6 +404,9 @@ function AprobarPanel({ c }: { c: Comprobante }) {
           {problem && <Alert tone="danger">{problem.detail}</Alert>}
           <dl className="divide-y divide-line rounded-control border border-line">
             <Par label="Total de la boleta">{formatMoney(c.boleta.total_a_pagar)}</Par>
+            {c.boleta.saldo_a_pagar !== c.boleta.total_a_pagar && (
+              <Par label="Queda pagar, con ajustes">{formatMoney(c.boleta.saldo_a_pagar)}</Par>
+            )}
             <Par label="Importe acreditado">{formatMoney(importe || null)}</Par>
             <Par label="Acreditación">{formatDate(form.fecha || null)}</Par>
           </dl>

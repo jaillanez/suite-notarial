@@ -110,6 +110,15 @@ export interface EscribanoBoleta {
   modalidad: ModalidadBoleta
 }
 
+/** Crédito (baja lo que se debe) o débito (lo sube) aprobado por la Caja (26/11/2026). */
+export interface AjusteBoleta {
+  tipo: 'CREDITO' | 'DEBITO'
+  concepto: string
+  importe: string
+  resolucion: string | null
+  resuelto_en: string | null
+}
+
 export interface Boleta {
   id: string
   numero: number
@@ -135,6 +144,9 @@ export interface Boleta {
   /** Interés por tasa vigente en cada tramo de días de atraso (vacío en término). */
   tramos_mora: TramoMora[]
   total_a_pagar: string
+  /** El total con los créditos y débitos aprobados por la Caja: lo que queda pagar. */
+  saldo_a_pagar: string
+  ajustes: AjusteBoleta[]
   created_at: string
   emitida_por: string | null
   anulada_en: string | null
