@@ -448,20 +448,32 @@ async def test_no_se_cierra_al_titular_si_deja_actos_a_cargo_sin_respaldo(
     )
 
 
-async def test_designa_adscripto_con_fecha_anterior_aunque_falte_el_juramento(
-    notario: AsyncClient, staff: AsyncClient, escenario: Escenario, db_session: AsyncSession
+async def test_designa_con_fecha_anterior_aunque_falte_el_juramento(
+    notario: AsyncClient,
+    staff: AsyncClient,
+    escenario: Escenario,
+    designado: Designado,
+    db_session: AsyncSession,
 ) -> None:
-    """Pedido de la Caja (19/11/2026): un adscripto también queda a cargo, se puede cargar un
-    período ya pasado y un escribano migrado sin fecha de juramento no bloquea la designación."""
-    escenario.adscripto.fecha_matriculacion = None
-    await db_session.commit()
-    pasada = {
+    """Se puede cargar un período ya pasado y un escribano migrado sin fecha de juramento no
+    bloquea la designación (Caja, 19/11/2026). Solo queda a cargo el titular de otro registro:
+    un adscripto ya no (Caja, 26/11/2026)."""
+    adscripto = {
         "registro_id": str(escenario.registro.id),
         "escribano_id": str(escenario.adscripto.id),
         "fecha_desde": "2025-09-01",
         "fecha_hasta": "2025-09-30",
         "motivo": "Licencia del titular",
     }
+    rechazada = await _designar(notario, adscripto)
+    assert rechazada.status_code == 422
+    assert "titular de otro registro" in rechazada.json()["detail"]
+    sin_cargo = (await notario.get("/api/v1/a-cargo/elegibles", params={"q": "Adscripto"})).json()
+    assert sin_cargo == []
+
+    designado.escribano.fecha_matriculacion = None
+    await db_session.commit()
+    pasada = {**adscripto, "escribano_id": str(designado.escribano.id)}
     # La del titular, sin juramento con que controlar el límite, espera la aprobación de la Caja.
     del_titular = await _designar(notario, pasada)
     assert del_titular.status_code == 201, del_titular.text

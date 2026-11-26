@@ -635,7 +635,7 @@ function DesignarDialog({
           <div>
             <Field
               label="Escribano que queda a cargo"
-              hint="Apellido del escribano. Puede ser de cualquier departamento."
+              hint="Apellido del titular de otro registro. Puede ser de cualquier departamento."
               value={busqueda}
               trailing={<Search aria-hidden="true" className="size-4 text-ink-subtle" />}
               onChange={(e) => {
@@ -646,7 +646,7 @@ function DesignarDialog({
               <ul className="mt-2 divide-y divide-line rounded-control border border-line">
                 {candidatos.data.length === 0 && (
                   <li className="px-4 py-3 text-sm text-ink-muted">
-                    Ningún escribano activo coincide.
+                    Ningún titular de otro registro coincide.
                   </li>
                 )}
                 {candidatos.data.map((c) => (
