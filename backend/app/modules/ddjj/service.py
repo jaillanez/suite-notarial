@@ -150,7 +150,8 @@ async def _escribano_de(session: AsyncSession, user: User) -> Escribano | None:
 async def _registros_del_escribano(
     session: AsyncSession, user: User, *, solo_vigentes: bool, solo_titular: bool = False
 ) -> set[uuid.UUID]:
-    """Registros del escribano. `solo_titular`: los que puede operar (titular, o a cargo)."""
+    """Registros del escribano. `solo_titular`: los que puede operar, solo como titular: el
+    escribano a cargo autoriza actos, pero no carga ni presenta la DDJJ (Caja, 26/11/2026)."""
     escribano = await _escribano_de(session, user)
     if escribano is None:
         return set()
@@ -160,6 +161,8 @@ async def _registros_del_escribano(
     if solo_titular:
         stmt = stmt.where(Adscripcion.cargo == Cargo.TITULAR.value)
     propios = set((await session.scalars(stmt)).all())
+    if solo_titular:
+        return propios
     # A cargo de otro registro: solo entre las fechas de la designación aprobada.
     designaciones = await a_cargo.del_escribano(
         session, escribano.id, en=today_local() if solo_vigentes else None
@@ -197,7 +200,7 @@ async def puede_reemitir(
 
 
 async def puede_operar(session: AsyncSession, principal: Principal, registro_id: uuid.UUID) -> bool:
-    """Cargar, presentar y rectificar: el titular vigente o el escribano a cargo."""
+    """Cargar, presentar y rectificar: solo el titular vigente del registro."""
     if Perm.DDJJ_CREATE_OWN.value not in principal.permissions:
         return False
     return registro_id in await _registros_del_escribano(
@@ -296,8 +299,7 @@ async def _exigir_operacion(
     if not await puede_operar(session, principal, registro_id):
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
-            "Solo el titular del registro (o quien designó a cargo) carga, presenta y "
-            "rectifica su declaración jurada.",
+            "Solo el titular del registro carga, presenta y rectifica su declaración jurada.",
         )
 
 

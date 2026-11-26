@@ -73,7 +73,7 @@ export function ACargoPage() {
         description={
           personal
             ? 'Quién queda a cargo de cada registro y entre qué fechas. Las designa el titular de cada registro desde su autogestión; acá se consultan.'
-            : 'Designá a otro escribano para que quede a cargo de tu registro entre dos fechas (licencia, viaje). En esos días carga y presenta las declaraciones juradas del registro.'
+            : 'Designá a otro escribano para que quede a cargo de tu registro entre dos fechas (licencia, viaje). En esos días autoriza actos en tu registro; la declaración jurada la cargás y presentás vos.'
         }
       />
       <div className="space-y-6">

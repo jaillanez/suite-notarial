@@ -99,17 +99,24 @@ async def test_por_aviso_rige_al_cargarla_y_habilita_solo_entre_fechas(
     # Un escribano no ve quién de la Caja operó.
     assert body["cargada_por"] is None
 
-    # Conserva su registro y suma el que tiene a cargo.
+    # Conserva solo su registro: el escribano a cargo autoriza actos, pero la DDJJ la carga
+    # y presenta el titular (Caja, 26/11/2026).
     operables = await _registros_operables(a_cargo_client)
-    assert operables == {str(escenario.registro.id), str(escenario.otro_registro.id)}
+    assert operables == {str(escenario.otro_registro.id)}
+    ajena = await a_cargo_client.post(
+        "/api/v1/ddjj/declaraciones",
+        json={"registro_id": str(escenario.registro.id), "periodo": "2026-10"},
+    )
+    assert ajena.status_code == 403
 
-    ddjj = await _borrador(a_cargo_client, escenario, "2026-10")
+    # El titular declara los actos que autorizó quien estuvo a cargo, dentro de sus fechas.
+    ddjj = await _borrador(notario, escenario, "2026-10")
     dentro = escritura(designado.escribano, 10, "1000", fecha_acto="2026-10-06")
-    respuesta = await _agregar(a_cargo_client, ddjj["id"], dentro)
+    respuesta = await _agregar(notario, ddjj["id"], dentro)
     assert respuesta.status_code == 201, respuesta.text
     assert respuesta.json()["cargo"] == "SUPLENTE_INTERINO"
     antes = escritura(designado.escribano, 11, "1000", fecha_acto="2026-10-02")
-    assert (await _agregar(a_cargo_client, ddjj["id"], antes)).status_code == 422
+    assert (await _agregar(notario, ddjj["id"], antes)).status_code == 422
 
     detalle = (await notario.get(f"/api/v1/ddjj/declaraciones/{ddjj['id']}")).json()
     equipo = {e["apellido_nombre"].split(",")[0]: e["cargo"] for e in detalle["escribanos"]}
@@ -186,7 +193,8 @@ async def test_con_aprobacion_espera_a_la_caja(
     assert aprobada.status_code == 200, aprobada.text
     assert aprobada.json()["estado"] == "APROBADA"
     assert aprobada.json()["resuelta_por"] is not None
-    assert str(escenario.registro.id) in await _registros_operables(a_cargo_client)
+    # Aprobada tampoco le abre la DDJJ del registro: la carga el titular.
+    assert str(escenario.registro.id) not in await _registros_operables(a_cargo_client)
     # Ya resuelta, no se vuelve a aprobar ni se rechaza.
     assert (await staff.post(f"/api/v1/a-cargo/{creada['id']}/aprobar")).status_code == 409
 
@@ -263,9 +271,9 @@ async def test_anular_y_terminar_respetan_los_actos_declarados(
     db_session: AsyncSession,
 ) -> None:
     creada = (await _designar(notario, _designacion(escenario, designado))).json()
-    ddjj = await _borrador(a_cargo_client, escenario, "2026-10")
+    ddjj = await _borrador(notario, escenario, "2026-10")
     acto = escritura(designado.escribano, 20, "1000", fecha_acto="2026-10-15")
-    assert (await _agregar(a_cargo_client, ddjj["id"], acto)).status_code == 201
+    assert (await _agregar(notario, ddjj["id"], acto)).status_code == 201
 
     motivo = {"motivo": "Volvió el titular"}
     assert (
@@ -417,9 +425,9 @@ async def test_no_se_cierra_al_titular_si_deja_actos_a_cargo_sin_respaldo(
     db_session: AsyncSession,
 ) -> None:
     creada = (await _designar(notario, _designacion(escenario, designado))).json()
-    ddjj = await _borrador(a_cargo_client, escenario, "2026-10")
+    ddjj = await _borrador(notario, escenario, "2026-10")
     acto = escritura(designado.escribano, 30, "1000", fecha_acto="2026-10-16")
-    assert (await _agregar(a_cargo_client, ddjj["id"], acto)).status_code == 201
+    assert (await _agregar(notario, ddjj["id"], acto)).status_code == 201
     cargo_id = await db_session.scalar(
         select(Adscripcion.id).where(
             Adscripcion.escribano_id == escenario.titular.id, Adscripcion.is_current.is_(True)
