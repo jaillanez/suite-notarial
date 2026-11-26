@@ -48,6 +48,7 @@ import { EscribanosPage } from './features/padron/EscribanosPage'
 import { RegistroPage } from './features/padron/RegistroPage'
 import { RegistrosPage } from './features/padron/RegistrosPage'
 import { ConceptoPage } from './features/parametros/ConceptoPage'
+import { FeriadosPage } from './features/parametros/FeriadosPage'
 import { ParametrosPage } from './features/parametros/ParametrosPage'
 import { VademecumPage } from './features/parametros/VademecumPage'
 import { UsersPage } from './features/users/UsersPage'
@@ -125,6 +126,7 @@ const router = createBrowserRouter([
             children: [
               { path: '/parametros', element: <ParametrosPage /> },
               { path: '/parametros/vademecum', element: <VademecumPage /> },
+              { path: '/parametros/feriados', element: <FeriadosPage /> },
               { path: '/parametros/:id', element: <ConceptoPage /> },
             ],
           },

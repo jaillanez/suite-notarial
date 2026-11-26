@@ -150,10 +150,17 @@ class Indice:
 class Vista:
     """Lo que una persona puede consultar del protocolo del año de un registro."""
 
-    def __init__(self, declarados: list[ActoDeclarado], visible: Callable[[str], bool]) -> None:
+    def __init__(
+        self,
+        declarados: list[ActoDeclarado],
+        visible: Callable[[str], bool],
+        feriados: frozenset[date] = frozenset(),
+    ) -> None:
         self.completo = Indice(declarados)
         self.propio = Indice([a for a in declarados if visible(a.periodo)])
         self.visible = visible
+        # Feriados nacionales del año (calendario que carga la Caja).
+        self.feriados = feriados
 
     @classmethod
     def total(cls, declarados: list[ActoDeclarado]) -> "Vista":
@@ -172,9 +179,18 @@ def _periodo(periodo: str) -> str:
 def revisar(vista: Vista, c: Candidato) -> list[Control]:
     """Controles de un acto (nuevo o ya cargado) contra los declarados del mismo año."""
     controles: list[Control] = []
-    # Las escrituras se autorizan en días hábiles: sábado y domingo bloquean (pedido de la Caja,
-    # 20/11/2026). TODO(negocio): feriados nacionales y provinciales.
-    if c.fecha is not None and c.fecha.weekday() >= SABADO:
+    # Las escrituras se autorizan en días hábiles: sábado, domingo (Caja, 20/11/2026) y
+    # feriados nacionales bloquean; en los provinciales sí se autorizan actos (26/11/2026).
+    if c.fecha is not None and c.fecha in vista.feriados:
+        controles.append(
+            Control(
+                "FECHA_NO_HABIL",
+                NivelControl.BLOQUEANTE,
+                f"El {c.fecha:%d/%m/%Y} es feriado nacional: la fecha de la escritura tiene que "
+                "ser un día hábil.",
+            )
+        )
+    elif c.fecha is not None and c.fecha.weekday() >= SABADO:
         dia = "sábado" if c.fecha.weekday() == SABADO else "domingo"
         controles.append(
             Control(

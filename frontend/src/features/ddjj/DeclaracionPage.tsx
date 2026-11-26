@@ -13,7 +13,7 @@ import {
   Trash2,
   Wallet,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { StatusIndicator } from '../../components/StatusIndicator'
@@ -34,6 +34,7 @@ import {
   fetchSupervielleHabilitado,
   pagarConMercadoPago,
 } from '../pagos/api'
+import { fetchFeriados } from '../parametros/api'
 import { BotonSupervielle, SeguimientoSupervielle } from '../pagos/PagoSupervielle'
 import { PERIODO_TASA } from '../parametros/labels'
 import {
@@ -105,20 +106,42 @@ function esFinDeSemana(iso: string): boolean {
   return dia === 0 || dia === 6
 }
 
-/** El primer día de lunes a viernes desde esa fecha (feriados: a definir con la Caja). */
-function diaHabilDesde(iso: string): string {
+/** Feriados nacionales (fecha → descripción) que pueden caer en el plazo de una boleta. */
+type Feriados = ReadonlyMap<string, string>
+
+function useFeriadosDelPlazo(hoy: string): Feriados {
+  const desde = Number(hoy.slice(0, 4))
+  const hasta = Number(sumarDias(hoy, MAX_DIAS_PAGO).slice(0, 4))
+  const anios = desde === hasta ? [desde] : [desde, hasta]
+  const query = useQuery({
+    queryKey: ['feriados', 'plazo', ...anios],
+    queryFn: async () => (await Promise.all(anios.map((a) => fetchFeriados(a)))).flat(),
+    staleTime: 60 * 60 * 1000,
+  })
+  return useMemo(
+    () =>
+      new Map((query.data ?? []).filter((f) => f.is_active).map((f) => [f.fecha, f.descripcion])),
+    [query.data],
+  )
+}
+
+/** El primer día hábil desde esa fecha: ni sábado, ni domingo, ni feriado nacional. */
+function diaHabilDesde(iso: string, feriados: Feriados): string {
   let fecha = iso
-  while (esFinDeSemana(fecha)) fecha = sumarDias(fecha, 1)
+  while (esFinDeSemana(fecha) || feriados.has(fecha)) fecha = sumarDias(fecha, 1)
   return fecha
 }
 
 const SOLO_HABILES = 'Los pagos se acreditan en días hábiles: elegí de lunes a viernes.'
 
-function errorFechaPago(fecha: string, hoy: string): string | undefined {
+function errorFechaPago(fecha: string, hoy: string, feriados: Feriados): string | undefined {
   if (!fecha) return 'Elegí la fecha de pago.'
   if (fecha < hoy || fecha > sumarDias(hoy, MAX_DIAS_PAGO))
     return `Entre hoy y ${String(MAX_DIAS_PAGO)} días más.`
   if (esFinDeSemana(fecha)) return SOLO_HABILES
+  const feriado = feriados.get(fecha)
+  if (feriado !== undefined)
+    return `Es feriado nacional (${feriado}): los pagos se acreditan en días hábiles.`
   return undefined
 }
 
@@ -331,8 +354,11 @@ function LiquidacionBorrador({
   onPresentar: (fechaPago: string, liq: Liquidacion) => void
 }) {
   const hoy = todayIso()
-  const [fechaPago, setFechaPago] = useState(() => diaHabilDesde(hoy))
-  const errorFecha = errorFechaPago(fechaPago, hoy)
+  const feriados = useFeriadosDelPlazo(hoy)
+  // Sin elegir, se propone el próximo día hábil (también cuando llegan los feriados).
+  const [elegida, setFechaPago] = useState<string | null>(null)
+  const fechaPago = elegida ?? diaHabilDesde(hoy, feriados)
+  const errorFecha = errorFechaPago(fechaPago, hoy, feriados)
   const valida = errorFecha === undefined
   const query = useQuery({
     queryKey: ['ddjj', 'declaracion', ddjj.id, 'liquidacion', fechaPago, ddjj.actos.length],
@@ -1213,8 +1239,11 @@ function NuevaBoletaDialog({
 }) {
   const invalidate = useInvalidate(ddjj.id)
   const hoy = todayIso()
-  const [fechaPago, setFechaPago] = useState(() => diaHabilDesde(hoy))
-  const errorFecha = errorFechaPago(fechaPago, hoy)
+  const feriados = useFeriadosDelPlazo(hoy)
+  // Sin elegir, se propone el próximo día hábil (también cuando llegan los feriados).
+  const [elegida, setFechaPago] = useState<string | null>(null)
+  const fechaPago = elegida ?? diaHabilDesde(hoy, feriados)
+  const errorFecha = errorFechaPago(fechaPago, hoy, feriados)
   const escribano = pedido?.escribano ?? null
   const save = useMutation({
     mutationFn: () => emitirBoleta(ddjj.id, fechaPago, escribano?.id ?? null),

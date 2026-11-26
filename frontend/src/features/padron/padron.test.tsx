@@ -280,7 +280,7 @@ describe('padrón', () => {
     renderFicha()
 
     expect(await screen.findByText('En licencia desde el 01/09/2026')).toBeInTheDocument()
-    expect(screen.getByText('Fecha de juramento')).toBeInTheDocument()
+    expect(screen.getByText('Fecha de juramento', { selector: 'dt' })).toBeInTheDocument()
     expect(screen.getByText(aniosMeses(16, 4))).toBeInTheDocument()
     expect(aniosMeses(1, 1)).toBe('1 año 1 mes')
     expect(screen.getByText('Titular · Registro 12')).toBeInTheDocument()

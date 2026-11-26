@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookOpenText, ChevronRight, Plus, Save } from 'lucide-react'
+import { BookOpenText, CalendarX2, ChevronRight, Plus, Save } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 
@@ -255,6 +255,28 @@ export function ParametrosPage() {
           <span className="block text-sm text-ink-muted">
             Qué aporta cada acto: variable, fijo mayor, fijo menor o exento. Lo usa la carga de la
             DDJJ.
+          </span>
+        </span>
+        <ChevronRight
+          aria-hidden="true"
+          className="size-5 shrink-0 text-ink-subtle group-hover:text-brand-800"
+        />
+      </Link>
+      <Link
+        to="/parametros/feriados"
+        className="group mt-3 flex items-center gap-4 rounded-panel border border-line bg-surface px-5 py-4 text-ink no-underline shadow-panel hover:bg-brand-50 sm:px-6"
+      >
+        <CalendarX2
+          aria-hidden="true"
+          className="size-5 shrink-0 text-brand-800"
+          strokeWidth={2.25}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold text-brand-800 group-hover:underline">
+            Feriados nacionales
+          </span>
+          <span className="block text-sm text-ink-muted">
+            Días en que no se cargan escrituras ni se pagan boletas, además de sábados y domingos.
           </span>
         </span>
         <ChevronRight

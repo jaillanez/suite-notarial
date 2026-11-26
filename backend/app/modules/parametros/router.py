@@ -10,8 +10,8 @@ from app.common.dates import today_local
 from app.common.deps import SessionDep
 from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
-from app.modules.iam.deps import Principal, RequestContextDep, require_permissions
-from app.modules.parametros import motor, service
+from app.modules.iam.deps import Principal, PrincipalDep, RequestContextDep, require_permissions
+from app.modules.parametros import feriados, motor, service
 from app.modules.parametros.catalog import (
     CriterioPluralidad,
     EstadoVigencia,
@@ -19,11 +19,14 @@ from app.modules.parametros.catalog import (
     ReglaRedondeo,
     TipoConcepto,
 )
-from app.modules.parametros.models import Concepto, Vigencia
+from app.modules.parametros.models import Concepto, Feriado, Vigencia
 from app.modules.parametros.schemas import (
     ConceptoIn,
     ConceptoOut,
     ConceptoUpdate,
+    FeriadoBaja,
+    FeriadoIn,
+    FeriadoOut,
     Rechazo,
     SimulacionIn,
     SimulacionOut,
@@ -238,3 +241,49 @@ async def simular(body: SimulacionIn, _: CanRead, session: SessionDep) -> Simula
         )
     except motor.MotorError as exc:
         raise ProblemError(422, str(exc)) from exc
+
+
+# --------------------------------------------------------------------------- feriados
+
+
+def feriado_out(f: Feriado) -> FeriadoOut:
+    return FeriadoOut(
+        id=f.id,
+        fecha=f.fecha,
+        descripcion=f.descripcion,
+        is_active=f.is_active,
+        baja_motivo=f.baja_motivo,
+    )
+
+
+@router.get("/feriados", response_model=list[FeriadoOut])
+async def listar_feriados(
+    session: SessionDep,
+    _: PrincipalDep,
+    anio: Annotated[int, Query(ge=2000, le=2100)],
+) -> list[FeriadoOut]:
+    """Feriados nacionales del año (también los dados de baja). Los usa cualquier usuario para
+    proponer el próximo día hábil; cargarlos es del personal de la Caja."""
+    return [feriado_out(f) for f in await feriados.listar(session, anio)]
+
+
+@router.post("/feriados", response_model=FeriadoOut, status_code=201)
+async def crear_feriado(
+    body: FeriadoIn, session: SessionDep, principal: CanWrite, ctx: RequestContextDep
+) -> FeriadoOut:
+    return feriado_out(
+        await feriados.crear(session, ctx, principal.user, body.fecha, body.descripcion)
+    )
+
+
+@router.post("/feriados/{feriado_id}/baja", response_model=FeriadoOut)
+async def baja_feriado(
+    feriado_id: uuid.UUID,
+    body: FeriadoBaja,
+    session: SessionDep,
+    principal: CanWrite,
+    ctx: RequestContextDep,
+) -> FeriadoOut:
+    return feriado_out(
+        await feriados.dar_de_baja(session, ctx, principal.user, feriado_id, body.motivo)
+    )
