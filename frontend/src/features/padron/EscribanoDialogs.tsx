@@ -560,6 +560,9 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
   const refresh = useRefresh(escribano.id)
   const p = escribano.persona
   const [form, setForm] = useState({
+    cuit: p.cuit ?? '',
+    fecha_matriculacion: escribano.fecha_matriculacion ?? '',
+    motivo: '',
     apellido: p.apellido,
     nombre: p.nombre,
     numero_documento: p.numero_documento ?? '',
@@ -568,10 +571,22 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
     telefono: p.telefono ?? '',
     domicilio_real: p.domicilio_real ?? '',
   })
+  // CUIT y juramento ya cargados se corrigen acá, con motivo (Caja, 26/11/2026). Si faltan,
+  // se cargan desde «Completar datos».
+  const soloDigitos = (v: string) => v.replace(/\D/g, '')
+  const cambiaCuit = p.cuit !== null && soloDigitos(form.cuit) !== soloDigitos(p.cuit)
+  const cambiaJuramento =
+    escribano.fecha_matriculacion !== null &&
+    form.fecha_matriculacion !== '' &&
+    form.fecha_matriculacion !== escribano.fecha_matriculacion
+  const pideMotivo = cambiaCuit || cambiaJuramento
   const save = useMutation({
     mutationFn: () =>
       updateEscribano(escribano.id, {
+        ...(cambiaJuramento ? { fecha_matriculacion: form.fecha_matriculacion } : {}),
+        ...(pideMotivo ? { motivo: form.motivo.trim() } : {}),
         persona: {
+          ...(cambiaCuit ? { cuit: form.cuit.trim() } : {}),
           apellido: form.apellido.trim(),
           nombre: form.nombre.trim(),
           // Un documento que falta se carga desde «Completar datos», no acá.
@@ -605,7 +620,7 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
         onClose()
       }}
       title="Editar datos"
-      description="El CUIT identifica al escribano y no se edita; la fecha de juramento tampoco se cambia por acá (si faltan, se cargan desde «Completar datos»). Cada cambio queda auditado."
+      description="Cada cambio queda auditado. Para corregir el CUIT o la fecha de juramento hay que indicar el motivo; si todavía faltan, se cargan desde «Completar datos»."
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>
@@ -628,6 +643,20 @@ export function EditarEscribanoDialog({ escribano, open, onClose }: Props) {
           <div className="sm:col-span-2">
             <Alert tone="danger">{problem.detail}</Alert>
           </div>
+        )}
+        {p.cuit !== null && <Field label="CUIT" inputMode="numeric" {...bind('cuit')} />}
+        {escribano.fecha_matriculacion !== null && (
+          <Field label="Fecha de juramento" type="date" {...bind('fecha_matriculacion')} />
+        )}
+        {pideMotivo && (
+          <TextArea
+            label="Motivo de la corrección"
+            rows={2}
+            className="sm:col-span-2"
+            hint="Obligatorio al cambiar el CUIT o la fecha de juramento. Mínimo 5 caracteres."
+            maxLength={1000}
+            {...bind('motivo')}
+          />
         )}
         <Field label="Apellido" {...bind('apellido')} />
         <Field label="Nombre" {...bind('nombre')} />

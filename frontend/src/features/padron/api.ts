@@ -260,7 +260,12 @@ export async function createEscribano(data: EscribanoInput): Promise<EscribanoDe
 
 export async function updateEscribano(
   id: string,
-  data: { tomo?: string | null; folio?: string | null; persona?: Partial<PersonaInput> },
+  data: {
+    fecha_matriculacion?: string
+    persona?: Partial<PersonaInput>
+    /** Obligatorio si cambian el CUIT o la fecha de juramento ya cargados. */
+    motivo?: string
+  },
 ): Promise<EscribanoDetalle> {
   return (await api.patch<EscribanoDetalle>(`${P}/escribanos/${id}`, data)).data
 }
