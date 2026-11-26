@@ -64,6 +64,11 @@ async def test_alta_baja_y_permisos(
     assert baja.json()["is_active"] is False
     # Dado de baja, el mismo día se puede volver a cargar.
     await _feriado(admin, "2026-10-27", "Corregido")
+    # El escribano ve solo los vigentes, sin motivos de baja; la Caja ve el historial.
+    del_escribano = (await notario.get(URL, params={"anio": 2026})).json()
+    assert [(f["descripcion"], f["baja_motivo"]) for f in del_escribano] == [("Corregido", None)]
+    del_admin = (await admin.get(URL, params={"anio": 2026})).json()
+    assert len(del_admin) == 2
     eventos = (
         await db_session.scalars(
             select(AuditSecurityLog.event_type).where(

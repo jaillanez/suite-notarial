@@ -10,7 +10,12 @@ from app.common.dates import today_local
 from app.common.deps import SessionDep
 from app.core.errors import ProblemError
 from app.modules.iam.catalog import Perm
-from app.modules.iam.deps import Principal, PrincipalDep, RequestContextDep, require_permissions
+from app.modules.iam.deps import (
+    Principal,
+    RequestContextDep,
+    require_any_permission,
+    require_permissions,
+)
 from app.modules.parametros import feriados, motor, service
 from app.modules.parametros.catalog import (
     CriterioPluralidad,
@@ -256,15 +261,31 @@ def feriado_out(f: Feriado) -> FeriadoOut:
     )
 
 
+# Quien elige una fecha de pago (escribano o personal que reemite) o consulta parámetros.
+CanReadFeriados = Annotated[
+    Principal,
+    Depends(
+        require_any_permission(
+            Perm.PARAMETERS_READ, Perm.DDJJ_CREATE_OWN, Perm.BOLETAS_READ_OWN, Perm.DDJJ_APPROVE
+        )
+    ),
+]
+
+
 @router.get("/feriados", response_model=list[FeriadoOut])
 async def listar_feriados(
     session: SessionDep,
-    _: PrincipalDep,
+    principal: CanReadFeriados,
     anio: Annotated[int, Query(ge=2000, le=2100)],
 ) -> list[FeriadoOut]:
-    """Feriados nacionales del año (también los dados de baja). Los usa cualquier usuario para
-    proponer el próximo día hábil; cargarlos es del personal de la Caja."""
-    return [feriado_out(f) for f in await feriados.listar(session, anio)]
+    """Feriados nacionales del año, para proponer el próximo día hábil. Quien gestiona
+    parámetros ve también los dados de baja y su motivo; el resto, solo los vigentes."""
+    items = await feriados.listar(session, anio)
+    if Perm.PARAMETERS_READ.value not in principal.permissions:
+        return [
+            feriado_out(f).model_copy(update={"baja_motivo": None}) for f in items if f.is_active
+        ]
+    return [feriado_out(f) for f in items]
 
 
 @router.post("/feriados", response_model=FeriadoOut, status_code=201)
