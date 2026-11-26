@@ -740,8 +740,8 @@ function ActosPanel({
       {hayIncluidos && criterio && (
         <div className="border-b border-line px-5 py-4 sm:px-6">
           <Alert tone="info" title="Escrituras con varios actos y las mismas partes">
-            {CRITERIO_PLURALIDAD[criterio].ayuda} Los demás actos se declaran igual y figuran como
-            incluidos en el acto principal.
+            {CRITERIO_PLURALIDAD[criterio].ayuda} Los actos de más que se cargaron antes figuran
+            como incluidos en el acto principal; ya no se cargan renglones nuevos así.
           </Alert>
         </div>
       )}

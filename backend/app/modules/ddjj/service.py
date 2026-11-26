@@ -763,6 +763,16 @@ async def agregar_acto(
         mismas_partes = original.mismas_partes
     else:
         mismas_partes = True
+    # Con las mismas partes aporta un solo acto de la escritura: se declara solo ese, no los
+    # demás (Caja, 26/11/2026, pregunta D). Corregir un renglón que ya estaba así se permite,
+    # para no trabar lo cargado antes de esta regla.
+    ya_estaba = mismo_lugar and original is not None and original.mismas_partes
+    if hermanos and mismas_partes and not ya_estaba:
+        raise _conflict(
+            f"La escritura N° {data.numero_escritura} ya tiene un acto declarado. Con las mismas "
+            "partes se declara uno solo, el de mayor valor: si es este, corregí el renglón ya "
+            "cargado. Si intervienen otras partes, indicalo en el acto."
+        )
     for hermano in hermanos:
         # Las mismas partes valen para toda la escritura: la respuesta del último acto rige, y
         # cada acto que cambia queda en la auditoría con su valor anterior.

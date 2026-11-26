@@ -189,7 +189,7 @@ export function ActoCampos({
           <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
             {(
               [
-                [true, 'Sí, las mismas partes', 'Se aplica la regla de pluralidad de actos.'],
+                [true, 'Sí, las mismas partes', 'Se declara un solo acto: el de mayor valor.'],
                 [false, 'No, hay partes distintas', 'Cada acto aporta lo suyo.'],
               ] as const
             ).map(([valor, titulo, detalle]) => (
@@ -217,6 +217,12 @@ export function ActoCampos({
             Obligatorio. Vale para toda la escritura: si ya cargaste otros actos con este número, se
             actualizan.
           </p>
+          {form.mismas_partes === true && (
+            <p className="mt-1.5 text-sm font-medium text-warning-700">
+              Con las mismas partes no se carga otro renglón. Si este acto es el de mayor valor,
+              corregí el que ya cargaste con este número.
+            </p>
+          )}
         </fieldset>
       )}
       <Field
