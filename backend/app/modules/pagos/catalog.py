@@ -82,3 +82,34 @@ MEDIOS_SPV: dict[int, str] = {
     4: "QR MODO",
     5: "Debin",
 }
+
+
+class TipoAjuste(StrEnum):
+    """Un crédito baja lo que se debe de la boleta; un débito lo sube (Caja, 26/11/2026)."""
+
+    CREDITO = "CREDITO"
+    DEBITO = "DEBITO"
+
+
+class ConceptoAjuste(StrEnum):
+    # Centavos de más o de menos al pagar.
+    REDONDEO = "REDONDEO"
+    # Rebaja de intereses resuelta por la Junta.
+    REDUCCION_INTERESES = "REDUCCION_INTERESES"
+    # Condonación total o parcial resuelta por la Junta (p. ej., escribano que no trabaja).
+    CONDONACION = "CONDONACION"
+    # Diferencia de una DDJJ rectificativa.
+    DIFERENCIA_RECTIFICATIVA = "DIFERENCIA_RECTIFICATIVA"
+    OTRO = "OTRO"
+
+
+# Los que dispone la Junta llevan la resolución que los respalda.
+CONCEPTOS_CON_RESOLUCION: frozenset[ConceptoAjuste] = frozenset(
+    {ConceptoAjuste.REDUCCION_INTERESES, ConceptoAjuste.CONDONACION}
+)
+
+
+class EstadoAjuste(StrEnum):
+    PROPUESTO = "PROPUESTO"
+    APROBADO = "APROBADO"
+    RECHAZADO = "RECHAZADO"

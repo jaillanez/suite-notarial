@@ -35,6 +35,7 @@ from app.modules.iam.deps import (
 from app.modules.iam.router_auth import MailerDep
 from app.modules.padron.models import RegistroNotarial
 from app.modules.pagos import (
+    ajustes,
     mails,
     mercadopago,
     mercadopago_service,
@@ -93,6 +94,7 @@ async def comprobante_out(
     assert boleta is not None and registro is not None  # noqa: S101 - FK RESTRICT
     conciliacion = await service.conciliacion_de(session, c.id)
     ver_personal = service.es_tesoreria(principal) or ddjj_service.ve_todo(principal)
+    a_pagar = await ajustes.saldo(session, boleta)
     ids = {c.subido_por_user_id} | ({conciliacion.operador_user_id} if conciliacion else set())
     emails = await parametros.user_emails(session, ids)
     operador = None
@@ -110,6 +112,7 @@ async def comprobante_out(
             estado=boleta.estado,
             fecha_pago=boleta.fecha_pago,
             total_a_pagar=boleta.total_a_pagar,
+            saldo_a_pagar=a_pagar,
         ),
         origen=OrigenComprobante(c.origen),
         nombre_original=c.nombre_original,
@@ -119,7 +122,7 @@ async def comprobante_out(
         banco_origen=c.banco_origen,
         numero_operacion=c.numero_operacion,
         importe_declarado=c.importe_declarado,
-        diferencia=c.importe_declarado - boleta.total_a_pagar,
+        diferencia=c.importe_declarado - a_pagar,
         estado=EstadoComprobante(c.estado),
         motivo_rechazo=c.motivo_rechazo,
         subido_por=emails.get(c.subido_por_user_id),
