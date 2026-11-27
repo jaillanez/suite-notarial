@@ -31,7 +31,7 @@ export function AdjuntarComprobanteDialog({
   const [form, setForm] = useState({
     fecha_transferencia: hoy,
     numero_operacion: '',
-    importe_declarado: formatDecimal(boleta.total_a_pagar),
+    importe_declarado: formatDecimal(boleta.saldo_a_pagar),
     banco_origen: '',
   })
   // Lo que el navegador ya sabe del archivo; el servidor vuelve a validar por contenido.
@@ -72,7 +72,7 @@ export function AdjuntarComprobanteDialog({
         onClose()
       }}
       title={`Comprobante de la boleta N° ${String(boleta.numero)}`}
-      description={`Total ${formatMoney(boleta.total_a_pagar)}, a pagar hasta el ${formatDate(boleta.fecha_pago)}.`}
+      description={`${boleta.saldo_a_pagar === boleta.total_a_pagar ? 'Total' : 'Queda pagar, con los ajustes de la Caja,'} ${formatMoney(boleta.saldo_a_pagar)}, hasta el ${formatDate(boleta.fecha_pago)}.`}
       footer={
         <>
           <Button onClick={onClose}>Cancelar</Button>

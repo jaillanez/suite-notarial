@@ -104,7 +104,7 @@ export function ConciliacionPage() {
                       <span className="text-ink">Declarado {formatMoney(c.importe_declarado)}</span>
                       <span className="text-ink-muted">
                         {' '}
-                        · Boleta {formatMoney(c.boleta.total_a_pagar)}
+                        · Boleta {formatMoney(c.boleta.saldo_a_pagar)}
                       </span>
                       {!coincide && (
                         <span className="font-semibold text-warning-700">

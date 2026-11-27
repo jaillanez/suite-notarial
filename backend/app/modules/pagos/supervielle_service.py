@@ -42,7 +42,7 @@ from app.modules.ddjj.catalog import EstadoBoleta
 from app.modules.ddjj.models import Boleta
 from app.modules.iam.deps import Principal
 from app.modules.padron.models import RegistroNotarial
-from app.modules.pagos import comisiones_spv, supervielle
+from app.modules.pagos import ajustes, comisiones_spv, supervielle
 from app.modules.pagos.catalog import (
     ESTADOS_SPV_EFECTIVOS,
     ESTADOS_SPV_REVERTIDOS,
@@ -89,15 +89,18 @@ CUOTA_POR_TESORERIA = "pagale la cuota a Tesorería"
 # --------------------------------------------------------------------------- inicio del pago
 
 
-async def _vigente(session: AsyncSession, boleta: Boleta) -> PagoSupervielle | None:
-    """Deuda ya publicada de la boleta que todavía se puede pagar con su link."""
+async def _vigente(
+    session: AsyncSession, boleta: Boleta, a_pagar: Decimal
+) -> PagoSupervielle | None:
+    """Deuda ya publicada de la boleta, por lo que hoy queda pagar, que todavía se puede pagar
+    con su link (un ajuste aprobado después de publicarla obliga a publicar otra)."""
     return await session.scalar(
         select(PagoSupervielle)
         .where(
             PagoSupervielle.boleta_id == boleta.id,
             PagoSupervielle.estado == EstadoPagoSPV.CREADO.value,
             PagoSupervielle.vence == boleta.fecha_pago,
-            PagoSupervielle.importe_boleta == boleta.total_a_pagar,
+            PagoSupervielle.importe_boleta == a_pagar,
         )
         .order_by(PagoSupervielle.created_at.desc())
         .limit(1)
@@ -144,7 +147,9 @@ async def iniciar(
         )
     # Una boleta que vence hoy también se publica: el banco acepta un vencimiento el mismo día
     # de la publicación (confirmado el 19/11/2026).
-    vigente = await _vigente(session, boleta)
+    # Lo que queda de la boleta con los créditos y débitos aprobados.
+    a_pagar = await ajustes.saldo(session, boleta)
+    vigente = await _vigente(session, boleta, a_pagar)
     if vigente is not None:
         await session.commit()
         return vigente
@@ -159,7 +164,7 @@ async def iniciar(
     try:
         publicacion = await supervielle.publicar(
             id_publicacion=id_publicacion,
-            importe=boleta.total_a_pagar,
+            importe=a_pagar,
             vence=boleta.fecha_pago,
             nombre=f"Registro Notarial N° {registro.numero_registro}",
             descripcion=f"Caja Notarial · Boleta N° {boleta.numero} · Aportes {periodo}",
@@ -173,7 +178,7 @@ async def iniciar(
         id_publicacion=id_publicacion,
         hash=publicacion.hash,
         link_pago=publicacion.link_pago,
-        importe_boleta=boleta.total_a_pagar,
+        importe_boleta=a_pagar,
         vence=boleta.fecha_pago,
         iniciado_por_user_id=principal.user.id,
         estado=EstadoPagoSPV.CREADO.value,
@@ -189,7 +194,7 @@ async def iniciar(
             "id_publicacion": id_publicacion,
             "hash": publicacion.hash,
             "boleta": boleta.numero,
-            "importe": f"{boleta.total_a_pagar:.2f}",
+            "importe": f"{a_pagar:.2f}",
             "vence": boleta.fecha_pago.isoformat(),
         },
     )
@@ -449,7 +454,8 @@ async def _comprobante_para_tesoreria(
         # Sin importe informado no se arma el comprobante (nunca se supone el total).
         await _sin_comprobante(session, ctx, pago, {**detalles, "motivo": "importe no informado"})
         return
-    coincide = pago.importe == boleta.total_a_pagar
+    a_pagar = await ajustes.saldo(session, boleta)
+    coincide = pago.importe == a_pagar
     en_revision = await session.scalar(
         select(Comprobante.id).where(
             Comprobante.boleta_id == boleta.id, Comprobante.estado == PENDIENTE
@@ -489,7 +495,7 @@ async def _comprobante_para_tesoreria(
             **detalles,
             "comprobante_id": str(comprobante.id),
             "importe_coincide": coincide,
-            "total_boleta": format_pesos(boleta.total_a_pagar),
+            "total_boleta": format_pesos(await ajustes.saldo(session, boleta)),
         },
     )
 

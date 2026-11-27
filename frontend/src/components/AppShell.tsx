@@ -39,6 +39,11 @@ const NAV: NavItem[] = [
     permission: ['escribanos:read', 'ddjj:create_own'],
   },
   { to: '/tesoreria/conciliacion', label: 'Conciliación', permission: 'comprobantes:verify' },
+  {
+    to: '/ajustes',
+    label: 'Créditos y débitos',
+    permission: ['ajustes:proponer', 'ajustes:aprobar'],
+  },
   { to: '/padron/escribanos', label: 'Escribanos', permission: 'escribanos:read' },
   { to: '/padron/registros', label: 'Registros', permission: 'escribanos:read' },
   { to: '/parametros', label: 'Parámetros', permission: 'parameters:read' },

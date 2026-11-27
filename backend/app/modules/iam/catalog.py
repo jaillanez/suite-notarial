@@ -42,6 +42,8 @@ class Perm(StrEnum):
     PUNTOS_READ_OWN = "puntos:read_own"
     PUNTOS_READ_ALL = "puntos:read_all"
     PUNTOS_MANAGE = "puntos:manage"
+    AJUSTES_PROPONER = "ajustes:proponer"
+    AJUSTES_APROBAR = "ajustes:aprobar"
 
 
 PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
@@ -77,6 +79,8 @@ PERMISSION_DESCRIPTIONS: dict[Perm, str] = {
     Perm.PUNTOS_READ_OWN: "Consultar el informe propio de aportes y puntos (Ley 7231)",
     Perm.PUNTOS_READ_ALL: "Consultar aportes y puntos (Ley 7231) de cualquier afiliado",
     Perm.PUNTOS_MANAGE: "Cargar la planilla de puntos y vincular puntos con escribanos del padrón",
+    Perm.AJUSTES_PROPONER: "Proponer créditos y débitos sobre boletas, con justificación",
+    Perm.AJUSTES_APROBAR: "Aprobar o rechazar créditos y débitos propuestos por otra persona",
 }
 
 
@@ -130,6 +134,7 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.MIGRACION_CONFORMAR,
                 Perm.PUNTOS_READ_ALL,
                 Perm.PUNTOS_MANAGE,
+                Perm.AJUSTES_PROPONER,
             }
         ),
     ),
@@ -151,6 +156,7 @@ ROLES: tuple[RoleDef, ...] = (
                 Perm.MIGRACION_READ,
                 Perm.MIGRACION_CONFORMAR,
                 Perm.PUNTOS_READ_ALL,
+                Perm.AJUSTES_PROPONER,
             }
         ),
     ),
@@ -219,5 +225,7 @@ SENSITIVE_PERMISSIONS: frozenset[Perm] = frozenset(
         Perm.MIGRACION_EJECUTAR,
         Perm.PUNTOS_READ_ALL,
         Perm.PUNTOS_MANAGE,
+        Perm.AJUSTES_PROPONER,
+        Perm.AJUSTES_APROBAR,
     }
 )

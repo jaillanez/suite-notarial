@@ -23,6 +23,7 @@ from app.modules.ddjj.models import Acto, Boleta, DeclaracionJurada, VademecumAc
 from app.modules.ddjj.schemas import (
     ActoIn,
     ActoOut,
+    AjusteBoletaOut,
     AporteActoOut,
     BajaActo,
     BoletaOut,
@@ -68,8 +69,15 @@ from app.modules.iam.deps import (
 )
 from app.modules.padron.catalog import Cargo
 from app.modules.padron.models import Escribano, RegistroNotarial
+from app.modules.pagos import ajustes as pagos_ajustes
 from app.modules.pagos import service as pagos_service
-from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
+from app.modules.pagos.catalog import (
+    ConceptoAjuste,
+    EstadoAjuste,
+    EstadoComprobante,
+    OrigenComprobante,
+    TipoAjuste,
+)
 from app.modules.pagos.models import Comprobante
 from app.modules.parametros import service as parametros
 from app.modules.parametros.catalog import EstadoVigencia, PeriodoTasa
@@ -247,6 +255,18 @@ async def boleta_out(session: SessionDep, principal: Principal, b: Boleta) -> Bo
             for t in b.tramos_mora
         ],
         total_a_pagar=b.total_a_pagar,
+        saldo_a_pagar=await pagos_ajustes.saldo(session, b),
+        ajustes=[
+            AjusteBoletaOut(
+                tipo=TipoAjuste(a.tipo),
+                concepto=ConceptoAjuste(a.concepto),
+                importe=a.importe,
+                resolucion=a.resolucion,
+                resuelto_en=a.resuelto_en,
+            )
+            for a in await pagos_ajustes.de_la_boleta(session, b.id)
+            if a.estado == EstadoAjuste.APROBADO.value
+        ],
         created_at=b.created_at,
         emitida_por=await _actor(session, principal, b.emitida_por_user_id),
         anulada_en=b.anulada_en,

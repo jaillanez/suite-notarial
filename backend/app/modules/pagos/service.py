@@ -28,7 +28,7 @@ from app.modules.ddjj.models import Boleta
 from app.modules.iam.catalog import Perm
 from app.modules.iam.deps import Principal
 from app.modules.iam.models import User
-from app.modules.pagos import storage, supervielle_service
+from app.modules.pagos import ajustes, storage, supervielle_service
 from app.modules.pagos.catalog import (
     ESTADOS_MP_REVERTIDOS,
     ESTADOS_SPV_REVERTIDOS,
@@ -288,14 +288,17 @@ async def aprobar(
             "El medio de pago informó que este pago se revirtió (devuelto, reversado o anulado): "
             "no se puede aprobar. Rechazá el comprobante indicando el motivo."
         )
-    # TODO(negocio): pagos parciales o con diferencia (a favor o en contra). Por ahora solo se
-    # aprueba un pago por el total exacto; cualquier otro caso se rechaza con motivo.
-    if data.importe_confirmado != boleta.total_a_pagar:
+    # Se aprueba un pago por lo que queda de la boleta: el total con los créditos y débitos
+    # aprobados. Si pagó de más o de menos, la diferencia se cuadra con un ajuste (26/11/2026).
+    a_pagar = await ajustes.saldo(session, boleta)
+    if data.importe_confirmado != a_pagar:
         acreditado = format_pesos(data.importe_confirmado)
-        total = format_pesos(boleta.total_a_pagar)
+        total = format_pesos(a_pagar)
         raise _invalid(
-            f"El importe acreditado ({acreditado}) no coincide con el total de la boleta "
-            f"({total}). Si el pago es distinto, rechazá el comprobante indicando la diferencia."
+            f"El importe acreditado ({acreditado}) no coincide con lo que hay que pagar de la "
+            f"boleta ({total}). Si la diferencia es de centavos o la resolvió la Junta, proponé "
+            "un crédito o un débito y aprobá el pago cuando esté aprobado; si no, rechazá el "
+            "comprobante indicando la diferencia."
         )
     if data.fecha_acreditacion > today_local():
         raise _invalid("La fecha de acreditación no puede ser futura.")

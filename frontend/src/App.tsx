@@ -47,6 +47,7 @@ import { EscribanoPage } from './features/padron/EscribanoPage'
 import { EscribanosPage } from './features/padron/EscribanosPage'
 import { RegistroPage } from './features/padron/RegistroPage'
 import { RegistrosPage } from './features/padron/RegistrosPage'
+import { AjustesPage } from './features/ajustes/AjustesPage'
 import { ConceptoPage } from './features/parametros/ConceptoPage'
 import { FeriadosPage } from './features/parametros/FeriadosPage'
 import { ParametrosPage } from './features/parametros/ParametrosPage'
@@ -124,6 +125,7 @@ const router = createBrowserRouter([
           {
             element: <RequirePermission permission="parameters:read" />,
             children: [
+              { path: '/ajustes', element: <AjustesPage /> },
               { path: '/parametros', element: <ParametrosPage /> },
               { path: '/parametros/vademecum', element: <VademecumPage /> },
               { path: '/parametros/feriados', element: <FeriadosPage /> },

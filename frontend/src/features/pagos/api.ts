@@ -15,6 +15,8 @@ export interface Comprobante {
     estado: string
     fecha_pago: string
     total_a_pagar: string
+    /** El total con los créditos y débitos aprobados: lo que Tesorería confirma. */
+    saldo_a_pagar: string
   }
   origen: OrigenComprobante
   /** Vacíos en un comprobante de Mercado Pago (no tiene archivo). */

@@ -36,7 +36,7 @@ from app.modules.ddjj.catalog import EstadoBoleta
 from app.modules.ddjj.models import Boleta
 from app.modules.iam.deps import Principal
 from app.modules.padron.models import RegistroNotarial
-from app.modules.pagos import mercadopago
+from app.modules.pagos import ajustes, mercadopago
 from app.modules.pagos.catalog import (
     ESTADOS_MP_REVERTIDOS,
     EstadoComprobante,
@@ -101,6 +101,8 @@ async def iniciar(
         )
     registro = await session.get(RegistroNotarial, boleta.registro_id)
     assert registro is not None  # noqa: S101 - FK RESTRICT
+    # Lo que queda de la boleta con los créditos y débitos aprobados.
+    a_pagar = await ajustes.saldo(session, boleta)
     pago_id = uuid.uuid4()
     settings = get_settings()
     https = settings.public_web_base.startswith("https://")
@@ -112,7 +114,7 @@ async def iniciar(
                 f"Boleta N° {boleta.numero} · Registro N° {registro.numero_registro} · "
                 f"{boleta.periodo[5:7]}/{boleta.periodo[:4]}"
             ),
-            importe=boleta.total_a_pagar,
+            importe=a_pagar,
             vence=vence,
             url_retorno=_url_web(f"/pagos/mercadopago/retorno?pago={pago_id}"),
             # Mercado Pago solo notifica a una dirección pública con HTTPS.
@@ -128,7 +130,7 @@ async def iniciar(
             id=pago_id,
             boleta_id=boleta.id,
             preference_id=preferencia.id,
-            importe_boleta=boleta.total_a_pagar,
+            importe_boleta=a_pagar,
             iniciado_por_user_id=principal.user.id,
             estado=EstadoPagoMP.CREADO.value,
         )
@@ -141,7 +143,7 @@ async def iniciar(
         details={
             "pago_mp_id": str(pago_id),
             "boleta": boleta.numero,
-            "importe": f"{boleta.total_a_pagar:.2f}",
+            "importe": f"{a_pagar:.2f}",
             "vence": vence.isoformat(),
         },
     )
@@ -352,9 +354,8 @@ async def _comprobante_para_tesoreria(
     pago: mercadopago.Pago,
     detalles: dict[str, object],
 ) -> None:
-    coincide = (
-        pago.moneda == "ARS" and pago.importe is not None and pago.importe == boleta.total_a_pagar
-    )
+    a_pagar = await ajustes.saldo(session, boleta)
+    coincide = pago.moneda == "ARS" and pago.importe is not None and pago.importe == a_pagar
     en_revision = await session.scalar(
         select(Comprobante.id).where(
             Comprobante.boleta_id == boleta.id, Comprobante.estado == PENDIENTE
@@ -380,7 +381,7 @@ async def _comprobante_para_tesoreria(
         fecha_transferencia=pago.fecha_aprobacion or today_local(),
         banco_origen="Mercado Pago",
         numero_operacion=pago.id,
-        importe_declarado=pago.importe if pago.importe is not None else boleta.total_a_pagar,
+        importe_declarado=pago.importe if pago.importe is not None else a_pagar,
         estado=PENDIENTE,
         subido_por_user_id=item.iniciado_por_user_id,
     )
@@ -398,7 +399,7 @@ async def _comprobante_para_tesoreria(
             **detalles,
             "comprobante_id": str(comprobante.id),
             "importe_coincide": coincide,
-            "total_boleta": format_pesos(boleta.total_a_pagar),
+            "total_boleta": format_pesos(await ajustes.saldo(session, boleta)),
         },
     )
 

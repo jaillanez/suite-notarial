@@ -18,7 +18,12 @@ from app.modules.ddjj.catalog import (
 )
 from app.modules.ddjj.protocolo import NivelControl
 from app.modules.padron.catalog import Cargo
-from app.modules.pagos.catalog import EstadoComprobante, OrigenComprobante
+from app.modules.pagos.catalog import (
+    ConceptoAjuste,
+    EstadoComprobante,
+    OrigenComprobante,
+    TipoAjuste,
+)
 from app.modules.parametros.catalog import CriterioPluralidad, EstadoVigencia, PeriodoTasa
 from app.modules.parametros.schemas import Money, Rate
 
@@ -247,6 +252,16 @@ class ComprobanteResumen(BaseModel):
     created_at: datetime
 
 
+class AjusteBoletaOut(BaseModel):
+    """Crédito o débito aprobado de la boleta (la justificación interna queda en la Caja)."""
+
+    tipo: TipoAjuste
+    concepto: ConceptoAjuste
+    importe: Money
+    resolucion: str | None
+    resuelto_en: datetime | None
+
+
 class BoletaOut(BaseModel):
     id: uuid.UUID
     numero: int
@@ -271,6 +286,9 @@ class BoletaOut(BaseModel):
     interes_mora: Money
     tramos_mora: list[TramoMoraOut]
     total_a_pagar: Money
+    # Lo que queda pagar: el total con los créditos y débitos aprobados (Caja, 26/11/2026).
+    saldo_a_pagar: Money
+    ajustes: list[AjusteBoletaOut] = []
     created_at: datetime
     emitida_por: str | None
     anulada_en: datetime | None

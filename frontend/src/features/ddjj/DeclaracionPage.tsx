@@ -981,6 +981,22 @@ function BoletaItem({
           <StatusIndicator tone={estado.tone} label={estado.label} />
         </div>
       </div>
+      {boleta.ajustes.length > 0 && boleta.estado !== 'ANULADA' && (
+        <p className="mt-2 text-sm text-ink-muted">
+          {boleta.estado === 'PENDIENTE' ? 'Queda pagar ' : 'Saldo con ajustes: '}
+          <span className="font-semibold text-ink tabular-nums">
+            {formatMoney(boleta.saldo_a_pagar)}
+          </span>
+          {', con '}
+          {boleta.ajustes
+            .map(
+              (a) =>
+                `${a.tipo === 'CREDITO' ? 'un crédito' : 'un débito'} de ${formatMoney(a.importe)}${a.resolucion ? ` (${a.resolucion})` : ''}`,
+            )
+            .join(' y ')}{' '}
+          de la Caja.
+        </p>
+      )}
       <div className="mt-3 empty:hidden">
         <EstadoComprobanteBoleta boleta={boleta} />
       </div>

@@ -370,3 +370,62 @@ class PagoSupervielle(UUIDMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Ajuste(UUIDMixin, Base):
+    """Crédito o débito sobre una boleta, con su justificación (Caja, 26/11/2026).
+
+    Sirve para cuadrar la cuenta: centavos de más o de menos, rebaja de intereses, condonación
+    de la Junta o la diferencia de una rectificativa. Lo propone una persona y lo aprueba otra
+    (cuatro ojos, en la base). No se borra ni se edita: un error se corrige con otro ajuste en
+    sentido contrario. Solo cuentan los APROBADOS."""
+
+    __tablename__ = "pagos_ajustes"
+    __table_args__ = (
+        CheckConstraint("tipo IN ('CREDITO', 'DEBITO')", name="tipo_valido"),
+        CheckConstraint(
+            "concepto IN ('REDONDEO', 'REDUCCION_INTERESES', 'CONDONACION', "
+            "'DIFERENCIA_RECTIFICATIVA', 'OTRO')",
+            name="concepto_valido",
+        ),
+        CheckConstraint("estado IN ('PROPUESTO', 'APROBADO', 'RECHAZADO')", name="estado_valido"),
+        CheckConstraint("importe > 0", name="importe_positivo"),
+        CheckConstraint("char_length(justificacion) >= 10", name="justificacion"),
+        CheckConstraint(
+            "concepto NOT IN ('REDUCCION_INTERESES', 'CONDONACION') OR resolucion IS NOT NULL",
+            name="resolucion_junta",
+        ),
+        CheckConstraint(
+            "(estado = 'PROPUESTO') = (resuelto_por_user_id IS NULL AND resuelto_en IS NULL)",
+            name="resolucion_completa",
+        ),
+        CheckConstraint(
+            "resuelto_por_user_id IS NULL OR resuelto_por_user_id <> propuesto_por_user_id",
+            name="cuatro_ojos",
+        ),
+        CheckConstraint(
+            "(estado = 'RECHAZADO') = (motivo_rechazo IS NOT NULL)", name="motivo_rechazo"
+        ),
+        Index("ix_pagos_ajustes_boleta_estado", "boleta_id", "estado"),
+    )
+
+    boleta_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ddjj_boletas.id", ondelete="RESTRICT"), nullable=False
+    )
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False)
+    concepto: Mapped[str] = mapped_column(String(30), nullable=False)
+    importe: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    justificacion: Mapped[str] = mapped_column(Text, nullable=False)
+    resolucion: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    estado: Mapped[str] = mapped_column(String(10), nullable=False, server_default="PROPUESTO")
+    propuesto_por_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+    propuesto_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    resuelto_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    resuelto_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    motivo_rechazo: Mapped[str | None] = mapped_column(Text, nullable=True)

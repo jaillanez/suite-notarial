@@ -17,6 +17,8 @@ const NOTARIO = {
 const REGISTRO = { id: 'r1', numero_registro: 51, nombre_fantasia: null, departamento: 'Capital' }
 
 const BOLETA: ddjjApi.Boleta = {
+  saldo_a_pagar: '1184699.06',
+  ajustes: [],
   id: 'b1',
   numero: 1069,
   codigo_verificacion: 'ABCDEFGH23456723',

@@ -9,11 +9,14 @@ from pydantic import BaseModel, PlainSerializer, StringConstraints
 
 from app.modules.ddjj.schemas import RegistroResumen
 from app.modules.pagos.catalog import (
+    ConceptoAjuste,
+    EstadoAjuste,
     EstadoComprobante,
     EstadoPagoMP,
     EstadoPagoSPV,
     OrigenComprobante,
     ResultadoConciliacion,
+    TipoAjuste,
 )
 from app.modules.parametros.schemas import Money
 
@@ -63,6 +66,8 @@ class BoletaResumen(BaseModel):
     estado: str
     fecha_pago: date
     total_a_pagar: Money
+    # El total con los créditos y débitos aprobados: lo que se confirma (Caja, 26/11/2026).
+    saldo_a_pagar: Money
 
 
 class CuotaCobradaOut(BaseModel):
@@ -171,3 +176,45 @@ class InicioPagoSPVOut(BaseModel):
 
 
 ComprobanteOut.model_rebuild()
+
+
+# --------------------------------------------------------------------------- ajustes
+
+Justificacion = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=10, max_length=2000)
+]
+Resolucion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=120)]
+
+
+class AjusteIn(BaseModel):
+    boleta_id: uuid.UUID
+    tipo: TipoAjuste
+    concepto: ConceptoAjuste
+    importe: Money
+    justificacion: Justificacion
+    resolucion: Resolucion | None = None
+
+
+class AjusteOut(BaseModel):
+    id: uuid.UUID
+    boleta_id: uuid.UUID
+    boleta_numero: int
+    tipo: TipoAjuste
+    concepto: ConceptoAjuste
+    importe: Money
+    justificacion: str
+    resolucion: str | None
+    estado: EstadoAjuste
+    propuesto_por: str | None
+    propuesto_en: datetime
+    resuelto_por: str | None
+    resuelto_en: datetime | None
+    motivo_rechazo: str | None
+    # Quien consulta puede aprobarlo o rechazarlo (tiene el permiso y no lo propuso).
+    puede_resolver: bool
+
+
+class BoletaParaAjustarOut(BaseModel):
+    boleta: BoletaResumen
+    escribano: str | None
+    ajustes: list[AjusteOut]

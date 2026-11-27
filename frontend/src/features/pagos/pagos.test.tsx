@@ -29,6 +29,7 @@ const COMPROBANTE: apiModule.Comprobante = {
     estado: 'PENDIENTE',
     fecha_pago: '2026-10-23',
     total_a_pagar: '1081699.06',
+    saldo_a_pagar: '1081699.06',
   },
   origen: 'ARCHIVO',
   mercado_pago: null,

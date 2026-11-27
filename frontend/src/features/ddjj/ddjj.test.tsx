@@ -97,6 +97,8 @@ function liquidacion(
 
 const BOLETA: apiModule.Boleta = {
   ...IMPORTES,
+  saldo_a_pagar: IMPORTES.total_a_pagar,
+  ajustes: [],
   id: 'b1',
   numero: 1069,
   codigo_verificacion: 'ABCDEFGH23456723',
@@ -495,6 +497,7 @@ describe('ficha de la DDJJ', () => {
       codigo_verificacion: 'ZYXWVUTS23456723',
       escribano: ADSCRIPTO,
       total_a_pagar: '182932.00',
+      saldo_a_pagar: '182932.00',
     }
     const otro: apiModule.Boleta = {
       ...BOLETA,

@@ -297,7 +297,8 @@ async def test_reglas_en_la_base(
     await adjuntar(notario, boleta)
 
     with pytest.raises(
-        DBAPIError, match=r"conciliación aprobada|no se modifica|permission denied|no permitido"
+        DBAPIError,
+        match=r"ajustes aprobados cubre el total|no se modifica|permission denied|no permitido",
     ):
         async with db_session.begin_nested():
             await db_session.execute(text(statement))
