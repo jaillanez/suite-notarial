@@ -130,7 +130,16 @@ async def test_planilla_y_pdf_de_un_borrador_y_de_la_presentada(
     assert (general["escrituras_desde"], general["escrituras_hasta"]) == (33, 34)
     assert borrador["totales"]["total"] == "67211.00"
 
-    pdf = await notario.get(f"{url}/pdf")
+    # Lo que paga cada escribano, estimado a la fecha de pago elegida (Caja, 27/11/2026).
+    assert borrador["fecha_pago"] is not None
+    con_fecha = (await notario.get(f"{url}/planilla", params={"fecha_pago": "2026-10-23"})).json()
+    assert con_fecha["fecha_pago"] == "2026-10-23"
+    por_cargo = {li["cargo"]: li for li in con_fecha["liquidacion"]}
+    assert set(por_cargo) == {"TITULAR", "ADSCRIPTO"}
+    assert por_cargo["TITULAR"]["total_protocolos"] == "57289.00"
+    assert por_cargo["TITULAR"]["estado"] is None
+
+    pdf = await notario.get(f"{url}/pdf", params={"fecha_pago": "2026-10-23"})
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content.startswith(b"%PDF")
@@ -143,6 +152,12 @@ async def test_planilla_y_pdf_de_un_borrador_y_de_la_presentada(
     assert final["fecha_presentacion"] is not None
     # Lo congelado al presentar es lo mismo que mostraba el borrador.
     assert final["totales"] == borrador["totales"]
+    # Presentada: las boletas emitidas, con su estado y lo que queda pagar.
+    assert final["fecha_pago"] is None
+    emitidas = {li["cargo"]: li for li in final["liquidacion"]}
+    assert emitidas["TITULAR"]["total_a_pagar"] == por_cargo["TITULAR"]["total_a_pagar"]
+    assert emitidas["TITULAR"]["estado"] == "PENDIENTE"
+    assert emitidas["TITULAR"]["saldo_a_pagar"] == emitidas["TITULAR"]["total_a_pagar"]
 
 
 async def test_la_planilla_respeta_el_acceso(

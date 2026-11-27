@@ -23,6 +23,7 @@ import secrets
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from http import HTTPStatus
@@ -1784,6 +1785,25 @@ async def datos_pdf(session: AsyncSession, boleta: Boleta) -> DatosBoleta:
 
 
 @dataclass(frozen=True)
+class LiquidacionPlanilla:
+    """Lo que paga un escribano por la DDJJ (Caja, 27/11/2026: la vista previa lo muestra
+    mientras no está pagada). En un borrador es una estimación a la fecha de pago elegida."""
+
+    escribano: str
+    cargo: str
+    total_protocolos: Decimal
+    aporte_minimo: Decimal
+    excedente: Decimal
+    aporte_medico: Decimal
+    dias_mora: int
+    interes_mora: Decimal
+    total_a_pagar: Decimal
+    # Solo en una presentada: estado de la boleta y lo que queda pagar con los ajustes.
+    estado: str | None = None
+    saldo_a_pagar: Decimal | None = None
+
+
+@dataclass(frozen=True)
 class DatosPlanilla:
     """La DDJJ con el formato de la planilla de la Caja: cabecera y protocolos."""
 
@@ -1796,22 +1816,50 @@ class DatosPlanilla:
     sin_aportes: str | None
     # Rectificada: número de la rectificativa que la reemplazó.
     reemplazada_por: int | None = None
+    # Lo que paga cada escribano, y a qué fecha de pago se calculó (borrador).
+    liquidacion: list[LiquidacionPlanilla] = dc_field(default_factory=list)
+    fecha_pago: date | None = None
 
 
 async def datos_planilla(
-    session: AsyncSession, principal: Principal, ddjj_id: uuid.UUID
+    session: AsyncSession,
+    principal: Principal,
+    ddjj_id: uuid.UUID,
+    fecha_pago: date | None = None,
 ) -> DatosPlanilla:
-    """Presentada: con los aportes congelados. Borrador: con la vista previa de hoy (puede
-    cambiar hasta presentar)."""
+    """Presentada: con los aportes congelados y las boletas emitidas. Borrador: con la vista
+    previa a la fecha de pago (por defecto, el próximo día hábil; puede cambiar hasta
+    presentar)."""
     ddjj = await get_declaracion(session, principal, ddjj_id)
     registro = await session.get(RegistroNotarial, ddjj.registro_id)
     assert registro is not None  # noqa: S101 - FK RESTRICT
     actos = await list_actos(session, ddjj.id)
     aportes: list[AporteActo] | None
     sin_aportes = None
+    liquidacion: list[LiquidacionPlanilla] = []
     if ddjj.estado == EstadoDDJJ.BORRADOR.value:
+        if fecha_pago is None:
+            hoy = today_local()
+            fecha_pago = feriados.proximo_habil(
+                hoy, await feriados.feriados_entre(session, hoy, hoy + timedelta(days=31))
+            )
         try:
-            aportes = list((await preliquidar(session, ddjj, actos, today_local())).aportes)
+            pre = await preliquidar(session, ddjj, actos, fecha_pago)
+            aportes = list(pre.aportes)
+            liquidacion = [
+                LiquidacionPlanilla(
+                    escribano=nombre_escribano(pre.escribanos[b.obligado.escribano_id]),
+                    cargo=b.obligado.cargo,
+                    total_protocolos=b.liquidacion.total_protocolos,
+                    aporte_minimo=b.liquidacion.aporte_minimo,
+                    excedente=b.liquidacion.excedente,
+                    aporte_medico=b.liquidacion.aporte_medico,
+                    dias_mora=b.liquidacion.dias_mora,
+                    interes_mora=b.liquidacion.interes_mora,
+                    total_a_pagar=b.liquidacion.total_a_pagar,
+                )
+                for b in pre.boletas
+            ]
         except ProblemError as exc:
             aportes, sin_aportes = None, exc.detail
     else:
@@ -1853,6 +1901,8 @@ async def datos_planilla(
             DeclaracionJurada.estado != EstadoDDJJ.BORRADOR.value,
         )
     )
+    if ddjj.estado == EstadoDDJJ.PRESENTADA.value:
+        liquidacion = await _liquidacion_emitida(session, ddjj)
     return DatosPlanilla(
         ddjj=ddjj,
         registro=registro,
@@ -1860,4 +1910,58 @@ async def datos_planilla(
         planilla=planilla_mod.armar(renglones, aportes),
         sin_aportes=sin_aportes,
         reemplazada_por=reemplazo,
+        liquidacion=liquidacion,
+        fecha_pago=fecha_pago if ddjj.estado == EstadoDDJJ.BORRADOR.value else None,
+    )
+
+
+async def _liquidacion_emitida(
+    session: AsyncSession, ddjj: DeclaracionJurada
+) -> list[LiquidacionPlanilla]:
+    """Las boletas vigentes de una DDJJ presentada (las anuladas por reemisión no cuentan)."""
+    from app.modules.pagos import ajustes as pagos_ajustes
+
+    boletas = list(
+        (
+            await session.scalars(
+                select(Boleta)
+                .where(Boleta.ddjj_id == ddjj.id, Boleta.estado != EstadoBoleta.ANULADA.value)
+                .order_by(Boleta.numero)
+            )
+        ).all()
+    )
+    saldos = await pagos_ajustes.saldos(session, boletas)
+    escribanos = {
+        e.id: e
+        for e in (
+            await session.scalars(
+                select(Escribano).where(
+                    Escribano.id.in_({b.escribano_id for b in boletas if b.escribano_id})
+                )
+            )
+        ).unique()
+    }
+    orden = {Cargo.TITULAR.value: 0, Cargo.ADSCRIPTO.value: 1}
+    return sorted(
+        (
+            LiquidacionPlanilla(
+                escribano=(
+                    nombre_escribano(escribanos[b.escribano_id])
+                    if b.escribano_id in escribanos
+                    else "Registro"
+                ),
+                cargo=b.cargo or Cargo.TITULAR.value,
+                total_protocolos=b.total_protocolos,
+                aporte_minimo=b.aporte_minimo,
+                excedente=b.excedente,
+                aporte_medico=b.aporte_medico,
+                dias_mora=b.dias_mora,
+                interes_mora=b.interes_mora,
+                total_a_pagar=b.total_a_pagar,
+                estado=b.estado,
+                saldo_a_pagar=saldos[b.id],
+            )
+            for b in boletas
+        ),
+        key=lambda li: orden.get(li.cargo, 2),
     )

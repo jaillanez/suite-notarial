@@ -129,6 +129,7 @@ async def render_pdf_async(settings: Settings, datos: DatosBoleta) -> bytes:
 
 CARGO_PLANILLA = {"TITULAR": "Titular", "ADSCRIPTO": "Adscripto", "SUPLENTE_INTERINO": "A cargo"}
 PROTOCOLO_PLANILLA = {"GENERAL": "Protocolo General", "AUXILIAR": "Protocolo Auxiliar"}
+ESTADO_BOLETA_PLANILLA = {"PENDIENTE": "Pendiente", "PAGADA": "Pagada", "ANULADA": "Anulada"}
 MOTIVO_EXENCION_PLANILLA = {
     "CONVENIO_IPV": "Emanada del IPV",
     "ACTA_SUBSANATORIA": "Acta subsanatoria",
@@ -152,6 +153,8 @@ def render_planilla_html(settings: Settings, datos: PlanillaOut) -> str:
         cargo=CARGO_PLANILLA,
         protocolo=PROTOCOLO_PLANILLA,
         motivo_exencion=MOTIVO_EXENCION_PLANILLA,
+        estado_boleta=ESTADO_BOLETA_PLANILLA,
+        fecha_pago=datos.fecha_pago.strftime("%d/%m/%Y") if datos.fecha_pago else None,
     )
 
 
