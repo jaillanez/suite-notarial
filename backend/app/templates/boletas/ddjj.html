@@ -175,6 +175,47 @@
   <p class="detalle" style="margin-top: 4pt">El aporte mínimo mensual y el aporte médico asistencial se liquidan en la boleta de cada escribano.</p>
 </section>
 
+{% if d.liquidacion %}
+<section style="break-inside: avoid">
+  <h2>Lo que paga cada escribano</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Escribano</th>
+        <th>Cargo</th>
+        <th class="der">Protocolos</th>
+        <th class="der">Aporte mínimo</th>
+        <th class="der">Excedente</th>
+        <th class="der">Aporte médico</th>
+        <th class="der">Intereses</th>
+        <th class="der">Total</th>
+        {% if not d.fecha_pago %}<th>Boleta</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for li in d.liquidacion %}
+      <tr>
+        <td>{{ li.escribano }}</td>
+        <td>{{ cargo[li.cargo] }}</td>
+        <td class="der num">{{ li.total_protocolos|pesos }}</td>
+        <td class="der num">{{ li.aporte_minimo|pesos }}</td>
+        <td class="der num">{{ li.excedente|pesos }}</td>
+        <td class="der num">{{ li.aporte_medico|pesos }}</td>
+        <td class="der num">{{ li.interes_mora|pesos }}{% if li.dias_mora %} ({{ li.dias_mora }} d){% endif %}</td>
+        <td class="der num"><strong>{{ li.total_a_pagar|pesos }}</strong></td>
+        {% if not d.fecha_pago %}
+        <td>{{ estado_boleta[li.estado] }}{% if li.estado == "PENDIENTE" and li.saldo_a_pagar != li.total_a_pagar %} · queda pagar {{ li.saldo_a_pagar|pesos }}{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if d.fecha_pago %}
+  <p class="detalle" style="margin-top: 4pt">Estimación para pagar el {{ fecha_pago }}, con los parámetros vigentes. Los importes quedan fijos al presentar la declaración.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 <div class="juramento">
   <p><strong>Declaro bajo juramento que los datos expresados son completos y correctos, responsabilizándome por cualquier error u omisión.</strong></p>
   {% if presentada %}<p class="detalle">Presentada en la Suite Notarial de la {{ caja.CAJA_NOMBRE }} el {{ presentada }}{% if d.estado == "RECTIFICADA" %}; luego rectificada: no tiene validez{% endif %}.</p>{% endif %}

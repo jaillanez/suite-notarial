@@ -40,6 +40,7 @@ from app.modules.ddjj.schemas import (
     HuecoOut,
     LiquidacionBoletaOut,
     LiquidacionOut,
+    LiquidacionPlanillaOut,
     Periodo,
     PlanillaOut,
     PresentarIn,
@@ -704,22 +705,55 @@ def planilla_out(datos: service.DatosPlanilla) -> PlanillaOut:
         totales=totales_out(datos.planilla.totales),
         sin_aportes=datos.sin_aportes,
         reemplazada_por=datos.reemplazada_por,
+        liquidacion=[
+            LiquidacionPlanillaOut(
+                escribano=li.escribano,
+                cargo=Cargo(li.cargo),
+                total_protocolos=li.total_protocolos,
+                aporte_minimo=li.aporte_minimo,
+                excedente=li.excedente,
+                aporte_medico=li.aporte_medico,
+                dias_mora=li.dias_mora,
+                interes_mora=li.interes_mora,
+                total_a_pagar=li.total_a_pagar,
+                estado=EstadoBoleta(li.estado) if li.estado else None,
+                saldo_a_pagar=li.saldo_a_pagar,
+            )
+            for li in datos.liquidacion
+        ],
+        fecha_pago=datos.fecha_pago,
     )
 
 
+# Borrador: fecha de pago de la estimación (la que eligió el escribano en pantalla).
+FechaPagoVistaPrevia = Annotated[
+    date | None, Query(description="Solo borradores. Por defecto, el próximo día hábil")
+]
+
+
 @router.get("/declaraciones/{ddjj_id}/planilla", response_model=PlanillaOut)
-async def ver_planilla(ddjj_id: uuid.UUID, principal: CanRead, session: SessionDep) -> PlanillaOut:
-    """La DDJJ con el formato de la planilla de la Caja: protocolos general y auxiliar y resumen.
-    Es la misma información que imprime el PDF."""
-    return planilla_out(await service.datos_planilla(session, principal, ddjj_id))
+async def ver_planilla(
+    ddjj_id: uuid.UUID,
+    principal: CanRead,
+    session: SessionDep,
+    fecha_pago: FechaPagoVistaPrevia = None,
+) -> PlanillaOut:
+    """La DDJJ con el formato de la planilla de la Caja: protocolos general y auxiliar, resumen
+    y lo que paga cada escribano. Es la misma información que imprime el PDF."""
+    return planilla_out(await service.datos_planilla(session, principal, ddjj_id, fecha_pago))
 
 
 @router.get("/declaraciones/{ddjj_id}/pdf")
 async def planilla_pdf(
-    ddjj_id: uuid.UUID, principal: CanRead, session: SessionDep, settings: SettingsDep
+    ddjj_id: uuid.UUID,
+    principal: CanRead,
+    session: SessionDep,
+    settings: SettingsDep,
+    fecha_pago: FechaPagoVistaPrevia = None,
 ) -> Response:
-    """La Declaración Jurada de Aportes en PDF, con el formato de la planilla y el juramento."""
-    datos = await service.datos_planilla(session, principal, ddjj_id)
+    """La Declaración Jurada de Aportes en PDF, con el formato de la planilla, lo que paga cada
+    escribano y el juramento."""
+    datos = await service.datos_planilla(session, principal, ddjj_id, fecha_pago)
     contenido = await pdf.render_planilla_pdf_async(settings, planilla_out(datos))
     nombre = f"ddjj-registro-{datos.registro.numero_registro}-{datos.ddjj.periodo}"
     if datos.ddjj.numero_rectificativa:

@@ -464,6 +464,22 @@ class RenglonPlanillaOut(BaseModel):
     incluido_en_otro: bool
 
 
+class LiquidacionPlanillaOut(BaseModel):
+    """Lo que paga cada escribano (en un borrador, estimado a la fecha de pago)."""
+
+    escribano: str
+    cargo: Cargo
+    total_protocolos: Money
+    aporte_minimo: Money
+    excedente: Money
+    aporte_medico: Money
+    dias_mora: int
+    interes_mora: Money
+    total_a_pagar: Money
+    estado: EstadoBoleta | None
+    saldo_a_pagar: Money | None
+
+
 class TotalesPlanillaOut(BaseModel):
     aporte_variable: Money
     aporte_fijo: Money
@@ -498,6 +514,9 @@ class PlanillaOut(BaseModel):
     protocolos: list[ProtocoloPlanillaOut]
     totales: TotalesPlanillaOut
     # Si los aportes del borrador no se pudieron calcular, por qué (los renglones van igual).
+    # Lo que paga cada escribano y, en un borrador, la fecha de pago de la estimación.
+    liquidacion: list[LiquidacionPlanillaOut] = []
+    fecha_pago: date | None = None
     sin_aportes: str | None
     # Rectificada: número de la rectificativa que la reemplazó (esta ya no vale).
     reemplazada_por: int | None
