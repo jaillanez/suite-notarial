@@ -39,7 +39,7 @@ from app.modules.padron.models import (
     RegistroNotarial,
 )
 from app.modules.pagos.models import Comprobante, Conciliacion, PagoMercadoPago, PagoSupervielle
-from app.modules.parametros.models import Concepto, Vigencia
+from app.modules.parametros.models import Concepto, Feriado, Vigencia
 from app.modules.prestamos.models import CuotaPrestamo, DocumentoPrestamo, Linea, Prestamo
 from app.modules.previsional.models import Ejercicio, PuntosAfiliado
 
@@ -65,6 +65,7 @@ __all__ = [
     "DocumentoVersion",
     "Ejercicio",
     "Escribano",
+    "Feriado",
     "HistorialEstado",
     "HistoricoActo",
     "HistoricoBoleta",

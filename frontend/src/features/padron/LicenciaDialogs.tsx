@@ -60,7 +60,7 @@ export function PrimeraEscrituraCampos({
       <Field
         label="Registro"
         inputMode="numeric"
-        hint="Número de registro, aunque hoy esté cerrado."
+        hint="Número de registro, aunque hoy esté vacante."
         className="[&_input]:tabular-nums"
         {...bind('registro')}
       />

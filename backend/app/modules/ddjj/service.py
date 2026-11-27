@@ -89,6 +89,7 @@ from app.modules.padron.catalog import AporteACargo, Cargo
 from app.modules.padron.models import Adscripcion, Escribano, RegistroNotarial
 from app.modules.pagos.catalog import EstadoComprobante
 from app.modules.pagos.models import Comprobante
+from app.modules.parametros import feriados
 from app.modules.parametros import service as parametros
 from app.modules.parametros.models import Vigencia
 from app.modules.parametros.motor import VigenciaSnapshot
@@ -150,7 +151,8 @@ async def _escribano_de(session: AsyncSession, user: User) -> Escribano | None:
 async def _registros_del_escribano(
     session: AsyncSession, user: User, *, solo_vigentes: bool, solo_titular: bool = False
 ) -> set[uuid.UUID]:
-    """Registros del escribano. `solo_titular`: los que puede operar (titular, o a cargo)."""
+    """Registros del escribano. `solo_titular`: los que puede operar, solo como titular: el
+    escribano a cargo autoriza actos, pero no carga ni presenta la DDJJ (Caja, 26/11/2026)."""
     escribano = await _escribano_de(session, user)
     if escribano is None:
         return set()
@@ -160,6 +162,8 @@ async def _registros_del_escribano(
     if solo_titular:
         stmt = stmt.where(Adscripcion.cargo == Cargo.TITULAR.value)
     propios = set((await session.scalars(stmt)).all())
+    if solo_titular:
+        return propios
     # A cargo de otro registro: solo entre las fechas de la designación aprobada.
     designaciones = await a_cargo.del_escribano(
         session, escribano.id, en=today_local() if solo_vigentes else None
@@ -197,7 +201,7 @@ async def puede_reemitir(
 
 
 async def puede_operar(session: AsyncSession, principal: Principal, registro_id: uuid.UUID) -> bool:
-    """Cargar, presentar y rectificar: el titular vigente o el escribano a cargo."""
+    """Cargar, presentar y rectificar: solo el titular vigente del registro."""
     if Perm.DDJJ_CREATE_OWN.value not in principal.permissions:
         return False
     return registro_id in await _registros_del_escribano(
@@ -296,8 +300,7 @@ async def _exigir_operacion(
     if not await puede_operar(session, principal, registro_id):
         raise ProblemError(
             HTTPStatus.FORBIDDEN,
-            "Solo el titular del registro (o quien designó a cargo) carga, presenta y "
-            "rectifica su declaración jurada.",
+            "Solo el titular del registro carga, presenta y rectifica su declaración jurada.",
         )
 
 
@@ -731,10 +734,7 @@ async def agregar_acto(
         await session.flush()
     if len(await list_actos(session, ddjj.id)) >= MAX_ACTOS_POR_DDJJ:
         raise _conflict(f"Una declaración jurada admite hasta {MAX_ACTOS_POR_DDJJ} actos.")
-    vista = protocolo.Vista(
-        await actos_del_anio(session, ddjj.registro_id, anio),
-        await _visible(session, principal, ddjj.registro_id),
-    )
+    vista = await _vista(session, principal, ddjj.registro_id, anio)
     candidato = protocolo.Candidato(
         data.tipo_protocolo.value,
         data.numero_escritura,
@@ -761,6 +761,16 @@ async def agregar_acto(
         mismas_partes = original.mismas_partes
     else:
         mismas_partes = True
+    # Con las mismas partes aporta un solo acto de la escritura: se declara solo ese, no los
+    # demás (Caja, 26/11/2026, pregunta D). Corregir un renglón que ya estaba así se permite,
+    # para no trabar lo cargado antes de esta regla.
+    ya_estaba = mismo_lugar and original is not None and original.mismas_partes
+    if hermanos and mismas_partes and not ya_estaba:
+        raise _conflict(
+            f"La escritura N° {data.numero_escritura} ya tiene un acto declarado. Con las mismas "
+            "partes se declara uno solo, el de mayor valor: si es este, corregí el renglón ya "
+            "cargado. Si intervienen otras partes, indicalo en el acto."
+        )
     for hermano in hermanos:
         # Las mismas partes valen para toda la escritura: la respuesta del último acto rige, y
         # cada acto que cambia queda en la auditoría con su valor anterior.
@@ -951,14 +961,22 @@ async def _visible(
     return lambda periodo: any(a.incluye(registro_id, periodo) for a in alcance)
 
 
+async def _vista(
+    session: AsyncSession, principal: Principal, registro_id: uuid.UUID, anio: int
+) -> protocolo.Vista:
+    """El protocolo del año que la persona puede consultar, con los feriados nacionales."""
+    return protocolo.Vista(
+        await actos_del_anio(session, registro_id, anio),
+        await _visible(session, principal, registro_id),
+        await feriados.feriados_entre(session, date(anio, 1, 1), date(anio, 12, 31)),
+    )
+
+
 async def controles_ddjj(
     session: AsyncSession, principal: Principal, ddjj: DeclaracionJurada, actos: list[Acto]
 ) -> tuple[dict[uuid.UUID, list[protocolo.Control]], list[protocolo.Hueco]]:
     """Controles de cada acto de la DDJJ y números salteados del año del período."""
-    vista = protocolo.Vista(
-        await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4])),
-        await _visible(session, principal, ddjj.registro_id),
-    )
+    vista = await _vista(session, principal, ddjj.registro_id, int(ddjj.periodo[:4]))
     por_acto: dict[uuid.UUID, list[protocolo.Control]] = {}
     if await session.scalar(
         select(DeclaracionJurada.id).where(DeclaracionJurada.rectifica_a_id == ddjj.id).limit(1)
@@ -989,10 +1007,7 @@ async def _exigir_numeracion_sin_repetidos(
     seguridad al presentar, además del control al cargar)."""
     anio = int(ddjj.periodo[:4])
     await _bloquear_protocolo(session, ddjj.registro_id, anio)
-    vista = protocolo.Vista(
-        await actos_del_anio(session, ddjj.registro_id, anio),
-        await _visible(session, principal, ddjj.registro_id),
-    )
+    vista = await _vista(session, principal, ddjj.registro_id, anio)
     for a in actos:
         candidato = protocolo.Candidato(
             a.tipo_protocolo,
@@ -1019,10 +1034,7 @@ async def verificar_acto(
     desde, hasta = rango_periodo(ddjj.periodo)
     fecha = data.fecha_acto if data.fecha_acto and desde <= data.fecha_acto <= hasta else None
     controles = protocolo.revisar(
-        protocolo.Vista(
-            await actos_del_anio(session, ddjj.registro_id, int(ddjj.periodo[:4])),
-            await _visible(session, principal, ddjj.registro_id),
-        ),
+        await _vista(session, principal, ddjj.registro_id, int(ddjj.periodo[:4])),
         protocolo.Candidato(
             data.tipo_protocolo.value,
             data.numero_escritura,
@@ -1189,7 +1201,7 @@ async def preliquidar(
     )
 
 
-def _validar_fecha_pago(fecha_pago: date) -> None:
+async def _validar_fecha_pago(session: AsyncSession, fecha_pago: date) -> None:
     hoy = today_local()
     if fecha_pago < hoy:
         raise _invalid("La fecha de pago no puede ser anterior a hoy.")
@@ -1197,8 +1209,14 @@ def _validar_fecha_pago(fecha_pago: date) -> None:
         raise _invalid(
             f"La fecha de pago puede ser, como máximo, dentro de {MAX_DIAS_VALIDEZ_BOLETA} días."
         )
-    # Los pagos se acreditan en días hábiles: la boleta no se calcula para sábado o domingo
-    # (Caja, 25/11/2026). TODO(negocio): feriados, cuando la Caja pase su calendario.
+    # Los pagos se acreditan en días hábiles: la boleta no se calcula para sábado, domingo
+    # (Caja, 25/11/2026) ni feriado nacional (26/11/2026).
+    feriado = await feriados.feriado_en(session, fecha_pago)
+    if feriado is not None:
+        raise _invalid(
+            f"El {fecha_pago:%d/%m/%Y} es feriado nacional ({feriado.descripcion}): los pagos se "
+            "acreditan en días hábiles. Elegí otro día."
+        )
     if fecha_pago.weekday() >= protocolo.SABADO:
         dia = "sábado" if fecha_pago.weekday() == protocolo.SABADO else "domingo"
         raise _invalid(
@@ -1403,7 +1421,7 @@ async def presentar(
     _exigir_borrador(ddjj)
     if ddjj.periodo >= periodo_de(today_local()):
         raise _invalid("La declaración jurada se presenta una vez terminado el período.")
-    _validar_fecha_pago(data.fecha_pago)
+    await _validar_fecha_pago(session, data.fecha_pago)
     actos = await list_actos(session, ddjj.id)
     await _exigir_numeracion_sin_repetidos(session, principal, ddjj, actos)
     pre = await preliquidar(session, ddjj, actos, data.fecha_pago)
@@ -1505,7 +1523,7 @@ async def emitir_boleta(
             HTTPStatus.FORBIDDEN,
             "Cada escribano reemite su propia boleta: la de otro la reemite él o la Caja.",
         )
-    _validar_fecha_pago(fecha_pago)
+    await _validar_fecha_pago(session, fecha_pago)
     suyas = _de(escribano_id)
     base = await session.scalar(
         select(Boleta).where(Boleta.ddjj_id == ddjj.id, suyas).order_by(Boleta.numero).limit(1)

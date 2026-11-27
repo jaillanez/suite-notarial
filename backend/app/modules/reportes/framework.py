@@ -9,7 +9,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from http import HTTPStatus
 from typing import Any
@@ -67,7 +67,7 @@ class Columna:
         return self.tipo in (Tipo.MONEDA, Tipo.DECIMAL)
 
     def cuantizar(self, valor: Any) -> Decimal:
-        return Decimal(valor).quantize(Decimal(1).scaleb(-self.decimales))
+        return Decimal(valor).quantize(Decimal(1).scaleb(-self.decimales), rounding=ROUND_HALF_UP)
 
 
 @dataclass(frozen=True)

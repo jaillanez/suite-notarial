@@ -73,7 +73,7 @@ export function ACargoPage() {
         description={
           personal
             ? 'Quién queda a cargo de cada registro y entre qué fechas. Las designa el titular de cada registro desde su autogestión; acá se consultan.'
-            : 'Designá a otro escribano para que quede a cargo de tu registro entre dos fechas (licencia, viaje). En esos días carga y presenta las declaraciones juradas del registro.'
+            : 'Designá a otro escribano para que quede a cargo de tu registro entre dos fechas (licencia, viaje). En esos días autoriza actos en tu registro; la declaración jurada la cargás y presentás vos.'
         }
       />
       <div className="space-y-6">
@@ -635,7 +635,7 @@ function DesignarDialog({
           <div>
             <Field
               label="Escribano que queda a cargo"
-              hint="Apellido del escribano. Puede ser de cualquier departamento."
+              hint="Apellido del titular de otro registro. Puede ser de cualquier departamento."
               value={busqueda}
               trailing={<Search aria-hidden="true" className="size-4 text-ink-subtle" />}
               onChange={(e) => {
@@ -646,7 +646,7 @@ function DesignarDialog({
               <ul className="mt-2 divide-y divide-line rounded-control border border-line">
                 {candidatos.data.length === 0 && (
                   <li className="px-4 py-3 text-sm text-ink-muted">
-                    Ningún escribano activo coincide.
+                    Ningún titular de otro registro coincide.
                   </li>
                 )}
                 {candidatos.data.map((c) => (

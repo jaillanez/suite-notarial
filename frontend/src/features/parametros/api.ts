@@ -126,3 +126,26 @@ export async function simular(data: {
 }): Promise<Simulacion> {
   return (await api.post<Simulacion>(`${P}/simulacion`, data)).data
 }
+
+// --------------------------------------------------------------------------- feriados
+
+/** Feriado nacional: no se autorizan escrituras ni se acreditan pagos (Caja, 26/11/2026). */
+export interface Feriado {
+  id: string
+  fecha: string
+  descripcion: string
+  is_active: boolean
+  baja_motivo: string | null
+}
+
+export async function fetchFeriados(anio: number): Promise<Feriado[]> {
+  return (await api.get<Feriado[]>(`${P}/feriados`, { params: { anio } })).data
+}
+
+export async function crearFeriado(data: { fecha: string; descripcion: string }): Promise<Feriado> {
+  return (await api.post<Feriado>(`${P}/feriados`, data)).data
+}
+
+export async function bajaFeriado(id: string, motivo: string): Promise<Feriado> {
+  return (await api.post<Feriado>(`${P}/feriados/${id}/baja`, { motivo })).data
+}

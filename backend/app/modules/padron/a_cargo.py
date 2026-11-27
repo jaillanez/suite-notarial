@@ -371,12 +371,19 @@ async def registros_gestionables(
 async def elegibles(
     session: AsyncSession, query: str, limite: int = 20
 ) -> list[tuple[Escribano, Adscripcion | None]]:
-    """Escribanos con matrícula activa que coinciden por apellido, nombre o matrícula."""
+    """Titulares vigentes de un registro, con matrícula activa, que coinciden por apellido,
+    nombre o matrícula: solo ellos pueden quedar a cargo de otro registro (Caja, 26/11/2026)."""
     texto = query.strip()
+    titulares = select(Adscripcion.escribano_id).where(
+        Adscripcion.cargo == Cargo.TITULAR.value, Adscripcion.is_current.is_(True)
+    )
     stmt = (
         select(Escribano)
         .join(Persona, Persona.id == Escribano.persona_id)
-        .where(Escribano.estado_matricula == EstadoMatricula.ACTIVO.value)
+        .where(
+            Escribano.estado_matricula == EstadoMatricula.ACTIVO.value,
+            Escribano.id.in_(titulares),
+        )
     )
     if texto.isdigit():
         stmt = stmt.where(Escribano.matricula_numero == int(texto))
@@ -471,6 +478,22 @@ async def designar(
     )
     if titular is not None:
         raise _invalid("El titular no puede quedar a cargo de su propio registro.")
+    # Solo queda a cargo el titular de otro registro, durante toda la designación (Caja,
+    # 26/11/2026; reemplaza «también un adscripto» del 19/11 y «cualquier activo» del 27/10).
+    titular_de_otro = await session.scalar(
+        select(Adscripcion.id).where(
+            Adscripcion.escribano_id == escribano.id,
+            Adscripcion.registro_id != registro.id,
+            Adscripcion.cargo == Cargo.TITULAR.value,
+            or_(Adscripcion.fecha_desde.is_(None), Adscripcion.fecha_desde <= data.fecha_desde),
+            or_(Adscripcion.fecha_hasta.is_(None), Adscripcion.fecha_hasta >= data.fecha_hasta),
+        )
+    )
+    if titular_de_otro is None:
+        raise _invalid(
+            "Solo puede quedar a cargo el titular de otro registro, durante todas las fechas de "
+            "la designación."
+        )
     choque = await session.scalar(
         select(DesignacionACargo)
         .where(

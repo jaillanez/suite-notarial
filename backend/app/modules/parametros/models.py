@@ -147,3 +147,31 @@ class Vigencia(UUIDMixin, Base):
 
     # INNER JOIN: el concepto es obligatorio, y permite SELECT ... FOR UPDATE de la vigencia.
     concepto: Mapped[Concepto] = relationship(lazy="joined", innerjoin=True)
+
+
+class Feriado(UUIDMixin, TimestampMixin, Base):
+    """Feriado nacional: ese día no se autorizan escrituras ni se acreditan pagos (Caja,
+    26/11/2026). Los provinciales no cuentan: los registros pueden autorizar actos. La Caja
+    carga el calendario; no se borra (INM): se da de baja con motivo."""
+
+    __tablename__ = "parametros_feriados"
+    __table_args__ = (
+        Index(
+            "uq_parametros_feriados_fecha_activa",
+            "fecha",
+            unique=True,
+            postgresql_where="is_active",
+        ),
+    )
+
+    fecha: Mapped[date] = mapped_column(Date, nullable=False)
+    descripcion: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=False
+    )
+    baja_por_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_users.id"), nullable=True
+    )
+    baja_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    baja_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

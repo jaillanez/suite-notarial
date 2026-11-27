@@ -13,7 +13,7 @@ from typing import Any
 import pyotp
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -260,7 +260,19 @@ async def test_pluralidad_en_la_liquidacion_y_al_presentar(
     donacion = _del_vademecum(
         escenario, vademecum["DONACION"], 10, acto_multiple=True, mismas_partes=True
     )
+    # Con las mismas partes ya no se carga el segundo renglón (Caja, 26/11/2026).
+    rechazada = await _agregar(notario, ddjj["id"], donacion)
+    assert rechazada.status_code == 409
+    assert "se declara uno solo" in rechazada.json()["detail"]
+    # Lo cargado antes de esa regla sigue liquidándose con el criterio de pluralidad.
+    donacion["mismas_partes"] = False
     assert (await _agregar(notario, ddjj["id"], donacion)).status_code == 201
+    await db_session.execute(
+        update(Acto)
+        .where(Acto.ddjj_id == uuid.UUID(ddjj["id"]), Acto.numero_escritura == 10)
+        .values(mismas_partes=True)
+    )
+    await db_session.commit()
     # Otra escritura con dos ventas entre partes distintas: aporta cada una.
     for _ in range(2):
         otra = _del_vademecum(

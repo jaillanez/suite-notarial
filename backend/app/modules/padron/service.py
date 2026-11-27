@@ -59,6 +59,7 @@ from app.modules.padron.schemas import (
 
 _UNIQUE_MESSAGES = {
     "uq_padron_personas_cuit": "Ya hay una persona registrada con ese CUIT.",
+    "uq_security_users_cuit": "Ya hay una cuenta de usuario con ese CUIT.",
     "uq_padron_escribanos_persona_id": "Esa persona ya figura como escribano.",
     "uq_padron_registros_notariales_numero_registro": "Ese número de registro ya existe.",
     "uq_padron_circunscripciones_nombre": "Ya existe una circunscripción con ese nombre.",
@@ -578,13 +579,24 @@ async def update_escribano(
         await _exigir_matriculacion_antes_de_todo(
             session, escribano, cambios["fecha_matriculacion"]
         )
+    # CUIT y juramento ya cargados se corrigen con motivo (Caja, 26/11/2026).
+    sensibles = [
+        campo
+        for campo, dueno in (("cuit", persona), ("fecha_matriculacion", escribano))
+        if cambios.get(campo) is not None and getattr(dueno, campo) != cambios[campo]
+    ]
+    if sensibles and data.motivo is None:
+        raise ProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "Indicá el motivo: cambiar el CUIT o la fecha de juramento lo requiere.",
+        )
     old = {**_snapshot(persona, PER_FIELDS), **_snapshot(escribano, ESC_FIELDS)}
-    for field, value in data.model_dump(exclude_unset=True, exclude={"persona"}).items():
+    for field, value in data.model_dump(exclude_unset=True, exclude={"persona", "motivo"}).items():
         if field == "fecha_matriculacion" and value is None:
             continue
         setattr(escribano, field, value)
     if data.persona is not None:
-        required = {"tipo_documento", "numero_documento", "apellido", "nombre"}
+        required = {"cuit", "tipo_documento", "numero_documento", "apellido", "nombre"}
         for field, value in data.persona.model_dump(exclude_unset=True).items():
             if value is None and field in required:
                 continue
@@ -596,6 +608,14 @@ async def update_escribano(
     new = {**_snapshot(persona, PER_FIELDS), **_snapshot(escribano, ESC_FIELDS)}
     if old != new:
         changed = sorted(k for k in new if old.get(k) != new[k])
+        if "cuit" in changed and escribano.user_id is not None:
+            # La cuenta de autogestión entra con el CUIT: se corrige junto con el padrón.
+            cuenta = await session.get(User, escribano.user_id)
+            if cuenta is not None and persona.cuit is not None:
+                cuenta.cuit = persona.cuit
+        detalles: dict[str, Any] = {"escribano_id": str(escribano.id)}
+        if data.motivo is not None:
+            detalles["motivo"] = data.motivo
         record_audit(
             session,
             ctx,
@@ -603,7 +623,7 @@ async def update_escribano(
             actor_user_id=actor.id,
             old_value={k: old[k] for k in changed},
             new_value={k: new[k] for k in changed},
-            details={"escribano_id": str(escribano.id)},
+            details=detalles,
         )
         await _commit_unique(session)
     return escribano

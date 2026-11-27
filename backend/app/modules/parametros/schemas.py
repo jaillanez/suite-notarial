@@ -130,3 +130,25 @@ class SimulacionOut(BaseModel):
     resultado: Money
     dias_mora: int | None = None
     detalle: str
+
+
+# --------------------------------------------------------------------------- feriados
+
+
+class FeriadoIn(BaseModel):
+    fecha: date
+    descripcion: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)
+    ]
+
+
+class FeriadoBaja(BaseModel):
+    motivo: Motivo
+
+
+class FeriadoOut(BaseModel):
+    id: uuid.UUID
+    fecha: date
+    descripcion: str
+    is_active: bool
+    baja_motivo: str | None

@@ -87,6 +87,7 @@ class PersonaIn(BaseModel):
 
 
 class PersonaUpdate(BaseModel):
+    cuit: str | None = None
     tipo_documento: TipoDocumento | None = None
     numero_documento: Documento | None = None
     apellido: Nombre | None = None
@@ -95,6 +96,11 @@ class PersonaUpdate(BaseModel):
     email: EmailStr | None = None
     telefono: Telefono | None = None
     domicilio_real: Texto | None = None
+
+    @field_validator("cuit")
+    @classmethod
+    def _v_cuit(cls, value: str | None) -> str | None:
+        return None if value is None else _cuit(value)
 
 
 class PersonaOut(BaseModel):
@@ -252,6 +258,9 @@ class EscribanoUpdate(BaseModel):
     folio: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
     fecha_matriculacion: date | None = None
     persona: PersonaUpdate | None = None
+    # Obligatorio si cambia el CUIT o la fecha de juramento ya cargados (Caja, 26/11/2026):
+    # son los datos que identifican al escribano y queda en la auditoría por qué se corrigieron.
+    motivo: Motivo | None = None
 
 
 class DatosACompletar(BaseModel):

@@ -114,8 +114,9 @@ async def _propio(session: SessionDep, principal: Principal) -> Escribano:
     return escribano
 
 
-def _pdf_response(contenido: bytes, matricula: int | None) -> Response:
-    nombre = f"matricula-{matricula}" if matricula is not None else "matricula-a-completar"
+def _pdf_response(contenido: bytes, documento: str | None) -> Response:
+    # Sin número de matrícula (la Caja no lo usa, 24/11/2026): el archivo lleva el documento.
+    nombre = f"doc-{documento}" if documento else "sin-documento"
     return Response(
         content=contenido,
         media_type="application/pdf",
@@ -143,7 +144,7 @@ async def mis_puntos_pdf(
     escribano = await _propio(session, principal)
     informe = await service.informe(session, escribano)
     contenido = await pdf.render_pdf_async(settings, informe, today_local())
-    return _pdf_response(contenido, escribano.matricula_numero)
+    return _pdf_response(contenido, escribano.persona.numero_documento)
 
 
 @router.get("/escribanos/{escribano_id}/puntos", response_model=InformePuntosOut)
@@ -170,7 +171,7 @@ async def puntos_escribano_pdf(
     escribano = await _escribano_visible(session, principal, ctx, escribano_id)
     informe = await service.informe(session, escribano)
     contenido = await pdf.render_pdf_async(settings, informe, today_local())
-    return _pdf_response(contenido, escribano.matricula_numero)
+    return _pdf_response(contenido, escribano.persona.numero_documento)
 
 
 @router.get("/puntos/sin-vincular", response_model=Page[SinVincularOut])

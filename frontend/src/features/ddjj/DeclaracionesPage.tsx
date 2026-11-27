@@ -86,8 +86,8 @@ function NuevaDeclaracionDialog({ open, onClose }: { open: boolean; onClose: () 
         {problem && <Alert tone="danger">{problem.detail}</Alert>}
         {sinRegistros && (
           <Alert tone="warning">
-            Solo el titular del registro (o quien designó a cargo) carga la declaración jurada. Si
-            es un error, comunicate con la Caja.
+            Solo el titular del registro carga la declaración jurada. Si es un error, comunicate con
+            la Caja.
           </Alert>
         )}
         {registros.isError && <Alert tone="danger">{toProblem(registros.error).detail}</Alert>}
@@ -122,7 +122,7 @@ function NuevaDeclaracionDialog({ open, onClose }: { open: boolean; onClose: () 
 
 export function DeclaracionesPage() {
   const { can } = useSession()
-  // Carga solo el titular del registro o quien designó a cargo; la Caja consulta (24/11/2026).
+  // Carga solo el titular del registro (el a cargo solo autoriza actos); la Caja consulta (26/11/2026).
   const operables = useQuery({
     queryKey: ['ddjj', 'registros'],
     queryFn: fetchRegistrosOperables,

@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.audit import AuditSecurityLog
 from app.modules.padron.models import Escribano, HistorialEstado
+from tests.iam.factories import make_user
 from tests.padron.conftest import Factory, valid_cuit
 
 
@@ -217,3 +219,59 @@ async def test_escribano_role_cannot_read_padron(
     await login(client, user)
 
     assert (await client.get("/api/v1/padron/escribanos")).status_code == 403
+
+
+async def test_cuit_y_juramento_se_corrigen_con_motivo(
+    caja: AsyncClient, escribano: Factory, db_session: AsyncSession
+) -> None:
+    """La Caja corrige el CUIT y la fecha de juramento desde «Editar» (26/11/2026), siempre
+    con motivo, y la cuenta de autogestión sigue entrando con el CUIT nuevo."""
+    created = await escribano()
+    cuenta = await make_user(db_session)
+    fila = await db_session.get(Escribano, uuid.UUID(created["id"]))
+    assert fila is not None
+    fila.user_id = cuenta.id
+    await db_session.commit()
+    url = f"/api/v1/padron/escribanos/{created['id']}"
+    nuevo = valid_cuit("27")
+
+    sin_motivo = await caja.patch(url, json={"persona": {"cuit": nuevo}})
+    assert sin_motivo.status_code == 422
+    juramento_sin_motivo = await caja.patch(url, json={"fecha_matriculacion": "2014-05-02"})
+    assert juramento_sin_motivo.status_code == 422
+
+    ok = await caja.patch(
+        url,
+        json={
+            "persona": {"cuit": nuevo},
+            "fecha_matriculacion": "2014-05-02",
+            "motivo": "CUIT mal cargado en el sistema anterior",
+        },
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["persona"]["cuit"].replace("-", "") == nuevo
+    assert ok.json()["fecha_matriculacion"] == "2014-05-02"
+    await db_session.refresh(cuenta)
+    assert cuenta.cuit == nuevo
+    audit = (
+        await db_session.execute(
+            select(AuditSecurityLog).where(
+                AuditSecurityLog.event_type == "PADRON_ESCRIBANO_UPDATED"
+            )
+        )
+    ).scalar_one()
+    assert audit.new_value is not None and audit.details is not None
+    assert set(audit.new_value) == {"cuit", "fecha_matriculacion"}
+    assert audit.details["motivo"] == "CUIT mal cargado en el sistema anterior"
+
+
+async def test_cuit_repetido_al_corregir_es_conflicto(
+    caja: AsyncClient, escribano: Factory
+) -> None:
+    uno = await escribano()
+    otro = await escribano()
+    r = await caja.patch(
+        f"/api/v1/padron/escribanos/{otro['id']}",
+        json={"persona": {"cuit": uno["persona"]["cuit"]}, "motivo": "Corrección de prueba"},
+    )
+    assert r.status_code == 409
